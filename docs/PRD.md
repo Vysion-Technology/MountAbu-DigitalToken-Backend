@@ -214,14 +214,6 @@ The **Mount Abu E-Token Management System** is a comprehensive digital platform 
 
 #### Use Case 1: New Construction Token Allocation
 
-```
-Zone Types: 
-├── UIT Dense (S1)
-├── UIT Scattered (S2)
-├── ULB Dense (S3)
-└── ULB Scattered (S4)
-```
-
 **Workflow:**
 
 ```mermaid

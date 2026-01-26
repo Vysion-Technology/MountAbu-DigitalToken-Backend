@@ -1582,12 +1582,6 @@ metadata: {
       "NEW_CONSTRUCTION": 98,
       "RENOVATION": 58
     },
-    "byZone": {
-      "UIT_DENSE": 45,
-      "UIT_SCATTERED": 38,
-      "ULB_DENSE": 42,
-      "ULB_SCATTERED": 31
-    },
     "trend": [
       {"date": "2026-01-01", "submitted": 12, "approved": 8, "rejected": 2},
       {"date": "2026-01-02", "submitted": 15, "approved": 10, "rejected": 1}
