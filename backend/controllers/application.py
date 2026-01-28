@@ -14,7 +14,7 @@ router = APIRouter()
 
 
 @router.post("/applications")
-def create_application(
+async def create_application(
     application_create: ApplicationCreate,
     application_service: ApplicationService = Depends(get_application_service),
 ):
@@ -22,7 +22,7 @@ def create_application(
 
 
 @router.get("/applications")
-def get_applications(
+async def get_applications(
     application_service: ApplicationService = Depends(get_application_service),
     user_id: int = Depends(get_current_user_id),
     offset: int = 0,
@@ -32,16 +32,17 @@ def get_applications(
 
 
 @router.post("/applications/{application_id}/document")
-def upload_document(
+async def upload_document(
     application_id: int,
     document: UploadFile,
     application_service: ApplicationService = Depends(get_application_service),
+    user_id: int = Depends(get_current_user_id),
 ):
-    return await application_service.upload_document(application_id, document)
+    return await application_service.upload_document(application_id, document, user_id)
 
 
 @router.delete("/applications/{application_id}/document")
-def delete_document(
+async def delete_document(
     application_id: int,
     application_service: ApplicationService = Depends(get_application_service),
 ):
@@ -49,7 +50,7 @@ def delete_document(
 
 
 @router.get("/applications/{application_id}")
-def get_application(
+async def get_application(
     application_id: int,
     application_service: ApplicationService = Depends(get_application_service),
     user: UserDetails = Depends(get_current_user),
@@ -58,7 +59,7 @@ def get_application(
 
 
 @router.put("/applications/{application_id}/approve")
-def approve_application(
+async def approve_application(
     application_id: int,
     application_service: ApplicationService = Depends(get_application_service),
 ):
@@ -67,24 +68,24 @@ def approve_application(
 
 
 @router.put("/applications/{application_id}/reject")
-def reject_application(application_id: int):
+async def reject_application(application_id: int):
     """This API shall be called by the NODAL OFFICER"""
     pass
 
 
 @router.put("/applications/{application_id}/comment")
-def cancel_application(application_id: int, comment_request: CommentRequest):
+async def cancel_application(application_id: int, comment_request: CommentRequest):
     """This API can be called by the any authority."""
     pass
 
 
 @router.post("/applications/{application_id}/material")
-def approve_material(application_id: int):
+async def approve_material(application_id: int):
     pass
 
 
 @router.delete("/applications/{application_id}")
-def delete_application(
+async def delete_application(
     application_id: int,
     application_service: ApplicationService = Depends(get_application_service),
 ):

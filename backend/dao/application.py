@@ -5,6 +5,8 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 from sqlalchemy import insert, select
+from sqlalchemy.orm import selectinload
+
 
 from backend.database import get_db
 from backend.dbmodels.application import ApplicationComment
@@ -13,7 +15,8 @@ from backend.meta import ApplicationStatus
 from backend.schemas.request.application import ApplicationCreate
 from backend.schemas.response.application import ApplicationResponse
 from backend.schemas.response.meta import SuccessResponse
-from backend.dbmodels.application import Application
+from backend.dbmodels.application import Application, ApplicationDocument
+from backend.meta import ApplicationDocumentType
 
 
 class ApplicationDAO(BaseDAO):
@@ -31,14 +34,25 @@ class ApplicationDAO(BaseDAO):
 
     async def get_application(self, application_id: int) -> ApplicationResponse:
         """Get application."""
-        application = await self.session.get(Application, application_id)
+        stmt = (
+            select(Application)
+            .where(Application.id == application_id)
+            .options(selectinload(Application.documents))
+        )
+        result = await self.session.execute(stmt)
+        application = result.scalar_one_or_none()
+
+        # application = await self.session.get(Application, application_id) # Old method
+        if not application:
+            return None  # Handle outside
+
         return ApplicationResponse.model_validate(application)
 
     async def get_applications(
         self, user_id: Optional[int] = None, offset: int = 0, limit: int = 10
     ) -> list[ApplicationResponse]:
         """Get applications."""
-        query = select(Application)
+        query = select(Application).options(selectinload(Application.documents))
         if user_id:
             query = query.where(Application.user_id == user_id)
 
@@ -75,6 +89,27 @@ class ApplicationDAO(BaseDAO):
         if not application:
             raise HTTPException(status_code=404, detail="Application not found")
         await self.session.delete(application)
+        await self.session.commit()
+        return SuccessResponse()
+
+    async def add_document(
+        self,
+        application_id: int,
+        document_path: str,
+        document_type: ApplicationDocumentType,
+        user_id: int,
+        document_name: Optional[str] = None,
+    ) -> SuccessResponse:
+        """Add document record."""
+        await self.session.execute(
+            insert(ApplicationDocument).values(
+                application_id=application_id,
+                document_path=document_path,
+                document_type=document_type,
+                document_by=user_id,
+                document_name=document_name,
+            )
+        )
         await self.session.commit()
         return SuccessResponse()
 

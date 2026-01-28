@@ -13,9 +13,9 @@ class ActiveUserOTP(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     mobile: Mapped[str] = mapped_column(String, index=True)
     otp: Mapped[str] = mapped_column(String, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     valid_till: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.now() + timedelta(minutes=60)
+        DateTime, default=lambda: datetime.now() + timedelta(minutes=60)
     )
 
 
@@ -26,8 +26,6 @@ class User(Base):
         Enum(UserRole), index=True, default=UserRole.CITIZEN
     )
     name: Mapped[str] = mapped_column(String, index=True)
-    mobile: Mapped[str] = mapped_column(
-        String, index=True, min_length=10, max_length=10
-    )
+    mobile: Mapped[str] = mapped_column(String(10), index=True)
     username: Mapped[Optional[str]] = mapped_column(String, index=True)
     password: Mapped[Optional[str]] = mapped_column(String, index=True)

@@ -4,4 +4,4 @@ from backend.meta import UserRole
 
 class UserDetails(BaseModel):
     role: UserRole
-    user_id: int = Field(..., description="User ID", default=-1)
+    user_id: int = Field(default=-1, description="User ID")

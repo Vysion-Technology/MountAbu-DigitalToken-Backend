@@ -20,18 +20,23 @@ class Material(Base):
 class Application(Base):
     __tablename__ = "applications"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    user_id: Mapped[str] = mapped_column(String, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     status: Mapped[ApplicationStatus] = mapped_column(
         Enum(ApplicationStatus), index=True, default=ApplicationStatus.PENDING
     )
     type: Mapped[ApplicationType] = mapped_column(
         Enum(ApplicationType), index=True, default=ApplicationType.NEW
     )
-    num_stages: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, max=5)
+    num_stages: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    documents: Mapped[list["ApplicationDocument"]] = relationship(
+        "ApplicationDocument", back_populates="application"
+    )
 
 
 class ApplicationMaterial(Base):
     __tablename__ = "application_materials"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     application_id: Mapped[int] = mapped_column(
         ForeignKey("applications.id"),
         index=True,
@@ -42,6 +47,7 @@ class ApplicationMaterial(Base):
 
 class ApplicationComment(Base):
     __tablename__ = "application_comments"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     application_id: Mapped[int] = mapped_column(
         ForeignKey("applications.id"),
         index=True,
@@ -54,6 +60,7 @@ class ApplicationComment(Base):
 
 class ApplicationDocument(Base):
     __tablename__ = "application_documents"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     application_id: Mapped[int] = mapped_column(
         ForeignKey("applications.id"),
         index=True,
@@ -65,10 +72,14 @@ class ApplicationDocument(Base):
     document_path: Mapped[str] = mapped_column(String, nullable=False)
     document_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     documenter: Mapped[User] = relationship("User")
+    application: Mapped["Application"] = relationship(
+        "Application", back_populates="documents"
+    )
 
 
 class ApprovedApplicationPhase(Base):
     __tablename__ = "application_phases"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     application_id: Mapped[int] = mapped_column(
         ForeignKey("applications.id"),
         index=True,
@@ -82,6 +93,7 @@ class ApprovedApplicationPhase(Base):
 
 class ApplicationPhaseMaterial(Base):
     __tablename__ = "application_phase_materials"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     application_id: Mapped[int] = mapped_column(
         ForeignKey("applications.id"),
         index=True,
@@ -93,6 +105,7 @@ class ApplicationPhaseMaterial(Base):
 
 class ApplicationApproval(Base):
     __tablename__ = "application_approvals"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     application_id: Mapped[int] = mapped_column(
         ForeignKey("applications.id"),
         index=True,

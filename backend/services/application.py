@@ -8,6 +8,8 @@ from backend.dao.application import get_application_dao
 from backend.dao.application import ApplicationDAO
 from backend.services.base import BaseService
 from backend.schemas.request.application import ApplicationCreate
+from backend.services.storage import get_storage_service
+from backend.meta import ApplicationDocumentType
 
 
 class ApplicationService(BaseService):
@@ -32,8 +34,26 @@ class ApplicationService(BaseService):
         """..."""
         return await self.dao.delete_application(application_id)
 
-    async def upload_document(self, application_id: int, document: UploadFile):
-        """..."""
+    async def upload_document(
+        self, application_id: int, document: UploadFile, user_id: int
+    ):
+        """Upload and save document."""
+        storage = get_storage_service()
+        if not storage:
+            # Handle error appropriately
+            raise Exception("Storage service unavailable")
+
+        file_path = f"applications/{application_id}/{document.filename}"
+        path = await storage.upload_file(document, file_path)
+
+        await self.dao.add_document(
+            application_id=application_id,
+            document_path=path,
+            document_type=ApplicationDocumentType.OTHERS,  # Default
+            user_id=user_id,
+            document_name=document.filename,
+        )
+        return {"message": "Document uploaded successfully", "path": path}
 
     async def delete_document(self, application_id: int, document_id: int):
         """Delete a document from an application."""
