@@ -61,7 +61,6 @@ sequenceDiagram
 ### Authentication
 *   `POST /auth/login` - Initiate login with mobile number
 *   `POST /auth/verify-otp` - Verify OTP and get access token
-*   `POST /auth/aadhaar-verify` - Verify Aadhaar number
 *   `POST /auth/refresh` - Refresh access token
 *   `POST /auth/logout` - Logout
 
