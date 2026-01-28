@@ -3,13 +3,38 @@ from enum import Enum as PyEnum
 
 class UserRole(str, PyEnum):
     SUPERADMIN = "SUPERADMIN"
+    COMMISSIONER = "COMMISSIONER"
     CITIZEN = "CITIZEN"
     NAKA_INCHARGE = "NAKA_INCHARGE"
     DEPT_LAND = "DEPT_LAND"
-    DEPT_ROAD = "DEPT_ROAD"
-    DEPT_WATER = "DEPT_WATER"
-    DEPT_ELECTRICITY = "DEPT_ELECTRICITY"
-    DEPT_HEALTH = "DEPT_HEALTH"
-    DEPT_EDUCATION = "DEPT_EDUCATION"
-    DEPT_TRANSPORT = "DEPT_TRANSPORT"
-    DEPT_OTHER = "DEPT_OTHER"
+    DEPT_LEGAL = "DEPT_LEGAL"
+    DEPT_ATP = "DEPT_ATP"
+    JEN = "JEN"
+
+
+class ApplicationStatus(str, PyEnum):
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    WITHHELD = "WITHHELD"
+    REJECTED = "REJECTED"
+
+
+class ApplicationType(str, PyEnum):
+    NEW = "NEW"
+    RENOVATION = "RENOVATION"
+
+
+class ApplicationDocumentType(str, PyEnum):
+    """..."""
+
+    APPLICATION = "APPLICATION"
+    INSPECTION = "INSPECTION"
+    OTHER = "OTHER"
+
+
+class ApplicationPhaseStatus(str, PyEnum):
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+    IN_PROGRESS = "IN_PROGRESS"
+    COMPLETED = "COMPLETED"
