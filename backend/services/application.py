@@ -18,9 +18,9 @@ class ApplicationService(BaseService):
     def __init__(self, dao: ApplicationDAO):
         self.dao = dao
 
-    async def create_application(self, application: ApplicationCreate):
+    async def create_application(self, application: ApplicationCreate, user_id: int):
         """..."""
-        return await self.dao.create_application(application)
+        return await self.dao.create_application(application, user_id)
 
     async def get_application(self, application_id: int, user: UserDetails):
         """..."""

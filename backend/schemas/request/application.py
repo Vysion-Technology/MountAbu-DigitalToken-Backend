@@ -1,3 +1,5 @@
+from typing import Optional
+
 from backend.meta import ApplicationType
 from pydantic import BaseModel, Field
 
@@ -15,7 +17,7 @@ class ApplicationMaterialRequirements(BaseModel):
 class ApplicationCreate(BaseModel):
     title: str = Field(..., description="Application Title")
     type: ApplicationType = Field(..., description="Application Type")
-    description: str = Field(..., description="Application Description")
+    description: Optional[str] = Field(None, description="Application Description")
     material_requirements: list[ApplicationMaterialRequirements] = Field(
         ..., description="Application Material Requirements"
     )

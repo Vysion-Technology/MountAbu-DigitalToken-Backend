@@ -21,6 +21,8 @@ class Application(Base):
     __tablename__ = "applications"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    title: Mapped[str] = mapped_column(String, index=True)
+    description: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     status: Mapped[ApplicationStatus] = mapped_column(
         Enum(ApplicationStatus), index=True, default=ApplicationStatus.PENDING
     )
@@ -31,6 +33,9 @@ class Application(Base):
 
     documents: Mapped[list["ApplicationDocument"]] = relationship(
         "ApplicationDocument", back_populates="application"
+    )
+    materials: Mapped[list["ApplicationMaterial"]] = relationship(
+        "ApplicationMaterial", back_populates="application"
     )
 
 
@@ -43,6 +48,10 @@ class ApplicationMaterial(Base):
     )
     material_id: Mapped[int] = mapped_column(Integer, index=True)
     quantity: Mapped[int] = mapped_column(Integer, index=True)
+
+    application: Mapped["Application"] = relationship(
+        "Application", back_populates="materials"
+    )
 
 
 class ApplicationComment(Base):

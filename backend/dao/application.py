@@ -23,21 +23,58 @@ class ApplicationDAO(BaseDAO):
     """Application DAO."""
 
     async def create_application(
-        self, application: ApplicationCreate
+        self, application: ApplicationCreate, user_id: int
     ) -> ApplicationResponse:
         """Create application."""
-        application = await self.session.execute(
-            insert(Application).values(**application.dict()).returning(Application)
+        # Extract material requirements before creating application
+        material_requirements = application.material_requirements
+        application_data = application.model_dump(exclude={"material_requirements"})
+        application_data["user_id"] = user_id
+
+        # Create the application
+        result = await self.session.execute(
+            insert(Application).values(**application_data).returning(Application.id)
         )
+        new_application_id = result.scalar_one()
+
+        # Insert material requirements into ApplicationMaterial table
+        if material_requirements:
+            from backend.dbmodels.application import ApplicationMaterial
+
+            for material in material_requirements:
+                await self.session.execute(
+                    insert(ApplicationMaterial).values(
+                        application_id=new_application_id,
+                        material_id=material.material_id,
+                        quantity=material.material_qty,
+                    )
+                )
+
         await self.session.commit()
-        return ApplicationResponse.model_validate(application.scalar_one())
+
+        # Re-fetch the application with all relationships loaded
+        stmt = (
+            select(Application)
+            .where(Application.id == new_application_id)
+            .options(
+                selectinload(Application.documents),
+                selectinload(Application.materials),
+            )
+        )
+        result = await self.session.execute(stmt)
+        new_application = result.scalar_one()
+
+        return ApplicationResponse.model_validate(new_application)
 
     async def get_application(self, application_id: int) -> ApplicationResponse:
         """Get application."""
         stmt = (
             select(Application)
             .where(Application.id == application_id)
-            .options(selectinload(Application.documents))
+            .options(
+                selectinload(Application.documents),
+                selectinload(Application.materials),
+            )
         )
         result = await self.session.execute(stmt)
         application = result.scalar_one_or_none()
@@ -52,7 +89,10 @@ class ApplicationDAO(BaseDAO):
         self, user_id: Optional[int] = None, offset: int = 0, limit: int = 10
     ) -> list[ApplicationResponse]:
         """Get applications."""
-        query = select(Application).options(selectinload(Application.documents))
+        query = select(Application).options(
+            selectinload(Application.documents),
+            selectinload(Application.materials),
+        )
         if user_id:
             query = query.where(Application.user_id == user_id)
 

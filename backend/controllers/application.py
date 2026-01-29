@@ -17,8 +17,9 @@ router = APIRouter()
 async def create_application(
     application_create: ApplicationCreate,
     application_service: ApplicationService = Depends(get_application_service),
+    user_id: int = Depends(get_current_user_id),
 ):
-    return await application_service.create_application(application_create)
+    return await application_service.create_application(application_create, user_id)
 
 
 @router.get("/applications")
@@ -45,6 +46,7 @@ async def upload_document(
 async def delete_document(
     application_id: int,
     application_service: ApplicationService = Depends(get_application_service),
+    user_id: int = Depends(get_current_user_id),
 ):
     return await application_service.delete_document(application_id)
 
@@ -62,25 +64,36 @@ async def get_application(
 async def approve_application(
     application_id: int,
     application_service: ApplicationService = Depends(get_application_service),
+    user_id: int = Depends(get_current_user_id),
 ):
     """This API shall be called by the NODAL OFFICER"""
     pass
 
 
 @router.put("/applications/{application_id}/reject")
-async def reject_application(application_id: int):
+async def reject_application(
+    application_id: int,
+    user_id: int = Depends(get_current_user_id),
+):
     """This API shall be called by the NODAL OFFICER"""
     pass
 
 
 @router.put("/applications/{application_id}/comment")
-async def cancel_application(application_id: int, comment_request: CommentRequest):
+async def cancel_application(
+    application_id: int,
+    comment_request: CommentRequest,
+    user_id: int = Depends(get_current_user_id),
+):
     """This API can be called by the any authority."""
     pass
 
 
 @router.post("/applications/{application_id}/material")
-async def approve_material(application_id: int):
+async def approve_material(
+    application_id: int,
+    user_id: int = Depends(get_current_user_id),
+):
     pass
 
 
@@ -88,8 +101,10 @@ async def approve_material(application_id: int):
 async def delete_application(
     application_id: int,
     application_service: ApplicationService = Depends(get_application_service),
+    user_id: int = Depends(get_current_user_id),
 ):
     return await application_service.delete_application(application_id)
 
 
 __all__ = ["router"]
+
