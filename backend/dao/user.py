@@ -44,10 +44,25 @@ class UserDAO:
     async def get_otp_record(
         self, session: AsyncSession, mobile: str
     ) -> Optional[ActiveUserOTP]:
-        # Get the latest valid OTP
+        # Get the latest OTP (regardless of expiry, for verification purposes)
         stmt = (
             select(ActiveUserOTP)
             .where(ActiveUserOTP.mobile == mobile)
+            .order_by(ActiveUserOTP.id.desc())
+        )
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_valid_otp_record(
+        self, session: AsyncSession, mobile: str
+    ) -> Optional[ActiveUserOTP]:
+        """Get an existing OTP that hasn't expired yet."""
+        from datetime import datetime
+
+        stmt = (
+            select(ActiveUserOTP)
+            .where(ActiveUserOTP.mobile == mobile)
+            .where(ActiveUserOTP.valid_till > datetime.now())
             .order_by(ActiveUserOTP.id.desc())
         )
         result = await session.execute(stmt)

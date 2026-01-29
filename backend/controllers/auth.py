@@ -49,16 +49,25 @@ class MessageResponse(BaseModel):
 
 @router.post("/send-otp", response_model=MessageResponse)
 async def send_otp(request: OTPRequest, db: AsyncSession = Depends(get_db)):
-    # Placeholder: Sending the same OTP "123456" for everyone as per request
-    otp_value = "123456"
+    # Check if a valid (non-expired) OTP already exists
+    existing_otp = await user_dao.get_valid_otp_record(db, request.mobile)
 
-    # Store OTP in DB
-    await user_dao.create_otp(db, request.mobile, otp_value)
+    if existing_otp:
+        # Resend the same OTP if it hasn't expired
+        otp_value = existing_otp.otp
+        print("========================================")
+        print(f"RESENDING EXISTING OTP {otp_value} TO {request.mobile}")
+        print("========================================")
+    else:
+        # Generate new OTP (placeholder: using "123456" for everyone)
+        otp_value = "123456"
 
-    # Simulate sending
-    print("========================================")
-    print(f"SENT OTP {otp_value} TO {request.mobile}")
-    print("========================================")
+        # Store OTP in DB
+        await user_dao.create_otp(db, request.mobile, otp_value)
+
+        print("========================================")
+        print(f"SENT NEW OTP {otp_value} TO {request.mobile}")
+        print("========================================")
 
     return {"message": "OTP sent successfully"}
 
