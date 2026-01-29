@@ -7,7 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.database import get_db
 from backend.services.user import UserService
 from backend.dao.user import UserDAO, UserRole
-from backend.core.security import create_access_token, verify_password
+from backend.core.security import (
+    create_tokens,
+    create_access_token,
+    decode_token,
+    verify_password,
+)
 
 router = APIRouter()
 user_service = UserService()
@@ -19,13 +24,16 @@ user_dao = UserDAO()
 class OTPRequest(BaseModel):
     mobile: str = Field(..., pattern=r"^\d{10}$")
 
+
 class LoginRequest(BaseModel):
     mobile: str = Field(..., pattern=r"^\d{10}$")
     otp: str
 
+
 class PasswordLoginRequest(BaseModel):
     username: str
     password: str
+
 
 class SignupRequest(BaseModel):
     mobile: str = Field(..., pattern=r"^\d{10}$")
@@ -33,12 +41,25 @@ class SignupRequest(BaseModel):
     name: str
 
 
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str = Field(
+        ..., description="The refresh token to exchange for a new access token"
+    )
+
+
 class TokenResponse(BaseModel):
     access_token: str
+    refresh_token: str
     token_type: str
     role: str
     user_id: int
     name: str
+
+
+class RefreshTokenResponse(BaseModel):
+    access_token: str
+    token_type: str
+
 
 class MessageResponse(BaseModel):
     message: str
@@ -88,11 +109,12 @@ async def login_with_otp(request: LoginRequest, db: AsyncSession = Depends(get_d
     if not user:
         raise HTTPException(status_code=404, detail="User not found. Please sign up.")
 
-    # 3. Generate Token
-    token = create_access_token({"sub": str(user.id), "role": user.role.value})
+    # 3. Generate Tokens (access + refresh)
+    access_token, refresh_token = create_tokens(user.id, user.role.value)
 
     return {
-        "access_token": token,
+        "access_token": access_token,
+        "refresh_token": refresh_token,
         "token_type": "bearer",
         "role": user.role.value,
         "user_id": user.id,
@@ -124,11 +146,12 @@ async def signup_citizen(request: SignupRequest, db: AsyncSession = Depends(get_
     await db.commit()
     await db.refresh(user)
 
-    # 4. Generate Token
-    token = create_access_token({"sub": str(user.id), "role": user.role.value})
+    # 4. Generate Tokens (access + refresh)
+    access_token, refresh_token = create_tokens(user.id, user.role.value)
 
     return {
-        "access_token": token,
+        "access_token": access_token,
+        "refresh_token": refresh_token,
         "token_type": "bearer",
         "role": user.role.value,
         "user_id": user.id,
@@ -152,12 +175,59 @@ async def login_with_password(
     if not verify_password(request.password, user.password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    token = create_access_token({"sub": str(user.id), "role": user.role.value})
+    # Generate Tokens (access + refresh)
+    access_token, refresh_token = create_tokens(user.id, user.role.value)
 
     return {
-        "access_token": token,
+        "access_token": access_token,
+        "refresh_token": refresh_token,
         "token_type": "bearer",
         "role": user.role.value,
         "user_id": user.id,
         "name": user.name,
+    }
+
+
+@router.post("/refresh", response_model=RefreshTokenResponse)
+async def refresh_access_token(request: RefreshTokenRequest):
+    """
+    Exchange a valid refresh token for a new access token.
+
+    The refresh token itself is NOT rotated - it remains valid until its 90-day expiry.
+    Only a new access token (30 min expiry) is returned.
+    """
+    # Decode and validate the refresh token
+    payload = decode_token(request.refresh_token)
+
+    if not payload:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired refresh token",
+        )
+
+    # Verify it's a refresh token (not an access token)
+    token_type = payload.get("type")
+    if token_type != "refresh":
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid token type. Please provide a refresh token.",
+        )
+
+    # Extract user info from refresh token
+    user_id = payload.get("sub")
+    role = payload.get("role")
+
+    if not user_id or not role:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid refresh token payload",
+        )
+
+    # Create new access token
+    token_data = {"sub": user_id, "role": role}
+    new_access_token = create_access_token(token_data)
+
+    return {
+        "access_token": new_access_token,
+        "token_type": "bearer",
     }

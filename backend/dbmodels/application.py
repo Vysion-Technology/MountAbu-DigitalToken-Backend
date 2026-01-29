@@ -46,13 +46,16 @@ class ApplicationMaterial(Base):
         ForeignKey("applications.id"),
         index=True,
     )
-    material_id: Mapped[int] = mapped_column(Integer, index=True)
+    material_id: Mapped[int] = mapped_column(
+        ForeignKey("materials.id"),  # Added foreign key constraint
+        index=True,
+    )
     quantity: Mapped[int] = mapped_column(Integer, index=True)
 
     application: Mapped["Application"] = relationship(
         "Application", back_populates="materials"
     )
-
+    material: Mapped["Material"] = relationship("Material")
 
 class ApplicationComment(Base):
     __tablename__ = "application_comments"

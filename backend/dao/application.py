@@ -31,6 +31,25 @@ class ApplicationDAO(BaseDAO):
         application_data = application.model_dump(exclude={"material_requirements"})
         application_data["user_id"] = user_id
 
+        # Validate that all material IDs exist
+        if material_requirements:
+            from backend.dbmodels.application import Material, ApplicationMaterial
+
+            material_ids = [m.material_id for m in material_requirements]
+
+            # Query existing materials
+            stmt = select(Material.id).where(Material.id.in_(material_ids))
+            result = await self.session.execute(stmt)
+            existing_ids = set(result.scalars().all())
+
+            # Check for invalid material IDs
+            invalid_ids = [mid for mid in material_ids if mid not in existing_ids]
+            if invalid_ids:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid material IDs: {invalid_ids}. These materials do not exist.",
+                )
+
         # Create the application
         result = await self.session.execute(
             insert(Application).values(**application_data).returning(Application.id)
@@ -39,8 +58,6 @@ class ApplicationDAO(BaseDAO):
 
         # Insert material requirements into ApplicationMaterial table
         if material_requirements:
-            from backend.dbmodels.application import ApplicationMaterial
-
             for material in material_requirements:
                 await self.session.execute(
                     insert(ApplicationMaterial).values(
