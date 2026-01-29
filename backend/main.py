@@ -3,6 +3,7 @@ import subprocess
 from fastapi import FastAPI
 from backend.controllers.auth import router as auth_router
 from backend.controllers.application import router as app_router
+from backend.controllers.superadmin import router as superadmin_router
 import uvicorn
 
 
@@ -25,6 +26,7 @@ app = FastAPI(title="Mount Abu E-Token System", lifespan=lifespan)
 
 # Include routers
 app.include_router(auth_router, prefix="/auth", tags=["Auth"])
+app.include_router(superadmin_router, prefix="/superadmin", tags=["SuperAdmin"])
 app.include_router(app_router, prefix="/api", tags=["Applications"])
 
 

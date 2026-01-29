@@ -1,0 +1,126 @@
+services:
+  # ===========================================
+  # PostgreSQL Database
+  # ===========================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: etoken-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-etoken_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-etoken_secure_password_123}
+      POSTGRES_DB: ${POSTGRES_DB:-mountabu_etoken}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-etoken_user} -d ${POSTGRES_DB:-mountabu_etoken}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - etoken-network
+
+  # ===========================================
+  # FastAPI Backend
+  # ===========================================
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: etoken-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - DATABASE_HOST=postgres
+      - MINIO_HOST=minio
+      - MINIO_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
+      - MINIO_SECRET_KEY=${S3_SECRET_KEY:-minioadmin123}
+    volumes:
+      - ./backend:/app/backend
+      - uploads_data:/app/uploads
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - etoken-network
+
+  # ===========================================
+  # MinIO (S3-compatible Object Storage)
+  # ===========================================
+  minio:
+    image: minio/minio:latest
+    container_name: etoken-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-minioadmin123}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/live" ]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - etoken-network
+
+  # ===========================================
+  # PgAdmin (Database Management UI)
+  # Optional: for development
+  # ===========================================
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: etoken-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@mountabu.gov.in
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - etoken-network
+    profiles:
+      - dev-tools
+
+# ===========================================
+# Networks
+# ===========================================
+networks:
+  etoken-network:
+    driver: bridge
+
+# ===========================================
+# Volumes
+# ===========================================
+volumes:
+  postgres_data:
+    driver: local
+  minio_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+  uploads_data:
+    driver: local

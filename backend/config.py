@@ -4,8 +4,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     debug: bool = True
 
-    SUPERADMIN_USERNAME: str = "admin"
-    SUPERADMIN_PASSWORD: str = "admin"
+
 
     POSTGRES_USER: str = "etoken_user"
     POSTGRES_PASSWORD: str = "etoken_secure_password_123"
@@ -15,6 +14,10 @@ class Settings(BaseSettings):
     MINIO_HOST: str = "minio"
     MINIO_ACCESS_KEY: str = "minioadmin"
     MINIO_SECRET_KEY: str = "minioadmin123"
+
+    SECRET_KEY: str = "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7"
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 3000
 
     @property
     def database_url(self) -> str:
