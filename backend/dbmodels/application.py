@@ -11,9 +11,9 @@ from backend.meta import (
     ApplicationType,
     ApplicationPhaseStatus,
     PropertyUsageType,
-    DepartmentType,
 )
 from backend.dbmodels.user import User
+from backend.dbmodels.master import Ward, Department
 
 
 class Material(Base):
@@ -44,14 +44,21 @@ class Application(Base):
     contractor_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     # Classification
+    # Classification
     is_agriculture_land: Mapped[bool] = mapped_column(default=False)
     property_usage: Mapped[PropertyUsageType] = mapped_column(
         Enum(PropertyUsageType), default=PropertyUsageType.DOMESTIC
     )
-    department: Mapped[DepartmentType] = mapped_column(
-        Enum(DepartmentType), default=DepartmentType.ULB
+
+    # Master Data Foreign Keys
+    department_id: Mapped[int] = mapped_column(
+        ForeignKey("departments.id"), nullable=True
     )
-    ward_zone: Mapped[str] = mapped_column(String, default="")
+    ward_id: Mapped[int] = mapped_column(ForeignKey("wards.id"), nullable=True)
+
+    # Relationships
+    department_rel: Mapped["Department"] = relationship("Department")
+    ward_rel: Mapped["Ward"] = relationship("Ward")
 
     description: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     status: Mapped[ApplicationStatus] = mapped_column(

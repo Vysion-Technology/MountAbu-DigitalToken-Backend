@@ -1,6 +1,6 @@
 from typing import Optional
 
-from backend.meta import ApplicationType, PropertyUsageType, DepartmentType
+from backend.meta import ApplicationType, PropertyUsageType
 from pydantic import BaseModel, Field
 
 
@@ -18,7 +18,7 @@ class ApplicationCreate(BaseModel):
     # Applicant Details
     applicant_name: str = Field(..., description="Applicant Name (As per Aadhar)")
     father_name: str = Field(..., description="Father's Name (As per Aadhar)")
-    mobile: str = Field(..., description="Mobile Number")
+    # Mobile is now fetched from User
     email: Optional[str] = Field(None, description="Email Address")
     current_address: str = Field(..., description="Current Address")
 
@@ -33,8 +33,8 @@ class ApplicationCreate(BaseModel):
         ..., description="Is property on agriculture land?"
     )
     property_usage: PropertyUsageType = Field(..., description="Property Usage Type")
-    department: DepartmentType = Field(..., description="Selected Department")
-    ward_zone: str = Field(..., description="Ward/Zone")
+    department_id: int = Field(..., description="Selected Department ID")
+    ward_id: int = Field(..., description="Ward/Zone ID")
 
     type: ApplicationType = Field(..., description="Application Type")
     description: Optional[str] = Field(None, description="Application Description")

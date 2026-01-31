@@ -23,13 +23,14 @@ class ApplicationDAO(BaseDAO):
     """Application DAO."""
 
     async def create_application(
-        self, application: ApplicationCreate, user_id: int
+        self, application: ApplicationCreate, user_id: int, mobile: str
     ) -> ApplicationResponse:
         """Create application."""
         # Extract material requirements before creating application
         material_requirements = application.material_requirements
         application_data = application.model_dump(exclude={"material_requirements"})
         application_data["user_id"] = user_id
+        application_data["mobile"] = mobile
 
         # Validate that all material IDs exist
         if material_requirements:

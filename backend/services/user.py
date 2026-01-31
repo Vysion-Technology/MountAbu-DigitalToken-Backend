@@ -82,3 +82,7 @@ class UserService:
             print(f"Superadmin created with username: {username}")
         else:
             print("Superadmin already exists")
+
+
+async def get_user_service() -> UserService:
+    return UserService()

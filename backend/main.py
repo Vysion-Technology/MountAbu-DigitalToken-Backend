@@ -1,10 +1,12 @@
 from contextlib import asynccontextmanager
 import subprocess
 from fastapi import FastAPI
+import uvicorn
+
 from backend.controllers.auth import router as auth_router
 from backend.controllers.application import router as app_router
 from backend.controllers.superadmin import router as superadmin_router
-import uvicorn
+from backend.controllers.master import router as master_router
 
 
 @asynccontextmanager
@@ -28,6 +30,7 @@ app = FastAPI(title="Mount Abu E-Token System", lifespan=lifespan)
 app.include_router(auth_router, prefix="/auth", tags=["Auth"])
 app.include_router(superadmin_router, prefix="/superadmin", tags=["SuperAdmin"])
 app.include_router(app_router, prefix="/api", tags=["Applications"])
+app.include_router(master_router, prefix="/api", tags=["Master Data"])
 
 
 @app.get("/health")

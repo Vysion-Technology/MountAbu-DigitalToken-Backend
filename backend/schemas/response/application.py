@@ -3,7 +3,6 @@ from backend.meta import (
     ApplicationType,
     ApplicationDocumentType,
     PropertyUsageType,
-    DepartmentType,
 )
 from pydantic import BaseModel, ConfigDict
 
@@ -51,8 +50,16 @@ class ApplicationResponse(BaseModel):
     # Classification
     is_agriculture_land: bool
     property_usage: PropertyUsageType
-    department: DepartmentType
-    ward_zone: str
+    department_id: Optional[int]
+    ward_id: Optional[int]
+    # In future we can include nested objects:
+    # department: Optional[DepartmentResponse]
+    # ward: Optional[WardResponse]
+
+    ward_zone: Optional[str] = (
+        None  # Deprecated, keeping for backward compatibility if needed, or remove.
+    )
+    # Removing ward_zone as it is replaced by ward_id
 
     description: Optional[str] = None
     status: ApplicationStatus

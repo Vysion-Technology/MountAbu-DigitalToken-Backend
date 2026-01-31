@@ -7,7 +7,7 @@ from backend.dao.applicationmaterial import (
     ApplicationMaterialDAO,
     get_application_material_dao,
 )
-from backend.meta import ApplicationDocumentType
+from backend.meta import ApplicationDocumentType, UserRole
 from backend.schemas.base.auth import UserDetails
 from backend.schemas.request.application import (
     ApplicationCreate,
@@ -26,16 +26,30 @@ class ApplicationService(BaseService):
         self.dao = dao
 
     async def create_application(
-        self, application: ApplicationCreate, user_id: int
+        self, application: ApplicationCreate, user_id: int, mobile: str
     ) -> ApplicationResponse:
         """Create a new application."""
-        return await self.dao.create_application(application, user_id)
+        return await self.dao.create_application(application, user_id, mobile)
 
     async def get_application(
-        self, application_id: int, user: UserDetails
+        self, application_id: int, user: UserDetails, request_user_data: bool = False
     ) -> Optional[ApplicationResponse]:
         """Get a specific application by ID."""
-        return await self.dao.get_application(application_id)
+        if request_user_data:
+            # TODO: Log the user access to user data here
+            print(
+                f"User {user.id} requested full user data for application {application_id}"
+            )
+
+        application = await self.dao.get_application(application_id)
+
+        if application and user.role == UserRole.NAKA_INCHARGE:
+            # Sanitize user details for NAKA_INCHARGE
+            application.mobile = "******"
+            application.email = "******"
+            application.current_address = "******"
+
+        return application
 
     async def get_applications(
         self, user_id: int, offset: int, limit: int
