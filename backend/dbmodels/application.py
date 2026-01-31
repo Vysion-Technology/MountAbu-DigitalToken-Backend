@@ -6,7 +6,13 @@ from sqlalchemy import Enum, Integer, String, ForeignKey, DateTime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.database import Base
-from backend.meta import ApplicationStatus, ApplicationType, ApplicationPhaseStatus
+from backend.meta import (
+    ApplicationStatus,
+    ApplicationType,
+    ApplicationPhaseStatus,
+    PropertyUsageType,
+    DepartmentType,
+)
 from backend.dbmodels.user import User
 
 
@@ -21,7 +27,32 @@ class Application(Base):
     __tablename__ = "applications"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    title: Mapped[str] = mapped_column(String, index=True)
+
+    # Applicant Details
+    applicant_name: Mapped[str] = mapped_column(String, index=True)
+    father_name: Mapped[str] = mapped_column(String)
+    mobile: Mapped[str] = mapped_column(String, index=True)
+    email: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    current_address: Mapped[str] = mapped_column(String)
+
+    # Property & Work Details
+    property_address: Mapped[str] = mapped_column(String)
+    title: Mapped[str] = mapped_column(
+        String, index=True
+    )  # Keeping original title field
+    work_description: Mapped[str] = mapped_column(String)
+    contractor_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+    # Classification
+    is_agriculture_land: Mapped[bool] = mapped_column(default=False)
+    property_usage: Mapped[PropertyUsageType] = mapped_column(
+        Enum(PropertyUsageType), default=PropertyUsageType.DOMESTIC
+    )
+    department: Mapped[DepartmentType] = mapped_column(
+        Enum(DepartmentType), default=DepartmentType.ULB
+    )
+    ward_zone: Mapped[str] = mapped_column(String, default="")
+
     description: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     status: Mapped[ApplicationStatus] = mapped_column(
         Enum(ApplicationStatus), index=True, default=ApplicationStatus.PENDING

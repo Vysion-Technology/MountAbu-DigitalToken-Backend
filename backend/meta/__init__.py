@@ -22,6 +22,7 @@ class ApplicationStatus(str, PyEnum):
 class ApplicationType(str, PyEnum):
     NEW = "NEW"
     RENOVATION = "RENOVATION"
+    FENCING = "FENCING"
 
 
 class ApplicationDocumentType(str, PyEnum):
@@ -38,3 +39,13 @@ class ApplicationPhaseStatus(str, PyEnum):
     REJECTED = "REJECTED"
     IN_PROGRESS = "IN_PROGRESS"
     COMPLETED = "COMPLETED"
+
+
+class PropertyUsageType(str, PyEnum):
+    DOMESTIC = "DOMESTIC"
+    COMMERCIAL = "COMMERCIAL"
+    HOTEL = "HOTEL"
+
+
+class DepartmentType(str, PyEnum):
+    ULB = "ULB"

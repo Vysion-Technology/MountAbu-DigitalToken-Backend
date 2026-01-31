@@ -51,7 +51,7 @@ class UserDAO:
             .order_by(ActiveUserOTP.id.desc())
         )
         result = await session.execute(stmt)
-        return result.scalar_one_or_none()
+        return max(result.scalars().all(), key=lambda x: x.valid_till, default=None)
 
     async def get_valid_otp_record(
         self, session: AsyncSession, mobile: str

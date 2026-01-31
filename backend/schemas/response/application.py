@@ -1,5 +1,12 @@
-from backend.meta import ApplicationStatus, ApplicationType, ApplicationDocumentType
+from backend.meta import (
+    ApplicationStatus,
+    ApplicationType,
+    ApplicationDocumentType,
+    PropertyUsageType,
+    DepartmentType,
+)
 from pydantic import BaseModel, ConfigDict
+
 from typing import Optional, List
 
 
@@ -23,11 +30,30 @@ class ApplicationMaterialResponse(BaseModel):
 
 
 class ApplicationResponse(BaseModel):
-    """..."""
+    """Application Response Schema."""
 
     id: int
     user_id: int
+
+    # Applicant Details
+    applicant_name: str
+    father_name: str
+    mobile: str
+    email: Optional[str]
+    current_address: str
+
+    # Property & Work Details
+    property_address: str
     title: str
+    work_description: str
+    contractor_name: Optional[str]
+
+    # Classification
+    is_agriculture_land: bool
+    property_usage: PropertyUsageType
+    department: DepartmentType
+    ward_zone: str
+
     description: Optional[str] = None
     status: ApplicationStatus
     type: ApplicationType
