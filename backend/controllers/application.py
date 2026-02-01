@@ -1,6 +1,7 @@
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, Form
+from backend.meta import ApplicationDocumentType
 
 from backend.middlewares.auth import get_current_user_id, get_current_user
 from backend.services.user import UserService, get_user_service
@@ -8,7 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.database import get_db
 
 from backend.schemas.base.auth import UserDetails
-from backend.schemas.request.application import ApplicationCreate, CommentRequest
+from backend.schemas.request.application import (
+    ApplicationCreate,
+    CommentRequest,
+    ApplicationMaterialRequirements,
+)
 from backend.schemas.response.application import ApplicationResponse
 from backend.schemas.response.meta import SuccessResponse, DocumentUploadResponse
 from backend.services.application import get_application_service, ApplicationService
@@ -27,14 +32,20 @@ async def create_application(
 ) -> ApplicationResponse:
     """Create a new application."""
     # Fetch full user to get mobile
-    user = await user_service.get_user_by_id(db, user_id)
-    if not user:
-        # Should not happen as user_id is from token
-        raise HTTPException(status_code=404, detail="User not found")
+    try:
+        user = await user_service.get_user_by_id(db, user_id)
+        if not user:
+            # Should not happen as user_id is from token
+            raise HTTPException(status_code=404, detail="User not found")
 
-    return await application_service.create_application(
-        application_create, user_id, mobile=user.mobile
-    )
+        return await application_service.create_application(
+            application_create, user_id, mobile=user.mobile
+        )
+    except Exception as e:
+        import traceback
+
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/applications", response_model=List[ApplicationResponse])
@@ -54,11 +65,33 @@ async def get_applications(
 async def upload_document(
     application_id: int,
     document: UploadFile,
+    document_type: ApplicationDocumentType = Form(...),
     application_service: ApplicationService = Depends(get_application_service),
     user_id: int = Depends(get_current_user_id),
 ) -> DocumentUploadResponse:
     """Upload a document for an application."""
-    return await application_service.upload_document(application_id, document, user_id)
+    try:
+        return await application_service.upload_document(
+            application_id, document, user_id, document_type
+        )
+    except Exception as e:
+        import traceback
+
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/applications/{application_id}/materials", response_model=SuccessResponse)
+async def add_materials(
+    application_id: int,
+    materials: List[ApplicationMaterialRequirements],
+    application_service: ApplicationService = Depends(get_application_service),
+    user_id: int = Depends(get_current_user_id),
+) -> SuccessResponse:
+    """Add materials to an existing application."""
+    return await application_service.add_application_materials(
+        application_id, materials
+    )
 
 
 @router.delete(
@@ -137,4 +170,3 @@ async def delete_application(
 
 
 __all__ = ["router"]
-

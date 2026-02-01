@@ -171,6 +171,40 @@ class ApplicationDAO(BaseDAO):
         await self.session.commit()
         return SuccessResponse()
 
+    async def add_materials(
+        self, application_id: int, material_requirements: list
+    ) -> SuccessResponse:
+        """Add materials to an existing application."""
+        from backend.dbmodels.application import Material, ApplicationMaterial
+
+        material_ids = [m.material_id for m in material_requirements]
+
+        # Query existing materials
+        stmt = select(Material.id).where(Material.id.in_(material_ids))
+        result = await self.session.execute(stmt)
+        existing_ids = set(result.scalars().all())
+
+        # Check for invalid material IDs
+        invalid_ids = [mid for mid in material_ids if mid not in existing_ids]
+        if invalid_ids:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid material IDs: {invalid_ids}. These materials do not exist.",
+            )
+
+        # Insert material requirements into ApplicationMaterial table
+        for material in material_requirements:
+            await self.session.execute(
+                insert(ApplicationMaterial).values(
+                    application_id=application_id,
+                    material_id=material.material_id,
+                    quantity=material.material_qty,
+                )
+            )
+
+        await self.session.commit()
+        return SuccessResponse()
+
 
 async def get_application_dao(
     session: AsyncSession = Depends(get_db),

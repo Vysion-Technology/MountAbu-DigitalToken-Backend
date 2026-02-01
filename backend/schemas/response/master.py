@@ -40,3 +40,11 @@ class ComplaintCategoryResponse(BaseModel):
     status: bool
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class MaterialResponse(BaseModel):
+    id: int
+    name: str
+    unit: str
+
+    model_config = ConfigDict(from_attributes=True)

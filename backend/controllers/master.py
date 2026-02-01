@@ -17,12 +17,14 @@ from backend.schemas.request.master import (
     RoleUpdate,
     ComplaintCategoryCreate,
     ComplaintCategoryUpdate,
+    MaterialCreate,
 )
 from backend.schemas.response.master import (
     WardResponse,
     DepartmentResponse,
     RoleResponse,
     ComplaintCategoryResponse,
+    MaterialResponse,
 )
 
 router = APIRouter(prefix="/master", tags=["Master Data"])
@@ -141,3 +143,18 @@ async def update_complaint_category(
     if not updated:
         raise HTTPException(status_code=404, detail="Category not found")
     return updated
+
+
+# Materials
+@router.post("/materials", response_model=MaterialResponse)
+async def create_material(
+    material: MaterialCreate,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    return await dao.create_material(session, material)
+
+
+@router.get("/materials", response_model=List[MaterialResponse])
+async def list_materials(session: AsyncSession = Depends(get_db)):
+    return await dao.list_materials(session)

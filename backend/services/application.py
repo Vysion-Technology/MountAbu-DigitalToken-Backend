@@ -12,6 +12,7 @@ from backend.schemas.base.auth import UserDetails
 from backend.schemas.request.application import (
     ApplicationCreate,
     ApplicationMaterialCreate,
+    ApplicationMaterialRequirements,
 )
 from backend.schemas.response.application import ApplicationResponse
 from backend.schemas.response.meta import SuccessResponse, DocumentUploadResponse
@@ -62,7 +63,11 @@ class ApplicationService(BaseService):
         return await self.dao.delete_application(application_id)
 
     async def upload_document(
-        self, application_id: int, document: UploadFile, user_id: int
+        self,
+        application_id: int,
+        document: UploadFile,
+        user_id: int,
+        document_type: ApplicationDocumentType = ApplicationDocumentType.OTHER,
     ) -> DocumentUploadResponse:
         """Upload and save document for an application."""
         storage = get_storage_service()
@@ -75,7 +80,7 @@ class ApplicationService(BaseService):
         await self.dao.add_document(
             application_id=application_id,
             document_path=path,
-            document_type=ApplicationDocumentType.OTHERS,
+            document_type=document_type,
             user_id=user_id,
             document_name=document.filename,
         )
@@ -95,6 +100,14 @@ class ApplicationService(BaseService):
     ) -> ApplicationResponse:
         """Update an application."""
         return await self.dao.update_application(application_id, application)
+
+    async def add_application_materials(
+        self,
+        application_id: int,
+        material_requirements: list[ApplicationMaterialRequirements],
+    ) -> SuccessResponse:
+        """Add materials to an existing application."""
+        return await self.dao.add_materials(application_id, material_requirements)
 
 
 class ApplicationMaterialService(BaseService):
