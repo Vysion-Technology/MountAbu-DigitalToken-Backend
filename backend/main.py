@@ -7,6 +7,8 @@ from backend.controllers.auth import router as auth_router
 from backend.controllers.application import router as app_router
 from backend.controllers.superadmin import router as superadmin_router
 from backend.controllers.master import router as master_router
+from backend.controllers.media import router as media_router
+from backend.controllers.complaint import router as complaint_router
 
 
 @asynccontextmanager
@@ -31,6 +33,8 @@ app.include_router(auth_router, prefix="/auth", tags=["Auth"])
 app.include_router(superadmin_router, prefix="/superadmin", tags=["SuperAdmin"])
 app.include_router(app_router, prefix="/api", tags=["Applications"])
 app.include_router(master_router, prefix="/api", tags=["Master Data"])
+app.include_router(media_router, prefix="/api", tags=["Media"])
+app.include_router(complaint_router, prefix="/api", tags=["Complaints"])
 
 
 @app.get("/health")

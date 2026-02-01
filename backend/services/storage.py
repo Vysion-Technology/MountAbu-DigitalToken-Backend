@@ -34,6 +34,15 @@ class StorageService:
         # Generate presigned URL valid for 1 hour
         return self.client.presigned_get_object(self.bucket_name, object_name)
 
+    def get_presigned_upload_url(self, object_name: str) -> str:
+        # Generate presigned PUT URL valid for 10 minutes
+        from datetime import timedelta
+
+        return self.client.presigned_put_object(
+            self.bucket_name, object_name, expires=timedelta(minutes=10)
+        )
+
+
 _storage_service = None
 
 def get_storage_service():
