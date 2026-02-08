@@ -41,4 +41,6 @@ __all__ = [
     "Notice",
     # Tenders
     "Tender",
+    # Events
+    "Event",
 ]

@@ -1,0 +1,55 @@
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+from backend.database import get_db
+from backend.core.dependencies import get_current_superadmin
+from backend.dbmodels.user import User
+from backend.services.events import EventsService, get_events_service
+from backend.schemas.request.event import EventCreate, EventUpdate
+from backend.schemas.response.event import EventResponse, EventsListResponse
+from backend.schemas.response.meta import SuccessResponse
+
+router = APIRouter()
+
+
+@router.post("/events", response_model=EventResponse, status_code=201)
+async def create_event(
+    payload: EventCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_superadmin),
+    service: EventsService = Depends(get_events_service),
+):
+    return await service.create_event(db, payload, current_user.id)
+
+
+@router.get("/events", response_model=EventsListResponse)
+async def list_events(limit: int = 50, offset: int = 0, db: AsyncSession = Depends(get_db), service: EventsService = Depends(get_events_service)):
+    return await service.list_events(db, limit=limit, offset=offset)
+
+
+@router.get("/events/{event_id}", response_model=EventResponse)
+async def get_event(event_id: int, db: AsyncSession = Depends(get_db), service: EventsService = Depends(get_events_service)):
+    return await service.get_event(db, event_id)
+
+
+@router.put("/events/{event_id}", response_model=EventResponse)
+async def update_event(
+    event_id: int,
+    payload: EventUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_superadmin),
+    service: EventsService = Depends(get_events_service),
+):
+    return await service.update_event(db, event_id, payload)
+
+
+@router.delete("/events/{event_id}", response_model=SuccessResponse)
+async def delete_event(
+    event_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_superadmin),
+    service: EventsService = Depends(get_events_service),
+):
+    ok = await service.delete_event(db, event_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Event not found")
+    return SuccessResponse(message="Event deleted successfully")
