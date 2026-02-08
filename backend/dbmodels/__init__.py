@@ -10,6 +10,7 @@ from .application import (
     ApplicationPhaseMaterial,
 )
 from .master import Ward, Department, Role, ComplaintCategory
+from .city_profile import CityProfile
 
 
 __all__ = [
@@ -30,4 +31,6 @@ __all__ = [
     "Department",
     "Role",
     "ComplaintCategory",
+    # City Profile
+    "CityProfile",
 ]
