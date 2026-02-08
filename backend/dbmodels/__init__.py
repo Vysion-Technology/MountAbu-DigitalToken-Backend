@@ -39,4 +39,6 @@ __all__ = [
     "Download",
     # Notices
     "Notice",
+    # Tenders
+    "Tender",
 ]

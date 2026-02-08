@@ -38,6 +38,7 @@ app.include_router(master_router, prefix="/api", tags=["Master Data"])
 app.include_router(media_router, prefix="/api", tags=["Media"])
 app.include_router(downloads_router, prefix="/api", tags=["Downloads"])
 app.include_router(notices_router, prefix="/api", tags=["Notices"])
+app.include_router(tenders_router, prefix="/api", tags=["Tenders"])
 app.include_router(complaint_router, prefix="/api", tags=["Complaints"])
 app.include_router(city_profile_router, prefix="/api", tags=["City Profile"])
 

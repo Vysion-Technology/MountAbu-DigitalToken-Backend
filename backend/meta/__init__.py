@@ -83,6 +83,13 @@ class ComplaintStatus(str, PyEnum):
     REJECTED = "REJECTED"
 
 
+class TenderStatus(str, PyEnum):
+    ACTIVE = "ACTIVE"
+    EXPIRED = "EXPIRED"
+    CANCELLED = "CANCELLED"
+    CLOSED = "CLOSED"
+
+
 class ApplicationFlags(str, PyEnum):
     # Generic flags
     ALL = "ALL"
