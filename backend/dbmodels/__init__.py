@@ -11,6 +11,7 @@ from .application import (
 )
 from .master import Ward, Department, Role, ComplaintCategory
 from .city_profile import CityProfile
+from .download import Download
 
 
 __all__ = [
@@ -33,4 +34,6 @@ __all__ = [
     "ComplaintCategory",
     # City Profile
     "CityProfile",
+    # Downloads
+    "Download",
 ]

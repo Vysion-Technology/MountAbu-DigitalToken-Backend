@@ -42,6 +42,21 @@ class StorageService:
             self.bucket_name, object_name, expires=timedelta(minutes=10)
         )
 
+    def delete_file(self, object_path: str) -> None:
+        """Delete object from storage. object_path may be either an object name or a stored path like 'bucket/object'."""
+        try:
+            # Normalize to object_name (strip bucket if present)
+            if object_path.startswith(f"{self.bucket_name}/"):
+                object_name = object_path.split("/", 1)[1]
+            else:
+                object_name = object_path
+
+            self.client.remove_object(self.bucket_name, object_name)
+        except Exception as e:
+            # Log and re-raise so callers can handle or fail gracefully
+            print(f"Warning: failed to delete object {object_path}: {e}")
+            raise
+
 
 _storage_service = None
 
