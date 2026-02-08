@@ -12,6 +12,7 @@ from .application import (
 from .master import Ward, Department, Role, ComplaintCategory
 from .city_profile import CityProfile
 from .download import Download
+from .notice import Notice
 
 
 __all__ = [
@@ -36,4 +37,6 @@ __all__ = [
     "CityProfile",
     # Downloads
     "Download",
+    # Notices
+    "Notice",
 ]

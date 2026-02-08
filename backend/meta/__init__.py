@@ -59,6 +59,30 @@ class DepartmentType(str, PyEnum):
     ULB = "ULB"
 
 
+class NoticeStatus(str, PyEnum):
+    ACTIVE = "ACTIVE"
+    EXPIRED = "EXPIRED"
+    INACTIVE = "INACTIVE"
+
+
+class Visibility(str, PyEnum):
+    PUBLIC = "PUBLIC"
+    INTERNAL = "INTERNAL"
+
+
+class DownloadStatus(str, PyEnum):
+    ACTIVE = "ACTIVE"
+    INACTIVE = "INACTIVE"
+
+
+class ComplaintStatus(str, PyEnum):
+    PENDING = "PENDING"
+    IN_PROGRESS = "IN_PROGRESS"
+    RESOLVED = "RESOLVED"
+    WITHHELD = "WITHHELD"
+    REJECTED = "REJECTED"
+
+
 class ApplicationFlags(str, PyEnum):
     # Generic flags
     ALL = "ALL"

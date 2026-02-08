@@ -33,7 +33,9 @@ class ComplaintResponse(BaseModel):
 
     title: str
     description: str
-    status: str
+    from backend.meta import ComplaintStatus
+
+    status: ComplaintStatus
 
     ward_id: Optional[int]
     department_id: Optional[int]

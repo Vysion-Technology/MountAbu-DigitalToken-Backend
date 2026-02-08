@@ -23,7 +23,7 @@ def upgrade():
         sa.Column('department_id', sa.Integer(), nullable=True),
         sa.Column('description', sa.Text(), nullable=True),
         sa.Column('file_path', sa.String(), nullable=False),
-        sa.Column('status', sa.String(), nullable=False, server_default='ACTIVE'),
+        sa.Column('status', sa.Enum('ACTIVE', 'INACTIVE', name='downloadstatus'), nullable=False, server_default='ACTIVE'),
         sa.Column('uploaded_by', sa.Integer(), nullable=True),
         sa.Column('uploaded_on', sa.DateTime(timezone=True), server_default=sa.func.now()),
     )

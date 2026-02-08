@@ -10,8 +10,7 @@ from backend.controllers.master import router as master_router
 from backend.controllers.media import router as media_router
 from backend.controllers.complaint import router as complaint_router
 from backend.controllers.city_profile import router as city_profile_router
-from backend.controllers.downloads import router as downloads_router
-
+from backend.controllers.downloads import router as downloads_routerfrom backend.controllers.notices import router as notices_router
 
 
 @asynccontextmanager
@@ -38,6 +37,7 @@ app.include_router(app_router, prefix="/api", tags=["Applications"])
 app.include_router(master_router, prefix="/api", tags=["Master Data"])
 app.include_router(media_router, prefix="/api", tags=["Media"])
 app.include_router(downloads_router, prefix="/api", tags=["Downloads"])
+app.include_router(notices_router, prefix="/api", tags=["Notices"])
 app.include_router(complaint_router, prefix="/api", tags=["Complaints"])
 app.include_router(city_profile_router, prefix="/api", tags=["City Profile"])
 

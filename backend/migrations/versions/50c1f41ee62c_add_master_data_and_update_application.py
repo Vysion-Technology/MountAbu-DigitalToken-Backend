@@ -29,7 +29,7 @@ def upgrade() -> None:
     sa.Column('category_id', sa.Integer(), nullable=True),
     sa.Column('title', sa.String(), nullable=False),
     sa.Column('description', sa.Text(), nullable=False),
-    sa.Column('status', sa.String(), nullable=False),
+    sa.Column('status', sa.Enum('PENDING','IN_PROGRESS','RESOLVED','WITHHELD','REJECTED', name='complaintstatus'), nullable=False),
     sa.Column('applicant_name', sa.String(), nullable=False),
     sa.Column('applicant_mobile', sa.String(), nullable=False),
     sa.Column('latitude', sa.Float(), nullable=True),

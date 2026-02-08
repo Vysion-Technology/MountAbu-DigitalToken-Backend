@@ -30,9 +30,11 @@ class Complaint(Base):
     # Details
     title: Mapped[str] = mapped_column(String, index=True)
     description: Mapped[str] = mapped_column(Text)
-    status: Mapped[str] = mapped_column(
-        String, default="PENDING", index=True
-    )  # Could be Enum
+    from backend.meta import ComplaintStatus
+
+    status: Mapped[ComplaintStatus] = mapped_column(
+        SAEnum(ComplaintStatus, name='complaintstatus'), default=ComplaintStatus.PENDING, index=True
+    )  # Complaint status as enum
 
     # Applicant Info (Redundant if user_id linked, but keep for explicit capture)
     applicant_name: Mapped[str] = mapped_column(String)

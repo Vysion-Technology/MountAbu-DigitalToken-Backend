@@ -6,6 +6,7 @@ from backend.dbmodels.user import User
 from backend.services.downloads import DownloadsService, get_downloads_service
 from backend.schemas.request.download import DownloadCreate, DownloadUpdate
 from backend.schemas.response.download import DownloadResponse, DownloadsListResponse
+from backend.meta import DownloadStatus
 from backend.schemas.response.meta import SuccessResponse
 
 router = APIRouter()
@@ -17,7 +18,7 @@ async def create_download(
     document_type: str | None = Form(None),
     department_id: int | None = Form(None),
     description: str | None = Form(None),
-    status: str | None = Form("ACTIVE"),
+    status: DownloadStatus | None = Form(DownloadStatus.ACTIVE),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_superadmin),

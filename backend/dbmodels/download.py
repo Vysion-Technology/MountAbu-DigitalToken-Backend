@@ -1,11 +1,12 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Integer, String, ForeignKey, DateTime, Text
+from sqlalchemy import Integer, String, ForeignKey, DateTime, Text, Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from backend.database import Base
+from backend.meta import DownloadStatus
 
 
 class Download(Base):
@@ -20,7 +21,7 @@ class Download(Base):
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     file_path: Mapped[str] = mapped_column(String, nullable=False)  # S3 key / object path
-    status: Mapped[str] = mapped_column(String, default="ACTIVE", index=True)  # ACTIVE / INACTIVE
+    status: Mapped[DownloadStatus] = mapped_column(SAEnum(DownloadStatus, name='downloadstatus'), default=DownloadStatus.ACTIVE, index=True)  # ACTIVE / INACTIVE
 
     uploaded_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
 
