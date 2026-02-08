@@ -7,7 +7,7 @@ from backend.dao.applicationmaterial import (
     ApplicationMaterialDAO,
     get_application_material_dao,
 )
-from backend.meta import ApplicationDocumentType, UserRole
+from backend.meta import ApplicationDocumentType, ApplicationFlags, UserRole
 from backend.schemas.base.auth import UserDetails
 from backend.schemas.request.application import (
     ApplicationCreate,
@@ -39,7 +39,7 @@ class ApplicationService(BaseService):
         if request_user_data:
             # TODO: Log the user access to user data here
             print(
-                f"User {user.id} requested full user data for application {application_id}"
+                f"User {user.user_id} requested full user data for application {application_id}"
             )
 
         application = await self.dao.get_application(application_id)
@@ -53,14 +53,30 @@ class ApplicationService(BaseService):
         return application
 
     async def get_applications(
-        self, user_id: int, offset: int, limit: int
+        self,
+        flag: Optional[ApplicationFlags],
+        offset: int,
+        limit: int,
+        user_id: Optional[int] = None,
     ) -> List[ApplicationResponse]:
-        """Get applications for a user with pagination."""
-        return await self.dao.get_applications(user_id, offset, limit)
+        """Get applications filtered by flag with pagination. If user_id is set, scopes to that user."""
+        return await self.dao.get_applications(
+            flag=flag, offset=offset, limit=limit, user_id=user_id
+        )
 
     async def delete_application(self, application_id: int) -> SuccessResponse:
         """Delete an application by ID."""
         return await self.dao.delete_application(application_id)
+
+    async def comment_on_application(
+        self, application_id: int, comment: str, user_id: int
+    ) -> SuccessResponse:
+        """Add a comment to an application."""
+        return await self.dao.comment_on_application(application_id, comment, user_id)
+
+    async def get_application_comments(self, application_id: int) -> list:
+        """Get comments for an application."""
+        return await self.dao.get_comments(application_id)
 
     async def upload_document(
         self,
@@ -89,15 +105,15 @@ class ApplicationService(BaseService):
         )
 
     async def delete_document(
-        self, application_id: int, document_id: int = None
+        self, application_id: int, document_id: Optional[int] = None
     ) -> SuccessResponse:
         """Delete a document from an application."""
         # TODO: Implement document deletion logic
-        return SuccessResponse()
+        return SuccessResponse(message=None)
 
     async def update_application(
         self, application_id: int, application: ApplicationCreate
-    ) -> ApplicationResponse:
+    ) -> Optional[ApplicationResponse]:
         """Update an application."""
         return await self.dao.update_application(application_id, application)
 
@@ -114,7 +130,7 @@ class ApplicationMaterialService(BaseService):
     """Service for handling application material operations."""
 
     def __init__(self, dao: ApplicationMaterialDAO):
-        self.dao = dao
+        self.dao: ApplicationMaterialDAO = dao
 
     async def create_application_material(
         self, application_material: ApplicationMaterialCreate

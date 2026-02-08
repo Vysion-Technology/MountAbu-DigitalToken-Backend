@@ -1,3 +1,4 @@
+from typing import Optional
 from pydantic import BaseModel, Field
 
 
@@ -5,6 +6,7 @@ class SuccessResponse(BaseModel):
     """Generic success response."""
 
     success: bool = True
+    message: Optional[str] = Field(None, description="Success message")
 
 
 class MessageResponse(BaseModel):

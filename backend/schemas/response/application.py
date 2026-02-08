@@ -4,7 +4,7 @@ from backend.meta import (
     ApplicationDocumentType,
     PropertyUsageType,
 )
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from typing import Optional, List
 
@@ -26,6 +26,32 @@ class ApplicationMaterialResponse(BaseModel):
     quantity: int
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class CommentResponse(BaseModel):
+    """Response schema for application comments."""
+
+    id: int
+    application_id: int
+    comment: str
+    comment_by: int
+    commenter_name: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def extract_commenter_name(cls, data):
+        """Extract commenter name from the relationship."""
+        if hasattr(data, "commenter") and data.commenter:
+            data = dict(
+                id=data.id,
+                application_id=data.application_id,
+                comment=data.comment,
+                comment_by=data.comment_by,
+                commenter_name=data.commenter.name,
+            )
+        return data
 
 
 class ApplicationResponse(BaseModel):
@@ -67,6 +93,7 @@ class ApplicationResponse(BaseModel):
     num_stages: Optional[int]
     documents: List[ApplicationDocumentResponse] = []
     materials: List[ApplicationMaterialResponse] = []
+    comments: List[CommentResponse] = []
 
     model_config = ConfigDict(extra="ignore", from_attributes=True)
 

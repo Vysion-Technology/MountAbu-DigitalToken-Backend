@@ -1,6 +1,12 @@
+from jose import jwt, ExpiredSignatureError, JWTError
+from backend.config import settings
+import time
+
 from datetime import datetime
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Depends
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +19,8 @@ from backend.core.security import (
     decode_token,
     verify_password,
 )
+from backend.middlewares.auth import get_current_user, security
+from backend.schemas.base.auth import UserDetails
 
 router = APIRouter()
 user_service = UserService()
@@ -63,6 +71,14 @@ class RefreshTokenResponse(BaseModel):
 
 class MessageResponse(BaseModel):
     message: str
+
+
+class MeResponse(BaseModel):
+    user_id: int
+    name: str
+    mobile: str
+    role: str
+    username: Optional[str] = None
 
 
 # --- Routes ---
@@ -231,3 +247,69 @@ async def refresh_access_token(request: RefreshTokenRequest):
         "access_token": new_access_token,
         "token_type": "bearer",
     }
+
+
+@router.get("/me", response_model=MeResponse)
+async def get_me(
+    current_user: UserDetails = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Return the authenticated user's profile.
+    Useful for validating the auth flow end-to-end.
+    """
+    user = await user_dao.get_by_id(db, current_user.user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return {
+        "user_id": user.id,
+        "name": user.name,
+        "mobile": user.mobile,
+        "role": user.role.value,
+        "username": user.username,
+    }
+
+
+@router.get("/debug-token")
+async def debug_token(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """
+    DEBUG ONLY: Decode the token and return detailed info about what's wrong.
+    Remove this endpoint in production.
+    """
+
+    token = credentials.credentials
+    now_ts = time.time()
+
+    # First, decode WITHOUT verification to see the payload
+    try:
+        unverified = jwt.get_unverified_claims(token)
+    except Exception as e:
+        return {"error": "Cannot parse token at all", "detail": str(e)}
+
+    exp_ts = unverified.get("exp")
+    info = {
+        "unverified_payload": unverified,
+        "server_time_utc": now_ts,
+        "token_exp": exp_ts,
+        "seconds_until_expiry": (exp_ts - now_ts) if exp_ts else None,
+        "is_expired": (now_ts > exp_ts) if exp_ts else "no exp claim",
+    }
+
+    # Now try verified decode
+    try:
+        verified = jwt.decode(
+            token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
+        )
+        info["verified_payload"] = verified
+        info["status"] = "VALID"
+    except ExpiredSignatureError:
+        info["status"] = "EXPIRED"
+        info["error"] = "Token signature is valid but the token has expired"
+    except JWTError as e:
+        info["status"] = "INVALID"
+        info["error"] = str(e)
+
+    return info

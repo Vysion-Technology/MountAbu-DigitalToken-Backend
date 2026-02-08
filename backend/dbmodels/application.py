@@ -75,6 +75,15 @@ class Application(Base):
     materials: Mapped[list["ApplicationMaterial"]] = relationship(
         "ApplicationMaterial", back_populates="application"
     )
+    comments: Mapped[list["ApplicationComment"]] = relationship(
+        "ApplicationComment", back_populates="application"
+    )
+    approvals: Mapped[list["ApplicationApproval"]] = relationship(
+        "ApplicationApproval", back_populates="application"
+    )
+    phases: Mapped[list["ApprovedApplicationPhase"]] = relationship(
+        "ApprovedApplicationPhase", back_populates="application"
+    )
 
 
 class ApplicationMaterial(Base):
@@ -103,9 +112,10 @@ class ApplicationComment(Base):
         index=True,
     )
     comment: Mapped[str] = mapped_column(String, index=True)
-    comment_by: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    comment_by: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
 
     commenter: Mapped[User] = relationship("User")
+    application: Mapped["Application"] = relationship("Application", back_populates="comments")
 
 
 class ApplicationDocument(Base):
@@ -139,6 +149,7 @@ class ApprovedApplicationPhase(Base):
     status: Mapped[ApplicationPhaseStatus] = mapped_column(
         Enum(ApplicationPhaseStatus), index=True, default=ApplicationPhaseStatus.PENDING
     )
+    application: Mapped["Application"] = relationship("Application", back_populates="phases")
 
 
 class ApplicationPhaseMaterial(Base):
@@ -152,6 +163,7 @@ class ApplicationPhaseMaterial(Base):
     material_id: Mapped[int] = mapped_column(Integer, index=True)
     quantity: Mapped[int] = mapped_column(Integer, index=True)
 
+    application: Mapped["Application"] = relationship("Application", back_populates="phases")
 
 class ApplicationApproval(Base):
     __tablename__ = "application_approvals"
@@ -165,6 +177,7 @@ class ApplicationApproval(Base):
     approved_at: Mapped[datetime] = mapped_column(DateTime, index=True)
 
     approver: Mapped[User] = relationship("User")
+    application: Mapped["Application"] = relationship("Application", back_populates="approvals")
 
 
 __all__ = [
