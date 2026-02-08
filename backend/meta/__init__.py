@@ -22,7 +22,6 @@ class ApplicationStatus(str, PyEnum):
 class ApplicationType(str, PyEnum):
     NEW = "NEW"
     RENOVATION = "RENOVATION"
-    FENCING = "FENCING"
 
 
 class ApplicationDocumentType(str, PyEnum):
