@@ -17,7 +17,7 @@ async def get_current_user(
     """Get user details from the JWT token."""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
+        detail="Could not validate credentials for user",
         headers={"WWW-Authenticate": "Bearer"},
     )
 
@@ -47,7 +47,7 @@ async def get_current_user_id(
     """Get user id from the JWT token."""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
+        detail="Could not validate credentials for user id",
         headers={"WWW-Authenticate": "Bearer"},
     )
 
