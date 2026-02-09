@@ -14,6 +14,7 @@ from backend.controllers.downloads import router as downloads_router
 from backend.controllers.notices import router as notices_router
 from backend.controllers.tenders import router as tenders_router
 from backend.controllers.events import router as events_router
+from backend.controllers.leaders import router as leaders_router
 
 
 @asynccontextmanager
@@ -43,6 +44,7 @@ app.include_router(downloads_router, prefix="/api", tags=["Downloads"])
 app.include_router(notices_router, prefix="/api", tags=["Notices"])
 app.include_router(tenders_router, prefix="/api", tags=["Tenders"])
 app.include_router(events_router, prefix="/api", tags=["Events"])
+app.include_router(leaders_router, prefix="/api", tags=["Leaders"])
 app.include_router(complaint_router, prefix="/api", tags=["Complaints"])
 app.include_router(city_profile_router, prefix="/api", tags=["City Profile"])
 

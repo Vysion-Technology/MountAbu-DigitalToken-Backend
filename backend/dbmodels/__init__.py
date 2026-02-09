@@ -43,4 +43,6 @@ __all__ = [
     "Tender",
     # Events
     "Event",
+    # Leaders
+    "Leader",
 ]
