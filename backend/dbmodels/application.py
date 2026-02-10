@@ -84,6 +84,9 @@ class Application(Base):
     phases: Mapped[list["ApprovedApplicationPhase"]] = relationship(
         "ApprovedApplicationPhase", back_populates="application"
     )
+    phase_materials: Mapped[list["ApplicationPhaseMaterial"]] = relationship(
+        "ApplicationPhaseMaterial", back_populates="application"
+    )
 
 
 class ApplicationMaterial(Base):
@@ -163,7 +166,7 @@ class ApplicationPhaseMaterial(Base):
     material_id: Mapped[int] = mapped_column(Integer, index=True)
     quantity: Mapped[int] = mapped_column(Integer, index=True)
 
-    application: Mapped["Application"] = relationship("Application", back_populates="phases")
+    application: Mapped["Application"] = relationship("Application", back_populates="phase_materials")
 
 class ApplicationApproval(Base):
     __tablename__ = "application_approvals"
