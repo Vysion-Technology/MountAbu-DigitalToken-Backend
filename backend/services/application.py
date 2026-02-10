@@ -7,14 +7,27 @@ from backend.dao.applicationmaterial import (
     ApplicationMaterialDAO,
     get_application_material_dao,
 )
-from backend.meta import ApplicationDocumentType, ApplicationFlags, UserRole
+from backend.meta import (
+    ApplicationDocumentType,
+    ApplicationFlags,
+    CommentType,
+    UserRole,
+    WorkflowAction,
+)
 from backend.schemas.base.auth import UserDetails
 from backend.schemas.request.application import (
     ApplicationCreate,
     ApplicationMaterialCreate,
     ApplicationMaterialRequirements,
+    InspectionReportCreate,
+    NakaEntryCreate,
+    PhaseMaterialEntry,
+    WorkflowActionRequest,
 )
-from backend.schemas.response.application import ApplicationResponse
+from backend.schemas.response.application import (
+    ApplicationResponse,
+    PhaseResponse,
+)
 from backend.schemas.response.meta import SuccessResponse, DocumentUploadResponse
 from backend.services.base import BaseService
 from backend.services.storage import get_storage_service
@@ -37,7 +50,6 @@ class ApplicationService(BaseService):
     ) -> Optional[ApplicationResponse]:
         """Get a specific application by ID."""
         if request_user_data:
-            # TODO: Log the user access to user data here
             print(
                 f"User {user.user_id} requested full user data for application {application_id}"
             )
@@ -59,7 +71,7 @@ class ApplicationService(BaseService):
         limit: int,
         user_id: Optional[int] = None,
     ) -> List[ApplicationResponse]:
-        """Get applications filtered by flag with pagination. If user_id is set, scopes to that user."""
+        """Get applications filtered by flag with pagination."""
         return await self.dao.get_applications(
             flag=flag, offset=offset, limit=limit, user_id=user_id
         )
@@ -69,10 +81,17 @@ class ApplicationService(BaseService):
         return await self.dao.delete_application(application_id)
 
     async def comment_on_application(
-        self, application_id: int, comment: str, user_id: int
+        self,
+        application_id: int,
+        comment: str,
+        user_id: int,
+        comment_type: CommentType = CommentType.GENERAL,
+        media_paths: Optional[list] = None,
     ) -> SuccessResponse:
         """Add a comment to an application."""
-        return await self.dao.comment_on_application(application_id, comment, user_id)
+        return await self.dao.comment_on_application(
+            application_id, comment, user_id, comment_type, media_paths
+        )
 
     async def get_application_comments(self, application_id: int) -> list:
         """Get comments for an application."""
@@ -108,7 +127,6 @@ class ApplicationService(BaseService):
         self, application_id: int, document_id: Optional[int] = None
     ) -> SuccessResponse:
         """Delete a document from an application."""
-        # TODO: Implement document deletion logic
         return SuccessResponse(message=None)
 
     async def submit_application(
@@ -130,6 +148,76 @@ class ApplicationService(BaseService):
     ) -> SuccessResponse:
         """Add materials to an existing application."""
         return await self.dao.add_materials(application_id, material_requirements)
+
+    # ── Workflow action ───────────────────────────────────────────────────
+    async def perform_workflow_action(
+        self,
+        application_id: int,
+        request: WorkflowActionRequest,
+        user_id: int,
+        user_role: UserRole,
+    ) -> SuccessResponse:
+        """Execute a workflow action (approve/reject/object/forward/generate-tokens)."""
+        return await self.dao.perform_workflow_action(
+            application_id=application_id,
+            action=request.action,
+            user_id=user_id,
+            user_role=user_role,
+            remarks=request.remarks,
+            num_stages=request.num_stages,
+            phase_materials=request.phase_materials,
+        )
+
+    # ── JEN inspection ────────────────────────────────────────────────────
+    async def create_inspection_report(
+        self,
+        application_id: int,
+        report: InspectionReportCreate,
+        user_id: int,
+    ) -> SuccessResponse:
+        """Create an inspection report."""
+        return await self.dao.create_inspection_report(
+            application_id=application_id,
+            user_id=user_id,
+            latitude=report.latitude,
+            longitude=report.longitude,
+            remarks=report.remarks,
+            media_paths=report.media_paths,
+            recommended_phases=report.recommended_phases,
+            phase_materials=report.phase_materials,
+        )
+
+    # ── Naka entry ────────────────────────────────────────────────────────
+    async def create_naka_entry(
+        self,
+        application_id: int,
+        phase: int,
+        entry: NakaEntryCreate,
+        user_id: int,
+    ) -> SuccessResponse:
+        """Log a naka checkpoint entry."""
+        return await self.dao.create_naka_entry(
+            application_id=application_id,
+            phase=phase,
+            user_id=user_id,
+            material_id=entry.material_id,
+            quantity_brought=entry.quantity_brought,
+            vehicle_number=entry.vehicle_number,
+            remarks=entry.remarks,
+            media_path=entry.media_path,
+        )
+
+    # ── Phase management ──────────────────────────────────────────────────
+    async def get_phases(self, application_id: int) -> list[PhaseResponse]:
+        """Get phases for an application."""
+        phases = await self.dao.get_phases(application_id)
+        return [PhaseResponse.model_validate(p) for p in phases]
+
+    async def complete_phase(
+        self, application_id: int, phase: int, user_id: int
+    ) -> SuccessResponse:
+        """Mark a phase as completed."""
+        return await self.dao.complete_phase(application_id, phase, user_id)
 
 
 class ApplicationMaterialService(BaseService):

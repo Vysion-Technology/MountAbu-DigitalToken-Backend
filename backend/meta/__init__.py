@@ -17,9 +17,11 @@ class ApplicationStatus(str, PyEnum):
     PENDING = "PENDING"
     SUBMITTED = "SUBMITTED"
     APPROVED = "APPROVED"
-    WITHHELD = "WITHHELD" # Temporary Hold (e.g., for additional documents or clarifications)
-    OBJECTED = "OBJECTED" # Application Objected by Commissioner or Nodal Officer
-    REJECTED = "REJECTED" # Application Rejection
+    FORWARDED = "FORWARDED"  # Commissioner forwards renovation to depts
+    WITHHELD = "WITHHELD"  # Temporary Hold (e.g., for additional documents or clarifications)
+    OBJECTED = "OBJECTED"  # Application Objected by Commissioner or Nodal Officer
+    REJECTED = "REJECTED"  # Application Rejection
+    TOKEN_GENERATED = "TOKEN_GENERATED"  # Tokens created, phases active
 
 
 class ApplicationType(str, PyEnum):
@@ -39,16 +41,36 @@ class ApplicationDocumentType(str, PyEnum):
     PERMISSION_DOCUMENTS = "PERMISSION_DOCUMENTS"
     PROPERTY_PHOTOS = "PROPERTY_PHOTOS"
     SUPPORTING_DOCUMENTS = "SUPPORTING_DOCUMENTS"
+    SITE_INSPECTION = "SITE_INSPECTION"  # JEN geo-tagged inspection photos
+    GEO_TAGGED_PHOTO = "GEO_TAGGED_PHOTO"  # Geo-tagged site photos
 
 
 class ApplicationPhaseStatus(str, PyEnum):
     PENDING = "PENDING"
+    ACTIVE = "ACTIVE"  # Current phase the Naka can act on
     APPROVED = "APPROVED"
-    WITHHELD = "WITHHELD" # Temporary Hold (e.g., for additional documents or clarifications)
-    REJECTED = "REJECTED" # Application Rejection
-    TERMINATED = "TERMINATED" # Token Termination
+    WITHHELD = "WITHHELD"  # Temporary Hold
+    REJECTED = "REJECTED"  # Application Rejection
+    TERMINATED = "TERMINATED"  # Token Termination
     IN_PROGRESS = "IN_PROGRESS"
     COMPLETED = "COMPLETED"
+
+
+class WorkflowAction(str, PyEnum):
+    """Actions that can be taken on an application."""
+    APPROVE = "APPROVE"
+    REJECT = "REJECT"
+    OBJECT = "OBJECT"
+    FORWARD = "FORWARD"  # Commissioner forwards renovation to depts
+    GENERATE_TOKENS = "GENERATE_TOKENS"
+
+
+class CommentType(str, PyEnum):
+    """Types of comments on an application."""
+    GENERAL = "GENERAL"
+    DEPT_REVIEW = "DEPT_REVIEW"  # Department review comment (JEN/ATP/LAND/LEGAL)
+    OBJECTION_RESPONSE = "OBJECTION_RESPONSE"  # Citizen response to objection
+    INSPECTION_REMARK = "INSPECTION_REMARK"  # JEN inspection remarks
 
 
 class PropertyUsageType(str, PyEnum):
@@ -96,9 +118,11 @@ class ApplicationFlags(str, PyEnum):
     # Generic flags
     ALL = "ALL"
     CITIZEN = "CITIZEN"
+    OBJECTED_CITIZEN_ACTION = "OBJECTED_CITIZEN_ACTION"  # Citizen must respond to objection
 
     # New Application flags
     NEW_APPLICATION_REQUIRES_NODAL_OFFICER_ACTION = "NEW_APPLICATION_REQUIRES_NODAL_OFFICER_ACTION"
+    NEW_APPLICATION_REQUIRES_JEN_INSPECTION = "NEW_APPLICATION_REQUIRES_JEN_INSPECTION"
     NEW_APPLICATION_REQUIRES_JEN_FIELD_INSPECTION = "NEW_APPLICATION_REQUIRES_JEN_FIELD_INSPECTION"
     NEW_APPLICATION_REQUIRES_JEN_MATERIAL_ENTRY = "NEW_APPLICATION_REQUIRES_JEN_MATERIAL_ENTRY"
     NEW_APPLICATION_REQUIRES_NODAL_OFFICER_TOKEN_GENERATION = "NEW_APPLICATION_REQUIRES_NODAL_OFFICER_TOKEN_GENERATION"
@@ -109,6 +133,7 @@ class ApplicationFlags(str, PyEnum):
     RENOVATION_REQUIRES_JEN_FIELD_INSPECTION = "RENOVATION_REQUIRES_JEN_FIELD_INSPECTION"
     RENOVATION_REQUIRES_JEN_MATERIAL_ENTRY = "RENOVATION_REQUIRES_JEN_MATERIAL_ENTRY"
     RENOVATION_REQUIRES_COMMISSIONER_ACTION = "RENOVATION_REQUIRES_COMMISSIONER_ACTION"
+    RENOVATION_REQUIRES_NODAL_OFFICER_ACTION = "RENOVATION_REQUIRES_NODAL_OFFICER_ACTION"
     RENOVATION_REQUIRES_NODAL_OFFICER_TOKEN_GENERATION = "RENOVATION_REQUIRES_NODAL_OFFICER_TOKEN_GENERATION"
     RENOVATION_REQUIRES_NODAL_OFFICER_APPROVAL_PHASE_1 = "RENOVATION_REQUIRES_NODAL_OFFICER_APPROVAL_PHASE_1"
     RENOVATION_REQUIRES_NODAL_OFFICER_APPROVAL_PHASE_2 = "RENOVATION_REQUIRES_NODAL_OFFICER_APPROVAL_PHASE_2"
@@ -120,3 +145,7 @@ class ApplicationFlags(str, PyEnum):
     RENOVATION_OVERDUE_COMMENTS_ATP = "RENOVATION_OVERDUE_COMMENTS_ATP"
     RENOVATION_OVERDUE_COMMENTS_LAND = "RENOVATION_OVERDUE_COMMENTS_LAND"
     RENOVATION_OVERDUE_COMMENTS_LEGAL = "RENOVATION_OVERDUE_COMMENTS_LEGAL"
+
+    # Phase & Naka flags
+    PHASE_READY_FOR_NAKA = "PHASE_READY_FOR_NAKA"  # Naka incharge can act
+    NAKA_INCHARGE_ACTION = "NAKA_INCHARGE_ACTION"  # Materials to verify

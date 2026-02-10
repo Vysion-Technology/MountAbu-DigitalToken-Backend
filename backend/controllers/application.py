@@ -13,8 +13,15 @@ from backend.schemas.request.application import (
     ApplicationCreate,
     CommentRequest,
     ApplicationMaterialRequirements,
+    WorkflowActionRequest,
+    InspectionReportCreate,
+    NakaEntryCreate,
 )
-from backend.schemas.response.application import ApplicationResponse, CommentResponse
+from backend.schemas.response.application import (
+    ApplicationResponse,
+    CommentResponse,
+    PhaseResponse,
+)
 from backend.schemas.response.meta import SuccessResponse, DocumentUploadResponse
 from backend.services.application import get_application_service, ApplicationService
 
@@ -26,31 +33,42 @@ _ADMIN_ROLES = [UserRole.SUPERADMIN, UserRole.NODAL_OFFICER, UserRole.COMMISSION
 
 # Mapping of flag -> allowed roles that can query with that flag
 FLAG_ALLOWED_ROLES: dict[ApplicationFlags, list[UserRole]] = {
-    # New Application
-    ApplicationFlags.NEW_APPLICATION_REQUIRES_NODAL_OFFICER_ACTION: [*_ADMIN_ROLES, UserRole.NODAL_OFFICER],
+    # ── Generic ───────────────────────────────────────────────────────────
+    ApplicationFlags.ALL: [*_ADMIN_ROLES],
+    ApplicationFlags.CITIZEN: [UserRole.CITIZEN],
+    ApplicationFlags.OBJECTED_CITIZEN_ACTION: [*_ADMIN_ROLES, UserRole.CITIZEN],
+
+    # ── New Application ───────────────────────────────────────────────────
+    ApplicationFlags.NEW_APPLICATION_REQUIRES_NODAL_OFFICER_ACTION: [*_ADMIN_ROLES],
+    ApplicationFlags.NEW_APPLICATION_REQUIRES_JEN_INSPECTION: [*_ADMIN_ROLES, UserRole.JEN],
     ApplicationFlags.NEW_APPLICATION_REQUIRES_JEN_FIELD_INSPECTION: [*_ADMIN_ROLES, UserRole.JEN],
     ApplicationFlags.NEW_APPLICATION_REQUIRES_JEN_MATERIAL_ENTRY: [*_ADMIN_ROLES, UserRole.JEN],
-    ApplicationFlags.NEW_APPLICATION_REQUIRES_NODAL_OFFICER_TOKEN_GENERATION: [*_ADMIN_ROLES, UserRole.NODAL_OFFICER],
-    # Renovation
+    ApplicationFlags.NEW_APPLICATION_REQUIRES_NODAL_OFFICER_TOKEN_GENERATION: [*_ADMIN_ROLES],
+
+    # ── Renovation ────────────────────────────────────────────────────────
     ApplicationFlags.RENOVATION_REQUIRES_COMMISSIONER_FORWARD: [*_ADMIN_ROLES],
-    ApplicationFlags.RENOVATION_REQUIRES_DEPT_COMMENT: [*_ADMIN_ROLES, UserRole.JEN, UserRole.DEPT_ATP, UserRole.DEPT_LAND, UserRole.DEPT_LEGAL],
+    ApplicationFlags.RENOVATION_REQUIRES_DEPT_COMMENT: [
+        *_ADMIN_ROLES, UserRole.JEN, UserRole.DEPT_ATP, UserRole.DEPT_LAND, UserRole.DEPT_LEGAL,
+    ],
     ApplicationFlags.RENOVATION_REQUIRES_JEN_FIELD_INSPECTION: [*_ADMIN_ROLES, UserRole.JEN],
     ApplicationFlags.RENOVATION_REQUIRES_JEN_MATERIAL_ENTRY: [*_ADMIN_ROLES, UserRole.JEN],
     ApplicationFlags.RENOVATION_REQUIRES_COMMISSIONER_ACTION: [*_ADMIN_ROLES],
-    ApplicationFlags.RENOVATION_REQUIRES_NODAL_OFFICER_TOKEN_GENERATION: [*_ADMIN_ROLES, UserRole.NAKA_INCHARGE],
+    ApplicationFlags.RENOVATION_REQUIRES_NODAL_OFFICER_ACTION: [*_ADMIN_ROLES],
+    ApplicationFlags.RENOVATION_REQUIRES_NODAL_OFFICER_TOKEN_GENERATION: [*_ADMIN_ROLES],
     ApplicationFlags.RENOVATION_REQUIRES_NODAL_OFFICER_APPROVAL_PHASE_1: [*_ADMIN_ROLES, UserRole.NAKA_INCHARGE],
     ApplicationFlags.RENOVATION_REQUIRES_NODAL_OFFICER_APPROVAL_PHASE_2: [*_ADMIN_ROLES, UserRole.NAKA_INCHARGE],
     ApplicationFlags.RENOVATION_REQUIRES_NODAL_OFFICER_APPROVAL_PHASE_3: [*_ADMIN_ROLES, UserRole.NAKA_INCHARGE],
     ApplicationFlags.RENOVATION_REQUIRES_NODAL_OFFICER_APPROVAL_PHASE_4: [*_ADMIN_ROLES, UserRole.NAKA_INCHARGE],
     ApplicationFlags.RENOVATION_REQUIRES_NODAL_OFFICER_APPROVAL_PHASE_5: [*_ADMIN_ROLES, UserRole.NAKA_INCHARGE],
-    ApplicationFlags.RENOVATION_OVERDUE_COMMENTS: [*_ADMIN_ROLES, UserRole.NAKA_INCHARGE],
+    ApplicationFlags.RENOVATION_OVERDUE_COMMENTS: [*_ADMIN_ROLES],
     ApplicationFlags.RENOVATION_OVERDUE_COMMENTS_JEN: [*_ADMIN_ROLES, UserRole.JEN],
     ApplicationFlags.RENOVATION_OVERDUE_COMMENTS_ATP: [*_ADMIN_ROLES, UserRole.DEPT_ATP],
     ApplicationFlags.RENOVATION_OVERDUE_COMMENTS_LAND: [*_ADMIN_ROLES, UserRole.DEPT_LAND],
     ApplicationFlags.RENOVATION_OVERDUE_COMMENTS_LEGAL: [*_ADMIN_ROLES, UserRole.DEPT_LEGAL],
-    # Generic flags
-    ApplicationFlags.ALL: [*_ADMIN_ROLES],
-    ApplicationFlags.CITIZEN: [UserRole.CITIZEN],
+
+    # ── Phase & Naka ──────────────────────────────────────────────────────
+    ApplicationFlags.PHASE_READY_FOR_NAKA: [*_ADMIN_ROLES, UserRole.NAKA_INCHARGE],
+    ApplicationFlags.NAKA_INCHARGE_ACTION: [*_ADMIN_ROLES, UserRole.NAKA_INCHARGE],
 }
 
 
@@ -204,23 +222,105 @@ async def submit_application(
     return await application_service.submit_application(application_id, user.user_id)
 
 
-@router.put("/applications/{application_id}/approve", response_model=SuccessResponse)
-async def approve_application(
+@router.put("/applications/{application_id}/action", response_model=SuccessResponse)
+async def workflow_action(
+    application_id: int,
+    request: WorkflowActionRequest,
+    application_service: ApplicationService = Depends(get_application_service),
+    user: UserDetails = Depends(get_current_user),
+) -> SuccessResponse:
+    """Execute a workflow action on an application.
+
+    Actions: APPROVE, REJECT, OBJECT, FORWARD, GENERATE_TOKENS.
+    The state machine validates the transition based on current status,
+    application type, and the caller's role.
+    """
+    return await application_service.perform_workflow_action(
+        application_id=application_id,
+        request=request,
+        user_id=user.user_id,
+        user_role=user.role,
+    )
+
+
+@router.post(
+    "/applications/{application_id}/inspection", response_model=SuccessResponse
+)
+async def create_inspection(
+    application_id: int,
+    report: InspectionReportCreate,
+    application_service: ApplicationService = Depends(get_application_service),
+    user: UserDetails = Depends(get_current_user),
+) -> SuccessResponse:
+    """JEN creates a site inspection report."""
+    if user.role not in (UserRole.JEN, UserRole.SUPERADMIN):
+        raise HTTPException(
+            status_code=403,
+            detail="Only JEN or SUPERADMIN can create inspection reports",
+        )
+    return await application_service.create_inspection_report(
+        application_id=application_id,
+        report=report,
+        user_id=user.user_id,
+    )
+
+
+@router.post(
+    "/applications/{application_id}/phases/{phase}/naka-entry",
+    response_model=SuccessResponse,
+)
+async def create_naka_entry(
+    application_id: int,
+    phase: int,
+    entry: NakaEntryCreate,
+    application_service: ApplicationService = Depends(get_application_service),
+    user: UserDetails = Depends(get_current_user),
+) -> SuccessResponse:
+    """Naka incharge logs materials brought at a checkpoint."""
+    if user.role not in (UserRole.NAKA_INCHARGE, UserRole.SUPERADMIN):
+        raise HTTPException(
+            status_code=403,
+            detail="Only NAKA_INCHARGE or SUPERADMIN can create naka entries",
+        )
+    return await application_service.create_naka_entry(
+        application_id=application_id,
+        phase=phase,
+        entry=entry,
+        user_id=user.user_id,
+    )
+
+
+@router.get(
+    "/applications/{application_id}/phases", response_model=List[PhaseResponse]
+)
+async def get_phases(
     application_id: int,
     application_service: ApplicationService = Depends(get_application_service),
-    user_id: int = Depends(get_current_user_id),
-) -> SuccessResponse:
-    """Approve an application. This API shall be called by the NODAL OFFICER."""
-    raise NotImplementedError("Approve application logic not implemented yet")
+    user: UserDetails = Depends(get_current_user),
+) -> List[PhaseResponse]:
+    """Get all phases for an application."""
+    return await application_service.get_phases(application_id)
 
 
-@router.put("/applications/{application_id}/reject", response_model=SuccessResponse)
-async def reject_application(
+@router.put(
+    "/applications/{application_id}/phases/{phase}/complete",
+    response_model=SuccessResponse,
+)
+async def complete_phase(
     application_id: int,
-    user_id: int = Depends(get_current_user_id),
+    phase: int,
+    application_service: ApplicationService = Depends(get_application_service),
+    user: UserDetails = Depends(get_current_user),
 ) -> SuccessResponse:
-    """Reject an application. This API shall be called by the NODAL OFFICER."""
-    raise NotImplementedError("Reject application logic not implemented yet")
+    """Mark a phase as completed and activate the next one."""
+    if user.role not in (UserRole.NODAL_OFFICER, UserRole.SUPERADMIN):
+        raise HTTPException(
+            status_code=403,
+            detail="Only NODAL_OFFICER or SUPERADMIN can complete phases",
+        )
+    return await application_service.complete_phase(
+        application_id, phase, user.user_id
+    )
 
 
 @router.put("/applications/{application_id}/comment", response_model=SuccessResponse)
@@ -244,7 +344,11 @@ async def comment_on_application(
             )
 
     return await application_service.comment_on_application(
-        application_id, comment_request.comment, user.user_id
+        application_id,
+        comment_request.comment,
+        user.user_id,
+        comment_type=comment_request.comment_type,
+        media_paths=comment_request.media_paths,
     )
 
 
@@ -260,15 +364,6 @@ async def get_application_comments(
     """Get all comments for an application."""
     comments = await application_service.get_application_comments(application_id)
     return [CommentResponse.model_validate(c) for c in comments]
-
-
-@router.post("/applications/{application_id}/material", response_model=SuccessResponse)
-async def approve_material(
-    application_id: int,
-    user_id: int = Depends(get_current_user_id),
-) -> SuccessResponse:
-    """Approve material for an application."""
-    raise NotImplementedError("Approve material logic not implemented yet")
 
 
 @router.delete("/applications/{application_id}", response_model=SuccessResponse)

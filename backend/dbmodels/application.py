@@ -1,8 +1,8 @@
 from datetime import datetime
-from backend.meta import ApplicationDocumentType
+from backend.meta import ApplicationDocumentType, CommentType, WorkflowAction
 from typing import Optional
 
-from sqlalchemy import Enum, Integer, String, ForeignKey, DateTime
+from sqlalchemy import Enum, Float, Integer, String, ForeignKey, DateTime, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.database import Base
@@ -87,6 +87,15 @@ class Application(Base):
     phase_materials: Mapped[list["ApplicationPhaseMaterial"]] = relationship(
         "ApplicationPhaseMaterial", back_populates="application"
     )
+    naka_entries: Mapped[list["NakaEntry"]] = relationship(
+        "NakaEntry", back_populates="application"
+    )
+    inspections: Mapped[list["InspectionReport"]] = relationship(
+        "InspectionReport", back_populates="application"
+    )
+    action_logs: Mapped[list["ApplicationActionLog"]] = relationship(
+        "ApplicationActionLog", back_populates="application"
+    )
 
 
 class ApplicationMaterial(Base):
@@ -116,6 +125,13 @@ class ApplicationComment(Base):
     )
     comment: Mapped[str] = mapped_column(String, index=True)
     comment_by: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    comment_type: Mapped[CommentType] = mapped_column(
+        Enum(CommentType), index=True, default=CommentType.GENERAL
+    )
+    media_paths: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.now, index=True
+    )
 
     commenter: Mapped[User] = relationship("User")
     application: Mapped["Application"] = relationship("Application", back_populates="comments")
@@ -152,7 +168,26 @@ class ApprovedApplicationPhase(Base):
     status: Mapped[ApplicationPhaseStatus] = mapped_column(
         Enum(ApplicationPhaseStatus), index=True, default=ApplicationPhaseStatus.PENDING
     )
+    activated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
     application: Mapped["Application"] = relationship("Application", back_populates="phases")
+    phase_materials: Mapped[list["ApplicationPhaseMaterial"]] = relationship(
+        "ApplicationPhaseMaterial",
+        back_populates="phase_record",
+        primaryjoin="and_(ApprovedApplicationPhase.application_id==ApplicationPhaseMaterial.application_id, "
+                    "ApprovedApplicationPhase.phase==ApplicationPhaseMaterial.phase)",
+        foreign_keys="[ApplicationPhaseMaterial.application_id, ApplicationPhaseMaterial.phase]",
+        viewonly=True,
+    )
+    naka_entries: Mapped[list["NakaEntry"]] = relationship(
+        "NakaEntry",
+        back_populates="phase_record",
+        primaryjoin="and_(ApprovedApplicationPhase.application_id==NakaEntry.application_id, "
+                    "ApprovedApplicationPhase.phase==NakaEntry.phase)",
+        foreign_keys="[NakaEntry.application_id, NakaEntry.phase]",
+        viewonly=True,
+    )
 
 
 class ApplicationPhaseMaterial(Base):
@@ -163,10 +198,19 @@ class ApplicationPhaseMaterial(Base):
         index=True,
     )
     phase: Mapped[int] = mapped_column(Integer, index=True)
-    material_id: Mapped[int] = mapped_column(Integer, index=True)
+    material_id: Mapped[int] = mapped_column(ForeignKey("materials.id"), index=True)
     quantity: Mapped[int] = mapped_column(Integer, index=True)
 
     application: Mapped["Application"] = relationship("Application", back_populates="phase_materials")
+    material: Mapped["Material"] = relationship("Material")
+    phase_record: Mapped["ApprovedApplicationPhase"] = relationship(
+        "ApprovedApplicationPhase",
+        back_populates="phase_materials",
+        primaryjoin="and_(ApplicationPhaseMaterial.application_id==ApprovedApplicationPhase.application_id, "
+                    "ApplicationPhaseMaterial.phase==ApprovedApplicationPhase.phase)",
+        foreign_keys="[ApplicationPhaseMaterial.application_id, ApplicationPhaseMaterial.phase]",
+        viewonly=True,
+    )
 
 class ApplicationApproval(Base):
     __tablename__ = "application_approvals"
@@ -176,6 +220,10 @@ class ApplicationApproval(Base):
         index=True,
     )
     phase: Mapped[Optional[int]] = mapped_column(Integer, index=True, nullable=True)
+    action: Mapped[WorkflowAction] = mapped_column(
+        Enum(WorkflowAction), index=True, default=WorkflowAction.APPROVE
+    )
+    remarks: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     approved_by: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     approved_at: Mapped[datetime] = mapped_column(DateTime, index=True)
 
@@ -192,4 +240,68 @@ __all__ = [
     "ApplicationDocument",
     "ApprovedApplicationPhase",
     "ApplicationPhaseMaterial",
+    "NakaEntry",
+    "InspectionReport",
+    "ApplicationActionLog",
 ]
+
+
+class NakaEntry(Base):
+    """Material checkpoint entry at Naka by NAKA_INCHARGE."""
+    __tablename__ = "naka_entries"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    application_id: Mapped[int] = mapped_column(ForeignKey("applications.id"), index=True)
+    phase: Mapped[int] = mapped_column(Integer, index=True)
+    material_id: Mapped[int] = mapped_column(ForeignKey("materials.id"), index=True)
+    quantity_brought: Mapped[int] = mapped_column(Integer)
+    entry_by: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    entry_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, index=True)
+    vehicle_number: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    remarks: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    media_path: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+    application: Mapped["Application"] = relationship("Application", back_populates="naka_entries")
+    material: Mapped["Material"] = relationship("Material")
+    entered_by_user: Mapped[User] = relationship("User")
+    phase_record: Mapped["ApprovedApplicationPhase"] = relationship(
+        "ApprovedApplicationPhase",
+        back_populates="naka_entries",
+        primaryjoin="and_(NakaEntry.application_id==ApprovedApplicationPhase.application_id, "
+                    "NakaEntry.phase==ApprovedApplicationPhase.phase)",
+        foreign_keys="[NakaEntry.application_id, NakaEntry.phase]",
+        viewonly=True,
+    )
+
+
+class InspectionReport(Base):
+    """Site inspection report by JEN."""
+    __tablename__ = "inspection_reports"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    application_id: Mapped[int] = mapped_column(ForeignKey("applications.id"), index=True)
+    inspected_by: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    inspected_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, index=True)
+    latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    remarks: Mapped[str] = mapped_column(String)
+    media_paths: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    recommended_phases: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    application: Mapped["Application"] = relationship("Application", back_populates="inspections")
+    inspector: Mapped[User] = relationship("User")
+
+
+class ApplicationActionLog(Base):
+    """Audit log of every workflow action taken on an application."""
+    __tablename__ = "application_action_logs"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    application_id: Mapped[int] = mapped_column(ForeignKey("applications.id"), index=True)
+    action: Mapped[WorkflowAction] = mapped_column(Enum(WorkflowAction), index=True)
+    from_status: Mapped[ApplicationStatus] = mapped_column(Enum(ApplicationStatus))
+    to_status: Mapped[ApplicationStatus] = mapped_column(Enum(ApplicationStatus))
+    performed_by: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    performed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, index=True)
+    remarks: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    phase: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    application: Mapped["Application"] = relationship("Application", back_populates="action_logs")
+    performer: Mapped[User] = relationship("User")
