@@ -307,6 +307,59 @@ class ApplicationDAO(BaseDAO):
         await self.session.commit()
         return SuccessResponse(message=None)
 
+    async def submit_application(
+        self, application_id: int, user_id: int
+    ) -> SuccessResponse:
+        """Submit an application (change status from PENDING to SUBMITTED).
+        
+        Validates that the application has the required document types:
+        AADHAAR, PERMISSION_DOCUMENTS, and OWNERSHIP_DOCUMENTS.
+        Only the owning CITIZEN can submit.
+        """
+        # Load application with documents
+        stmt = (
+            select(Application)
+            .where(Application.id == application_id)
+            .options(selectinload(Application.documents))
+        )
+        result = await self.session.execute(stmt)
+        application = result.scalar_one_or_none()
+
+        if not application:
+            raise HTTPException(status_code=404, detail="Application not found")
+
+        if application.user_id != user_id:
+            raise HTTPException(
+                status_code=403, detail="You can only submit your own applications"
+            )
+
+        if application.status != ApplicationStatus.PENDING:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Application is in '{application.status.value}' status and cannot be submitted. Only PENDING applications can be submitted.",
+            )
+
+        # Validate required document types
+        existing_doc_types = {doc.document_type for doc in application.documents}
+        required_doc_types = {
+            ApplicationDocumentType.AADHAAR,
+            ApplicationDocumentType.PERMISSION_DOCUMENTS,
+            ApplicationDocumentType.OWNERSHIP_DOCUMENTS,
+        }
+        missing = required_doc_types - existing_doc_types
+        if missing:
+            missing_names = [dt.value for dt in missing]
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot submit: missing required documents: {', '.join(sorted(missing_names))}. "
+                       f"Please upload AADHAAR, PERMISSION_DOCUMENTS, and OWNERSHIP_DOCUMENTS before submitting.",
+            )
+
+        # Update status
+        application.status = ApplicationStatus.SUBMITTED
+        await self.session.commit()
+        return SuccessResponse(message="Application submitted successfully")
+
     async def get_comments(self, application_id: int) -> list[ApplicationComment]:
         """Get all comments for an application."""
         stmt = (

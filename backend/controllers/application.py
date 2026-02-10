@@ -185,6 +185,25 @@ async def get_application(
     )
 
 
+@router.put("/applications/{application_id}/submit", response_model=SuccessResponse)
+async def submit_application(
+    application_id: int,
+    application_service: ApplicationService = Depends(get_application_service),
+    user: UserDetails = Depends(get_current_user),
+) -> SuccessResponse:
+    """Submit an application (PENDING -> SUBMITTED).
+    
+    Only the owning CITIZEN can submit. Validates that AADHAAR,
+    PERMISSION_DOCUMENTS and OWNERSHIP_DOCUMENTS are attached.
+    """
+    if user.role != UserRole.CITIZEN:
+        raise HTTPException(
+            status_code=403,
+            detail="Only citizens can submit their applications",
+        )
+    return await application_service.submit_application(application_id, user.user_id)
+
+
 @router.put("/applications/{application_id}/approve", response_model=SuccessResponse)
 async def approve_application(
     application_id: int,

@@ -111,6 +111,12 @@ class ApplicationService(BaseService):
         # TODO: Implement document deletion logic
         return SuccessResponse(message=None)
 
+    async def submit_application(
+        self, application_id: int, user_id: int
+    ) -> SuccessResponse:
+        """Submit an application (PENDING -> SUBMITTED) with document validation."""
+        return await self.dao.submit_application(application_id, user_id)
+
     async def update_application(
         self, application_id: int, application: ApplicationCreate
     ) -> Optional[ApplicationResponse]:
