@@ -31,6 +31,12 @@ SUPERADMIN_MOBILE = "9999999999"
 SUPERADMIN_USERNAME = "superadmin"
 SUPERADMIN_PASSWORD = "SuperAdmin@123"
 
+# MinIO runs inside Docker as "minio:9000" but is exposed on localhost:9000.
+# Presigned URLs returned by the backend contain the Docker-internal hostname.
+# We rewrite them so the test script (running on the host) can reach MinIO.
+MINIO_DOCKER_HOST = "minio:9000"
+MINIO_PUBLIC_HOST = "localhost:9000"
+
 TESTDOCS_DIR = Path(__file__).resolve().parent.parent / "testdocs"
 
 # ---------------------------------------------------------------------------
@@ -44,6 +50,11 @@ def _url(base: str, path: str) -> str:
 
 def _headers(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
+
+
+def _rewrite_minio_url(url: str) -> str:
+    """Replace Docker-internal minio hostname with localhost so the host can reach it."""
+    return url.replace(f"http://{MINIO_DOCKER_HOST}", f"http://{MINIO_PUBLIC_HOST}")
 
 
 def _check(resp: requests.Response, context: str = ""):
@@ -336,9 +347,20 @@ def get_presigned_url(
 
 
 def upload_file_to_presigned_url(upload_url: str, file_path: Path, content_type: str):
-    """PUT file content to the presigned upload URL."""
+    """PUT file content to the presigned upload URL.
+
+    The presigned URL is signed for ``minio:9000`` (Docker-internal host).
+    We rewrite the URL to ``localhost:9000`` so the host machine can reach
+    MinIO, but we must keep the ``Host`` header as ``minio:9000`` so the
+    signature verification still passes.
+    """
+    rewritten_url = _rewrite_minio_url(upload_url)
+    headers = {"Content-Type": content_type}
+    # Preserve the original Host header so the presigned signature stays valid
+    if MINIO_DOCKER_HOST in upload_url:
+        headers["Host"] = MINIO_DOCKER_HOST
     with open(file_path, "rb") as f:
-        resp = requests.put(upload_url, data=f, headers={"Content-Type": content_type})
+        resp = requests.put(rewritten_url, data=f, headers=headers)
     if resp.status_code not in (200, 204):
         raise RuntimeError(
             f"Upload to presigned URL failed: {resp.status_code} {resp.text}"
@@ -391,7 +413,7 @@ def upload_via_presigned(
     )
     print(f"     Got presigned URL for key: {presigned['object_key']}")
 
-    # Step 2: PUT file to presigned URL
+    # Step 2: PUT file to presigned URL (rewrites Docker hostname internally)
     upload_file_to_presigned_url(presigned["upload_url"], file_path, content_type)
     print("     File uploaded to MinIO")
 
