@@ -15,6 +15,7 @@ class UserRole(str, PyEnum):
 
 class ApplicationStatus(str, PyEnum):
     PENDING = "PENDING"
+    SUBMITTED = "SUBMITTED"
     APPROVED = "APPROVED"
     WITHHELD = "WITHHELD" # Temporary Hold (e.g., for additional documents or clarifications)
     OBJECTED = "OBJECTED" # Application Objected by Commissioner or Nodal Officer

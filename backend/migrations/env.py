@@ -15,7 +15,18 @@ from backend.config import settings
 from backend.database import Base
 
 # Import all models to register them with metadata
-from backend.dbmodels import user, application, complaint
+from backend.dbmodels import (
+    user,
+    application,
+    complaint,
+    city_profile,
+    download,
+    event,
+    leader,
+    master,
+    notice,
+    tender,
+)
 
 config = context.config
 
