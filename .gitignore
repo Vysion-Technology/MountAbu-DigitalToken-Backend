@@ -1,3 +1,5 @@
+# Data files
+data
 # Dependencies
 node_modules/
 .pnpm-store/

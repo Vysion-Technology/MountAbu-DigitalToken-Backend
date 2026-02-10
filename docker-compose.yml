@@ -11,7 +11,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-etoken_secure_password_123}
       POSTGRES_DB: ${POSTGRES_DB:-mountabu_etoken}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - ./data/postgres:/var/lib/postgresql/data
       - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
     ports:
       - "5432:5432"
@@ -41,7 +41,7 @@ services:
       - MINIO_SECRET_KEY=${S3_SECRET_KEY:-minioadmin123}
     volumes:
       - ./backend:/app/backend
-      - uploads_data:/app/uploads
+      - ./data/uploads:/app/uploads
     ports:
       - "8000:8000"
     depends_on:
@@ -70,7 +70,7 @@ services:
       MINIO_ROOT_USER: ${S3_ACCESS_KEY:-minioadmin}
       MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-minioadmin123}
     volumes:
-      - minio_data:/data
+      - ./data/minio:/data
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -95,7 +95,7 @@ services:
       PGADMIN_DEFAULT_PASSWORD: admin123
       PGADMIN_CONFIG_SERVER_MODE: "False"
     volumes:
-      - pgadmin_data:/var/lib/pgadmin
+      - ./data/pgadmin:/var/lib/pgadmin
     ports:
       - "5050:80"
     depends_on:

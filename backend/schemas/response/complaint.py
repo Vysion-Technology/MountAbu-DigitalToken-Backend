@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+from backend.meta import ComplaintStatus
 
 
 # Assuming master responses exist or using generic dicts if circular imports arise.
@@ -33,7 +34,6 @@ class ComplaintResponse(BaseModel):
 
     title: str
     description: str
-    from backend.meta import ComplaintStatus
 
     status: ComplaintStatus
 
@@ -54,8 +54,10 @@ class ComplaintResponse(BaseModel):
     media: List[MediaResponse] = []
     comments: List[CommentResponse] = []
 
-    class Config:
-        from_attributes = True
+    model_config = {
+        "from_attributes": True,
+        "ignored_types": (ComplaintStatus,)
+    }
 
 
 class PresignedUrlResponse(BaseModel):

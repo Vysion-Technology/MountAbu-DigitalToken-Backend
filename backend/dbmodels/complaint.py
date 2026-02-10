@@ -33,7 +33,7 @@ class Complaint(Base):
     from backend.meta import ComplaintStatus
 
     status: Mapped[ComplaintStatus] = mapped_column(
-        SAEnum(ComplaintStatus, name='complaintstatus'), default=ComplaintStatus.PENDING, index=True
+        Enum(ComplaintStatus, name='complaintstatus'), default=ComplaintStatus.PENDING, index=True
     )  # Complaint status as enum
 
     # Applicant Info (Redundant if user_id linked, but keep for explicit capture)
