@@ -43,10 +43,7 @@ class PasswordLoginRequest(BaseModel):
     password: str
 
 
-class SignupRequest(BaseModel):
-    mobile: str = Field(..., pattern=r"^\d{10}$")
-    otp: str
-    name: str
+
 
 
 class RefreshTokenRequest(BaseModel):
@@ -62,6 +59,7 @@ class TokenResponse(BaseModel):
     role: str
     user_id: int
     name: str
+    is_new_user: bool = False
 
 
 class RefreshTokenResponse(BaseModel):
@@ -120,10 +118,18 @@ async def login_with_otp(request: LoginRequest, db: AsyncSession = Depends(get_d
     if otp_record.valid_till < datetime.now():
         raise HTTPException(status_code=400, detail="OTP Expired")
 
-    # 2. Get User
+    # 2. Get or create user
+    is_new_user = False
     user = await user_service.get_user_by_mobile(db, request.mobile)
+
     if not user:
-        raise HTTPException(status_code=404, detail="User not found. Please sign up.")
+        # Auto-register as citizen
+        user = await user_service.create_user(
+            db, mobile=request.mobile, role=UserRole.CITIZEN
+        )
+        await db.commit()
+        await db.refresh(user)
+        is_new_user = True
 
     # 3. Generate Tokens (access + refresh)
     access_token, refresh_token = create_tokens(user.id, user.role.value)
@@ -135,43 +141,7 @@ async def login_with_otp(request: LoginRequest, db: AsyncSession = Depends(get_d
         "role": user.role.value,
         "user_id": user.id,
         "name": user.name,
-    }
-
-
-@router.post("/signup", response_model=TokenResponse)
-async def signup_citizen(request: SignupRequest, db: AsyncSession = Depends(get_db)):
-    # 1. Verify OTP
-    otp_record = await user_dao.get_otp_record(db, request.mobile)
-    if not otp_record or otp_record.otp != request.otp:
-        raise HTTPException(status_code=400, detail="Invalid OTP")
-
-    if otp_record.valid_till < datetime.now():
-        raise HTTPException(status_code=400, detail="OTP Expired")
-
-    # 2. Check if already exists
-    existing_user = await user_service.get_user_by_mobile(db, request.mobile)
-    if existing_user:
-        raise HTTPException(status_code=400, detail="User already registered.")
-
-    # 3. Create User
-    user = await user_service.create_user(
-        db, request.mobile, request.name, UserRole.CITIZEN
-    )
-
-    # Commit
-    await db.commit()
-    await db.refresh(user)
-
-    # 4. Generate Tokens (access + refresh)
-    access_token, refresh_token = create_tokens(user.id, user.role.value)
-
-    return {
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "token_type": "bearer",
-        "role": user.role.value,
-        "user_id": user.id,
-        "name": user.name,
+        "is_new_user": is_new_user,
     }
 
 

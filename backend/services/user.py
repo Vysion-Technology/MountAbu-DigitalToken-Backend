@@ -16,8 +16,8 @@ class UserService:
         self,
         session: AsyncSession,
         mobile: str,
-        name: str,
         role: UserRole,
+        name: str = "",
         password: Optional[str] = None,
         username: Optional[str] = None,
     ) -> User:

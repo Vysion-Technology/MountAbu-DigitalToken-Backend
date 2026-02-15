@@ -29,7 +29,7 @@ class UserDAO:
         session: AsyncSession,
         mobile: str,
         role: UserRole,
-        name: str,
+        name: str = "",
         password: Optional[str] = None,
         username: Optional[str] = None,
     ) -> User:
