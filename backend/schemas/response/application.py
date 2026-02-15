@@ -85,8 +85,40 @@ class PhaseResponse(BaseModel):
     status: ApplicationPhaseStatus
     activated_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
+    transport_code: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def compute_transport_code(cls, data):
+        """Generate the HMAC transport code from application_id + phase."""
+        from backend.core.transport_code import encode_transport_code
+        if hasattr(data, "application_id") and hasattr(data, "phase"):
+            app_id = data.application_id
+            phase = data.phase
+        elif isinstance(data, dict):
+            app_id = data.get("application_id")
+            phase = data.get("phase")
+        else:
+            return data
+        if app_id is not None and phase is not None:
+            if hasattr(data, "__dict__"):
+                # ORM model — convert to dict for mutation
+                d = {
+                    "id": data.id,
+                    "application_id": app_id,
+                    "phase": phase,
+                    "name": getattr(data, "name", None),
+                    "status": data.status,
+                    "activated_at": getattr(data, "activated_at", None),
+                    "completed_at": getattr(data, "completed_at", None),
+                    "transport_code": encode_transport_code(app_id, phase),
+                }
+                return d
+            else:
+                data["transport_code"] = encode_transport_code(app_id, phase)
+        return data
 
 
 class NakaEntryResponse(BaseModel):

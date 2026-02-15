@@ -678,6 +678,89 @@ class ApplicationDAO(BaseDAO):
         await self.session.commit()
         return SuccessResponse(message="Naka entry recorded successfully")
 
+    async def get_naka_entries(self, application_id: int) -> list[NakaEntry]:
+        """Get all naka entries for an application."""
+        stmt = (
+            select(NakaEntry)
+            .where(NakaEntry.application_id == application_id)
+            .order_by(NakaEntry.entry_at.desc())
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_phase_material_summary(
+        self, application_id: int, phase: int
+    ) -> dict:
+        """Get material summary for a phase at the naka checkpoint.
+
+        Returns dict with phase info and per-material allowed/brought/remaining.
+        Validates application is TOKEN_GENERATED and phase exists.
+        """
+        # Verify application status
+        application = await self.session.get(Application, application_id)
+        if not application:
+            raise HTTPException(status_code=404, detail="Application not found")
+        if application.status != ApplicationStatus.TOKEN_GENERATED:
+            raise HTTPException(
+                status_code=400,
+                detail="This transport code is not currently active",
+            )
+
+        # Get phase record
+        phase_stmt = select(ApprovedApplicationPhase).where(
+            ApprovedApplicationPhase.application_id == application_id,
+            ApprovedApplicationPhase.phase == phase,
+        )
+        phase_result = await self.session.execute(phase_stmt)
+        phase_record = phase_result.scalar_one_or_none()
+        if not phase_record:
+            raise HTTPException(status_code=404, detail="Phase not found")
+
+        # Get phase materials with material details
+        pm_stmt = (
+            select(ApplicationPhaseMaterial, Material)
+            .join(Material, ApplicationPhaseMaterial.material_id == Material.id)
+            .where(
+                ApplicationPhaseMaterial.application_id == application_id,
+                ApplicationPhaseMaterial.phase == phase,
+            )
+        )
+        pm_result = await self.session.execute(pm_stmt)
+        phase_materials = pm_result.all()
+
+        # Sum brought quantities per material from naka entries
+        brought_stmt = (
+            select(
+                NakaEntry.material_id,
+                func.coalesce(func.sum(NakaEntry.quantity_brought), 0).label("total_brought"),
+            )
+            .where(
+                NakaEntry.application_id == application_id,
+                NakaEntry.phase == phase,
+            )
+            .group_by(NakaEntry.material_id)
+        )
+        brought_result = await self.session.execute(brought_stmt)
+        brought_map = {row.material_id: row.total_brought for row in brought_result}
+
+        materials = []
+        for pm, mat in phase_materials:
+            brought = brought_map.get(mat.id, 0)
+            materials.append({
+                "material_id": mat.id,
+                "material_name": mat.name,
+                "unit": mat.unit,
+                "allowed_qty": pm.quantity,
+                "brought_qty": brought,
+                "remaining_qty": pm.quantity - brought,
+            })
+
+        return {
+            "phase": phase_record.phase,
+            "phase_status": phase_record.status,
+            "materials": materials,
+        }
+
     # ── Phase management ──────────────────────────────────────────────────
     async def get_phases(self, application_id: int) -> list[ApprovedApplicationPhase]:
         """Get all phases for an application."""

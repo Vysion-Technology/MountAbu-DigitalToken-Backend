@@ -15,7 +15,6 @@ from backend.schemas.request.application import (
     ApplicationMaterialRequirements,
     WorkflowActionRequest,
     InspectionReportCreate,
-    NakaEntryCreate,
 )
 from backend.schemas.response.application import (
     ApplicationResponse,
@@ -55,11 +54,11 @@ FLAG_ALLOWED_ROLES: dict[ApplicationFlags, list[UserRole]] = {
     ApplicationFlags.RENOVATION_REQUIRES_COMMISSIONER_ACTION: [*_ADMIN_ROLES],
     ApplicationFlags.RENOVATION_REQUIRES_NODAL_OFFICER_ACTION: [*_ADMIN_ROLES],
     ApplicationFlags.RENOVATION_REQUIRES_NODAL_OFFICER_TOKEN_GENERATION: [*_ADMIN_ROLES],
-    ApplicationFlags.RENOVATION_REQUIRES_NODAL_OFFICER_APPROVAL_PHASE_1: [*_ADMIN_ROLES, UserRole.NAKA_INCHARGE],
-    ApplicationFlags.RENOVATION_REQUIRES_NODAL_OFFICER_APPROVAL_PHASE_2: [*_ADMIN_ROLES, UserRole.NAKA_INCHARGE],
-    ApplicationFlags.RENOVATION_REQUIRES_NODAL_OFFICER_APPROVAL_PHASE_3: [*_ADMIN_ROLES, UserRole.NAKA_INCHARGE],
-    ApplicationFlags.RENOVATION_REQUIRES_NODAL_OFFICER_APPROVAL_PHASE_4: [*_ADMIN_ROLES, UserRole.NAKA_INCHARGE],
-    ApplicationFlags.RENOVATION_REQUIRES_NODAL_OFFICER_APPROVAL_PHASE_5: [*_ADMIN_ROLES, UserRole.NAKA_INCHARGE],
+    ApplicationFlags.RENOVATION_REQUIRES_NODAL_OFFICER_APPROVAL_PHASE_1: [*_ADMIN_ROLES],
+    ApplicationFlags.RENOVATION_REQUIRES_NODAL_OFFICER_APPROVAL_PHASE_2: [*_ADMIN_ROLES],
+    ApplicationFlags.RENOVATION_REQUIRES_NODAL_OFFICER_APPROVAL_PHASE_3: [*_ADMIN_ROLES],
+    ApplicationFlags.RENOVATION_REQUIRES_NODAL_OFFICER_APPROVAL_PHASE_4: [*_ADMIN_ROLES],
+    ApplicationFlags.RENOVATION_REQUIRES_NODAL_OFFICER_APPROVAL_PHASE_5: [*_ADMIN_ROLES],
     ApplicationFlags.RENOVATION_OVERDUE_COMMENTS: [*_ADMIN_ROLES],
     ApplicationFlags.RENOVATION_OVERDUE_COMMENTS_JEN: [*_ADMIN_ROLES, UserRole.JEN],
     ApplicationFlags.RENOVATION_OVERDUE_COMMENTS_ATP: [*_ADMIN_ROLES, UserRole.DEPT_ATP],
@@ -67,8 +66,8 @@ FLAG_ALLOWED_ROLES: dict[ApplicationFlags, list[UserRole]] = {
     ApplicationFlags.RENOVATION_OVERDUE_COMMENTS_LEGAL: [*_ADMIN_ROLES, UserRole.DEPT_LEGAL],
 
     # ── Phase & Naka ──────────────────────────────────────────────────────
-    ApplicationFlags.PHASE_READY_FOR_NAKA: [*_ADMIN_ROLES, UserRole.NAKA_INCHARGE],
-    ApplicationFlags.NAKA_INCHARGE_ACTION: [*_ADMIN_ROLES, UserRole.NAKA_INCHARGE],
+    ApplicationFlags.PHASE_READY_FOR_NAKA: [*_ADMIN_ROLES],
+    ApplicationFlags.NAKA_INCHARGE_ACTION: [*_ADMIN_ROLES],
 }
 
 
@@ -108,6 +107,11 @@ async def get_applications(
     user: UserDetails = Depends(get_current_user),
 ) -> List[ApplicationResponse]:
     """Get applications filtered by flag."""
+    if user.role == UserRole.NAKA_INCHARGE:
+        raise HTTPException(
+            status_code=403,
+            detail="NAKA_INCHARGE must use /api/naka/{transport_code} endpoints",
+        )
     # Validate role is allowed for the requested flag
     allowed_roles = FLAG_ALLOWED_ROLES.get(flag, [])
     if user.role not in allowed_roles:
@@ -198,6 +202,11 @@ async def get_application(
     user: UserDetails = Depends(get_current_user),
 ) -> Optional[ApplicationResponse]:
     """Get a specific application by ID."""
+    if user.role == UserRole.NAKA_INCHARGE:
+        raise HTTPException(
+            status_code=403,
+            detail="NAKA_INCHARGE must use /api/naka/{transport_code} endpoints",
+        )
     return await application_service.get_application(
         application_id, user, request_user_data
     )
@@ -265,29 +274,8 @@ async def create_inspection(
     )
 
 
-@router.post(
-    "/applications/{application_id}/phases/{phase}/naka-entry",
-    response_model=SuccessResponse,
-)
-async def create_naka_entry(
-    application_id: int,
-    phase: int,
-    entry: NakaEntryCreate,
-    application_service: ApplicationService = Depends(get_application_service),
-    user: UserDetails = Depends(get_current_user),
-) -> SuccessResponse:
-    """Naka incharge logs materials brought at a checkpoint."""
-    if user.role not in (UserRole.NAKA_INCHARGE, UserRole.SUPERADMIN):
-        raise HTTPException(
-            status_code=403,
-            detail="Only NAKA_INCHARGE or SUPERADMIN can create naka entries",
-        )
-    return await application_service.create_naka_entry(
-        application_id=application_id,
-        phase=phase,
-        entry=entry,
-        user_id=user.user_id,
-    )
+# NOTE: Naka entry creation and listing now uses transport codes.
+# See /api/naka/{transport_code} endpoints in controllers/naka.py
 
 
 @router.get(

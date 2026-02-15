@@ -207,6 +207,18 @@ class ApplicationService(BaseService):
             media_path=entry.media_path,
         )
 
+    async def get_naka_entries(self, application_id: int) -> list:
+        """Get all naka entries for an application."""
+        from backend.schemas.response.application import NakaEntryResponse
+        entries = await self.dao.get_naka_entries(application_id)
+        return [NakaEntryResponse.model_validate(e) for e in entries]
+
+    async def get_phase_material_summary(
+        self, application_id: int, phase: int
+    ) -> dict:
+        """Get material summary for a phase (used by naka checkpoint)."""
+        return await self.dao.get_phase_material_summary(application_id, phase)
+
     # ── Phase management ──────────────────────────────────────────────────
     async def get_phases(self, application_id: int) -> list[PhaseResponse]:
         """Get phases for an application."""
