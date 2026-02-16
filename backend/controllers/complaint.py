@@ -1,17 +1,20 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func as sa_func
 from sqlalchemy.orm import selectinload
+from typing import Optional
 
 from backend.database import get_db
 from backend.dbmodels.complaint import Complaint, ComplaintMedia, ComplaintComment
+from backend.meta import ComplaintStatus, UserRole
 from backend.schemas.request.complaint import (
     ComplaintCreateRequest, 
     CommentCreateRequest, 
     ComplaintMediaAddRequest
 )
-from backend.schemas.response.complaint import ComplaintResponse
-from backend.services.storage import get_storage_service
+from backend.schemas.response.complaint import ComplaintResponse, ComplaintListResponse
+from backend.middlewares.auth import get_current_user, get_current_user_id
+from backend.schemas.base.auth import UserDetails
 
 router = APIRouter()
 
@@ -27,12 +30,99 @@ async def get_complaint_or_404(db: AsyncSession, complaint_id: int):
     return complaint
 
 def format_access_url(storage, media_path: str):
-    if not media_path: return None
+    if not media_path:
+        return None
     return storage.get_file_url(media_path)
+
+
+@router.get("/complaints/my", response_model=ComplaintListResponse)
+async def get_my_complaints(
+    status_filter: Optional[ComplaintStatus] = Query(None, alias="status", description="Filter by complaint status"),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(10, ge=1, le=100),
+    user_id: int = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get complaints filed by the authenticated citizen."""
+    # Count total
+    count_stmt = select(sa_func.count(Complaint.id)).where(Complaint.user_id == user_id)
+    if status_filter:
+        count_stmt = count_stmt.where(Complaint.status == status_filter)
+    total = (await db.execute(count_stmt)).scalar() or 0
+
+    # Fetch items
+    stmt = (
+        select(Complaint)
+        .where(Complaint.user_id == user_id)
+        .options(selectinload(Complaint.media), selectinload(Complaint.comments))
+        .order_by(Complaint.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    if status_filter:
+        stmt = stmt.where(Complaint.status == status_filter)
+
+    result = await db.execute(stmt)
+    complaints = [ComplaintResponse.model_validate(c) for c in result.scalars().all()]
+
+    return ComplaintListResponse(items=complaints, total=total, offset=offset, limit=limit)
+
+
+@router.get("/complaints", response_model=ComplaintListResponse)
+async def get_all_complaints(
+    status_filter: Optional[ComplaintStatus] = Query(None, alias="status", description="Filter by complaint status"),
+    ward_id: Optional[int] = Query(None, description="Filter by ward"),
+    department_id: Optional[int] = Query(None, description="Filter by department"),
+    category_id: Optional[int] = Query(None, description="Filter by complaint category"),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(10, ge=1, le=100),
+    user: UserDetails = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get all complaints (authority side). Accessible by non-citizen roles."""
+    # Citizens should use /complaints/my
+    if user.role == UserRole.CITIZEN:
+        raise HTTPException(
+            status_code=403,
+            detail="Citizens should use GET /api/complaints/my to view their own complaints",
+        )
+
+    # Build base query
+    base_where = []
+    if status_filter:
+        base_where.append(Complaint.status == status_filter)
+    if ward_id is not None:
+        base_where.append(Complaint.ward_id == ward_id)
+    if department_id is not None:
+        base_where.append(Complaint.department_id == department_id)
+    if category_id is not None:
+        base_where.append(Complaint.category_id == category_id)
+
+    # Count total
+    count_stmt = select(sa_func.count(Complaint.id))
+    for condition in base_where:
+        count_stmt = count_stmt.where(condition)
+    total = (await db.execute(count_stmt)).scalar() or 0
+
+    # Fetch items
+    stmt = (
+        select(Complaint)
+        .options(selectinload(Complaint.media), selectinload(Complaint.comments))
+        .order_by(Complaint.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    for condition in base_where:
+        stmt = stmt.where(condition)
+
+    result = await db.execute(stmt)
+    complaints = [ComplaintResponse.model_validate(c) for c in result.scalars().all()]
+
+    return ComplaintListResponse(items=complaints, total=total, offset=offset, limit=limit)
+
 
 @router.post("/complaints", response_model=ComplaintResponse, status_code=status.HTTP_201_CREATED)
 async def create_complaint(request: ComplaintCreateRequest, db: AsyncSession = Depends(get_db)):
-    storage = get_storage_service()
     
     # Create Complaint
     new_complaint = Complaint(
@@ -73,7 +163,6 @@ async def create_complaint(request: ComplaintCreateRequest, db: AsyncSession = D
 async def get_complaint(id: int, db: AsyncSession = Depends(get_db)):
     complaint = await get_complaint_or_404(db, id)
     
-    storage = get_storage_service()
     
     # Populate access URLs for response
     # Note: Pydantic from_attributes handles dict conversion, but we need to compute access_url.
@@ -107,7 +196,8 @@ async def get_complaint(id: int, db: AsyncSession = Depends(get_db)):
 
 @router.post("/complaints/{id}/comments", response_model=ComplaintResponse)
 async def add_comment(id: int, request: CommentCreateRequest, db: AsyncSession = Depends(get_db)):
-    complaint = await get_complaint_or_404(db, id)
+    if not await get_complaint_or_404(db, id):
+        raise HTTPException(status_code=404, detail="Complaint not found")
     
     # Handle media (take first if exists)
     media_path = request.media_keys[0] if request.media_keys else None
@@ -125,7 +215,8 @@ async def add_comment(id: int, request: CommentCreateRequest, db: AsyncSession =
 
 @router.post("/complaints/{id}/media", response_model=ComplaintResponse)
 async def add_media_to_complaint(id: int, request: ComplaintMediaAddRequest, db: AsyncSession = Depends(get_db)):
-    complaint = await get_complaint_or_404(db, id)
+    if not await get_complaint_or_404(db, id):
+        raise HTTPException(status_code=404, detail="Complaint not found")
     
     for key in request.media_keys:
         media = ComplaintMedia(

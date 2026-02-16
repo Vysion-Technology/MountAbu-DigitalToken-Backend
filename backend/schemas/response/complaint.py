@@ -23,7 +23,7 @@ class CommentResponse(BaseModel):
     id: int
     comment: str
     created_at: datetime
-    comment_by: int  # User ID
+    comment_by: Optional[int] = None  # User ID
     media_path: Optional[str] = None
     access_url: Optional[str] = None
 
@@ -58,6 +58,13 @@ class ComplaintResponse(BaseModel):
         "from_attributes": True,
         "ignored_types": (ComplaintStatus,)
     }
+
+
+class ComplaintListResponse(BaseModel):
+    items: List[ComplaintResponse] = []
+    total: int = 0
+    offset: int = 0
+    limit: int = 10
 
 
 class PresignedUrlResponse(BaseModel):
