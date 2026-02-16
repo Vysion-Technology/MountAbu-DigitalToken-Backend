@@ -16,6 +16,7 @@ from backend.controllers.tenders import router as tenders_router
 from backend.controllers.events import router as events_router
 from backend.controllers.leaders import router as leaders_router
 from backend.controllers.naka import router as naka_router
+from backend.controllers.dashboard import router as dashboard_router
 
 
 @asynccontextmanager
@@ -48,6 +49,7 @@ app.include_router(events_router, prefix="/api", tags=["Events"])
 app.include_router(leaders_router, prefix="/api", tags=["Leaders"])
 app.include_router(complaint_router, prefix="/api", tags=["Complaints"])
 app.include_router(naka_router, prefix="/api", tags=["Naka"])
+app.include_router(dashboard_router, prefix="/api", tags=["Dashboard"])
 app.include_router(city_profile_router, prefix="/api", tags=["City Profile"])
 
 
