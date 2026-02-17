@@ -12,11 +12,15 @@ from backend.meta import ComplaintStatus
 
 
 class MediaResponse(BaseModel):
+    model_config = {"from_attributes": True}
+
     id: int
     media_path: str
     media_type: str
     is_initial: bool
     access_url: Optional[str] = None  # Computed
+
+    model_config = {"from_attributes": True}
 
     @model_validator(mode="before")
     @classmethod
@@ -25,14 +29,16 @@ class MediaResponse(BaseModel):
         path = getattr(data, "media_path", None) if hasattr(data, "media_path") else (data.get("media_path") if isinstance(data, dict) else None)
         if path:
             url = generate_signed_file_url(path)
-            if hasattr(data, "__dict__") and not isinstance(data, dict):
-                return {"id": data.id, "media_path": path, "media_type": data.media_type, "is_initial": data.is_initial, "access_url": url}
-            elif isinstance(data, dict):
+            if isinstance(data, dict):
                 data["access_url"] = url
+            elif hasattr(data, "__dict__"):
+                return {"id": data.id, "media_path": path, "media_type": data.media_type, "is_initial": data.is_initial, "access_url": url}
         return data
 
 
 class CommentResponse(BaseModel):
+    model_config = {"from_attributes": True}
+
     id: int
     comment: str
     created_at: datetime
@@ -40,6 +46,8 @@ class CommentResponse(BaseModel):
     media_path: Optional[str] = None
     access_url: Optional[str] = None
 
+    model_config = {"from_attributes": True}
+
     @model_validator(mode="before")
     @classmethod
     def compute_access_url(cls, data):
@@ -47,10 +55,10 @@ class CommentResponse(BaseModel):
         path = getattr(data, "media_path", None) if hasattr(data, "media_path") else (data.get("media_path") if isinstance(data, dict) else None)
         if path:
             url = generate_signed_file_url(path)
-            if hasattr(data, "__dict__") and not isinstance(data, dict):
-                return {"id": data.id, "comment": data.comment, "created_at": data.created_at, "comment_by": getattr(data, "comment_by", None), "media_path": path, "access_url": url}
-            elif isinstance(data, dict):
+            if isinstance(data, dict):
                 data["access_url"] = url
+            elif hasattr(data, "__dict__"):
+                return {"id": data.id, "comment": data.comment, "created_at": data.created_at, "comment_by": getattr(data, "comment_by", None), "media_path": path, "access_url": url}
         return data
 
 

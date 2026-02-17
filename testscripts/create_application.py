@@ -299,20 +299,25 @@ def create_application(
 
 def upload_media(
     base: str,
+    token: str,
     file_path: Path,
-    category: str = "application",
+    category: str = "APPLICATION",
     entity_id: Optional[int] = None,
+    document_type: Optional[str] = None,
 ) -> dict:
     """POST /api/media/upload — upload file through the backend (proxied to MinIO)."""
     content_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
     data = {"category": category}
     if entity_id:
         data["entity_id"] = str(entity_id)
+    if document_type:
+        data["document_type"] = document_type
     with open(file_path, "rb") as f:
         resp = requests.post(
             _url(base, "/api/media/upload"),
             files={"file": (file_path.name, f, content_type)},
             data=data,
+            headers=_headers(token),
         )
     _check(resp, "media/upload")
     return resp.json()
@@ -349,29 +354,21 @@ def upload_via_media_proxy(
     document_type: str,
 ) -> dict:
     """
-    Upload a file using the backend media proxy:
-      1. POST file to /api/media/upload (backend proxies to MinIO)
-      2. Attach document record to application
+    Upload a file using the backend media proxy.
+    The media proxy now validates the entity, uploads to MinIO,
+    and saves the document record to the database in one step.
     """
     print(f"  -> Uploading {file_path.name} as {document_type} (via media proxy) ...")
 
-    # Step 1: Upload file through backend proxy
-    media = upload_media(base, file_path, category="application", entity_id=application_id)
+    media = upload_media(
+        base, token, file_path,
+        category="APPLICATION",
+        entity_id=application_id,
+        document_type=document_type,
+    )
     print(f"     Uploaded to MinIO: {media['object_key']}")
-
-    # Step 2: Attach document record to application
-    with open(file_path, "rb") as f:
-        content_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
-        resp = requests.post(
-            _url(base, f"/api/applications/{application_id}/document"),
-            files={"document": (file_path.name, f, content_type)},
-            data={"document_type": document_type},
-            headers=_headers(token),
-        )
-    _check(resp, f"attach document {file_path.name}")
-    data = resp.json()
-    print(f"     Attached: {data.get('message', 'OK')}")
-    return data
+    print(f"     Attached: {media.get('message', 'OK')}")
+    return media
 
 
 def submit_application(base: str, token: str, application_id: int) -> dict:

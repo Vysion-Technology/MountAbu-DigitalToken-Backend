@@ -122,10 +122,15 @@ async def get_all_complaints(
 
 
 @router.post("/complaints", response_model=ComplaintResponse, status_code=status.HTTP_201_CREATED)
-async def create_complaint(request: ComplaintCreateRequest, db: AsyncSession = Depends(get_db)):
+async def create_complaint(
+    request: ComplaintCreateRequest,
+    user_id: int = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
     
     # Create Complaint
     new_complaint = Complaint(
+        user_id=user_id,
         title=request.title,
         description=request.description,
         ward_id=request.ward_id,
@@ -136,7 +141,6 @@ async def create_complaint(request: ComplaintCreateRequest, db: AsyncSession = D
         latitude=request.latitude,
         longitude=request.longitude,
         location_address=request.location_address,
-        # user_id left null for now as per instructions (or could be set if auth was active)
     )
     db.add(new_complaint)
     await db.flush() # Generate ID
@@ -195,7 +199,12 @@ async def get_complaint(id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/complaints/{id}/comments", response_model=ComplaintResponse)
-async def add_comment(id: int, request: CommentCreateRequest, db: AsyncSession = Depends(get_db)):
+async def add_comment(
+    id: int,
+    request: CommentCreateRequest,
+    user_id: int = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
     if not await get_complaint_or_404(db, id):
         raise HTTPException(status_code=404, detail="Complaint not found")
     
@@ -206,7 +215,7 @@ async def add_comment(id: int, request: CommentCreateRequest, db: AsyncSession =
         complaint_id=id,
         comment=request.comment,
         media_path=media_path,
-        comment_by=None # No auth
+        comment_by=user_id,
     )
     db.add(comment)
     await db.commit()
@@ -214,7 +223,12 @@ async def add_comment(id: int, request: CommentCreateRequest, db: AsyncSession =
 
 
 @router.post("/complaints/{id}/media", response_model=ComplaintResponse)
-async def add_media_to_complaint(id: int, request: ComplaintMediaAddRequest, db: AsyncSession = Depends(get_db)):
+async def add_media_to_complaint(
+    id: int,
+    request: ComplaintMediaAddRequest,
+    user_id: int = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
     if not await get_complaint_or_404(db, id):
         raise HTTPException(status_code=404, detail="Complaint not found")
     
@@ -223,6 +237,7 @@ async def add_media_to_complaint(id: int, request: ComplaintMediaAddRequest, db:
             complaint_id=id,
             media_path=key,
             media_type="unknown",
+            uploaded_by=user_id,
             is_initial=False
         )
         db.add(media)

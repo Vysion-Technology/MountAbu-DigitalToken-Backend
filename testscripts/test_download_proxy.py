@@ -10,9 +10,9 @@ r = requests.post(f"{BASE}/auth/login/otp", json={"mobile": "9999999999", "otp":
 token = r.json()["access_token"]
 headers = {"Authorization": f"Bearer {token}"}
 
-# 2. Upload a test file via media proxy
+# 2. Upload a test file via media proxy (GENERAL category, no entity)
 files = {"file": ("test.txt", b"Hello from download proxy test!", "text/plain")}
-data = {"category": "test", "entity_id": "1"}
+data = {"category": "GENERAL"}
 r = requests.post(f"{BASE}/api/media/upload", headers=headers, files=files, data=data)
 upload_resp = r.json()
 print("Upload response:", json.dumps(upload_resp, indent=2))

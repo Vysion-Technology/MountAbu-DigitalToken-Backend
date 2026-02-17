@@ -114,6 +114,18 @@ class TenderStatus(str, PyEnum):
     CLOSED = "CLOSED"
 
 
+class MediaCategory(str, PyEnum):
+    """Category/entity type a media upload belongs to."""
+    APPLICATION = "APPLICATION"
+    COMPLAINT = "COMPLAINT"
+    NOTICE = "NOTICE"
+    EVENT = "EVENT"
+    TENDER = "TENDER"
+    DOWNLOAD = "DOWNLOAD"
+    LEADER = "LEADER"
+    GENERAL = "GENERAL"  # No entity association
+
+
 class ApplicationFlags(str, PyEnum):
     # Generic flags
     ALL = "ALL"
