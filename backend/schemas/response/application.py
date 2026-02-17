@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from backend.meta import (
     ApplicationStatus,
@@ -12,6 +12,9 @@ from backend.meta import (
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from typing import Optional, List
+
+# Default token validity period (days from activation)
+TOKEN_VALIDITY_DAYS = 60
 
 
 class ApplicationDocumentResponse(BaseModel):
@@ -148,6 +151,95 @@ class PhaseResponse(BaseModel):
         return data
 
 
+class TokenMaterialResponse(BaseModel):
+    """Per-material summary within a token (phase)."""
+    material_id: int
+    material_name: Optional[str] = None
+    unit: Optional[str] = None
+    approved_quantity: int
+    consumed_quantity: int
+    remaining_quantity: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TokenResponse(BaseModel):
+    """Lightweight token for the token-list table.
+
+    Only the 5 columns shown in the listing screen + transport_code
+    (the unique token identifier used in URLs).
+    """
+    transport_code: str
+    token_number: str
+    application_number: str
+    remaining_quantity_pct: Optional[float] = None
+    valid_till: Optional[datetime] = None
+    status: ApplicationPhaseStatus
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class VehicleEntryResponse(BaseModel):
+    """A single vehicle / naka entry shown under the Vehicle Entries tab."""
+    id: int
+    vehicle_number: Optional[str] = None
+    material_name: Optional[str] = None
+    material_unit: Optional[str] = None
+    quantity_entered: int
+    entry_at: datetime
+    remarks: Optional[str] = None
+    media_path: Optional[str] = None
+    access_url: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TokenAuthorityInfo(BaseModel):
+    """Authority / system information shown on the token detail page."""
+    issued_by: Optional[str] = None          # e.g. "Nodal Officer (Ward 3)"
+    issued_on: Optional[datetime] = None     # activated_at
+    token_generated_from: Optional[str] = None  # e.g. "Approved Renovation Application"
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TokenDetailResponse(BaseModel):
+    """Full token detail returned for GET /tokens/{transport_code}.
+
+    Maps to the "Token Details" screen that shows:
+    - Header: token_number, status, date range
+    - Left panel: QR/application info
+    - Vehicle Entries tab
+    - Material Summary tab
+    """
+    # Identity
+    transport_code: str
+    token_number: str
+    status: ApplicationPhaseStatus
+    valid_from: Optional[datetime] = None     # activated_at
+    valid_till: Optional[datetime] = None
+
+    # Application info
+    application_id: int
+    application_number: str
+    applicant_name: str
+    property_address: str
+    property_usage: PropertyUsageType
+    application_type: ApplicationType
+
+    # Authority & system info
+    authority: TokenAuthorityInfo
+
+    # Material summary (same as before)
+    materials: List[TokenMaterialResponse] = []
+    remaining_quantity_pct: Optional[float] = None
+
+    # Vehicle entries (naka entries)
+    vehicle_entries: List[VehicleEntryResponse] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class NakaEntryResponse(BaseModel):
     """Response for a Naka checkpoint entry."""
     id: int
@@ -244,6 +336,7 @@ class ApplicationResponse(BaseModel):
     documents: List[ApplicationDocumentResponse] = []
     materials: List[ApplicationMaterialResponse] = []
     comments: List[CommentResponse] = []
+    tokens: List[TokenResponse] = []
 
     model_config = ConfigDict(extra="ignore", from_attributes=True)
 

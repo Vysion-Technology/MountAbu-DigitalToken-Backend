@@ -20,6 +20,8 @@ from backend.schemas.response.application import (
     ApplicationResponse,
     CommentResponse,
     PhaseResponse,
+    TokenResponse,
+    TokenDetailResponse,
 )
 from backend.schemas.response.meta import SuccessResponse, DocumentUploadResponse
 from backend.services.application import get_application_service, ApplicationService
@@ -362,6 +364,92 @@ async def delete_application(
 ) -> SuccessResponse:
     """Delete an application."""
     return await application_service.delete_application(application_id)
+
+
+# ── Token endpoints ──────────────────────────────────────────────────────
+
+
+@router.get("/tokens", response_model=List[TokenResponse])
+async def list_tokens(
+    status: Optional[str] = Query(None, description="Filter by token status: ACTIVE, PENDING, COMPLETED"),
+    search: Optional[str] = Query(None, description="Search by token number or application number"),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(10, ge=1, le=100),
+    application_service: ApplicationService = Depends(get_application_service),
+    user: UserDetails = Depends(get_current_user),
+) -> List[TokenResponse]:
+    """List tokens (approved application phases) for the current citizen.
+
+    Returns tokens with computed fields:
+    - token_number (e.g. TKN-2025-014)
+    - application_number (e.g. APP-2025-00321)
+    - remaining_quantity_pct (overall remaining material %)
+    - valid_till (activation date + 60 days)
+    - materials breakdown with approved/consumed/remaining quantities
+
+    Supports filtering by status (ACTIVE, PENDING, COMPLETED) and
+    searching by token or application number.
+    """
+    if user.role not in (UserRole.CITIZEN, UserRole.SUPERADMIN, UserRole.NODAL_OFFICER, UserRole.COMMISSIONER):
+        raise HTTPException(
+            status_code=403,
+            detail="Only citizens and admins can list tokens",
+        )
+    # Citizens see their own tokens; admins could extend this with a user_id param
+    return await application_service.get_citizen_tokens(
+        user_id=user.user_id,
+        status_filter=status,
+        search=search,
+        offset=offset,
+        limit=limit,
+    )
+
+
+@router.get(
+    "/applications/{application_id}/tokens", response_model=List[TokenResponse]
+)
+async def get_application_tokens(
+    application_id: int,
+    application_service: ApplicationService = Depends(get_application_service),
+    user: UserDetails = Depends(get_current_user),
+) -> List[TokenResponse]:
+    """Get all tokens for a specific application with material summaries."""
+    if user.role == UserRole.NAKA_INCHARGE:
+        raise HTTPException(
+            status_code=403,
+            detail="NAKA_INCHARGE must use /api/naka/{transport_code} endpoints",
+        )
+    return await application_service.get_application_tokens(application_id)
+
+
+@router.get("/tokens/{transport_code}", response_model=TokenDetailResponse)
+async def get_token_detail(
+    transport_code: str,
+    application_service: ApplicationService = Depends(get_application_service),
+    user: UserDetails = Depends(get_current_user),
+) -> TokenDetailResponse:
+    """Get full token details by transport code.
+
+    Returns everything needed for the Token Detail screen:
+    - Token header: token_number, status, valid date range
+    - Application info: applicant name, property address, usage, type
+    - Authority info: issued by, issued on, token generated from
+    - Material summary: per-material approved/consumed/remaining
+    - Vehicle entries: all naka checkpoint entries with vehicle, material, qty, date
+    """
+    if user.role == UserRole.NAKA_INCHARGE:
+        raise HTTPException(
+            status_code=403,
+            detail="NAKA_INCHARGE must use /api/naka/{transport_code} endpoints",
+        )
+    from backend.core.transport_code import decode_transport_code
+    try:
+        code_data = decode_transport_code(transport_code)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid or tampered transport code")
+    return await application_service.get_token_detail(
+        code_data.application_id, code_data.phase
+    )
 
 
 __all__ = ["router"]

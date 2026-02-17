@@ -20,7 +20,7 @@ from backend.dbmodels.application import (
 from backend.dao.base import BaseDAO
 from backend.meta import ApplicationStatus, CommentType, WorkflowAction
 from backend.schemas.request.application import ApplicationCreate
-from backend.schemas.response.application import ApplicationResponse
+from backend.schemas.response.application import ApplicationResponse, TokenResponse
 from backend.schemas.response.meta import SuccessResponse
 from backend.dbmodels.application import (
     Application,
@@ -73,16 +73,24 @@ class ApplicationDAO(BaseDAO):
         # ── NEW flow ──────────────────────────────────────────────────
         if tp == ApplicationType.NEW:
             if st == ApplicationStatus.SUBMITTED:
-                flags.append(ApplicationFlags.NEW_APPLICATION_REQUIRES_NODAL_OFFICER_ACTION)
+                flags.append(
+                    ApplicationFlags.NEW_APPLICATION_REQUIRES_NODAL_OFFICER_ACTION
+                )
 
             elif st == ApplicationStatus.APPROVED:
                 has_inspection = len(application.inspections) > 0
                 if not has_inspection:
-                    flags.append(ApplicationFlags.NEW_APPLICATION_REQUIRES_JEN_INSPECTION)
+                    flags.append(
+                        ApplicationFlags.NEW_APPLICATION_REQUIRES_JEN_INSPECTION
+                    )
                 elif not application.materials:
-                    flags.append(ApplicationFlags.NEW_APPLICATION_REQUIRES_JEN_MATERIAL_ENTRY)
+                    flags.append(
+                        ApplicationFlags.NEW_APPLICATION_REQUIRES_JEN_MATERIAL_ENTRY
+                    )
                 else:
-                    flags.append(ApplicationFlags.NEW_APPLICATION_REQUIRES_NODAL_OFFICER_TOKEN_GENERATION)
+                    flags.append(
+                        ApplicationFlags.NEW_APPLICATION_REQUIRES_NODAL_OFFICER_TOKEN_GENERATION
+                    )
 
             elif st == ApplicationStatus.TOKEN_GENERATED:
                 self._add_phase_flags(application, flags)
@@ -104,7 +112,8 @@ class ApplicationDAO(BaseDAO):
                     flags.append(ApplicationFlags.RENOVATION_REQUIRES_DEPT_COMMENT)
                     # Check overdue (> 7 days since forward)
                     forward_actions = [
-                        a for a in application.action_logs
+                        a
+                        for a in application.action_logs
                         if a.action == WorkflowAction.FORWARD
                     ]
                     if forward_actions:
@@ -118,16 +127,24 @@ class ApplicationDAO(BaseDAO):
                                     flags.append(ApplicationFlags(flag_name))
                 else:
                     # All depts commented → Commissioner can act
-                    flags.append(ApplicationFlags.RENOVATION_REQUIRES_COMMISSIONER_ACTION)
+                    flags.append(
+                        ApplicationFlags.RENOVATION_REQUIRES_COMMISSIONER_ACTION
+                    )
 
             elif st == ApplicationStatus.APPROVED:
                 has_inspection = len(application.inspections) > 0
                 if not has_inspection:
-                    flags.append(ApplicationFlags.RENOVATION_REQUIRES_JEN_FIELD_INSPECTION)
+                    flags.append(
+                        ApplicationFlags.RENOVATION_REQUIRES_JEN_FIELD_INSPECTION
+                    )
                 elif not application.materials:
-                    flags.append(ApplicationFlags.RENOVATION_REQUIRES_JEN_MATERIAL_ENTRY)
+                    flags.append(
+                        ApplicationFlags.RENOVATION_REQUIRES_JEN_MATERIAL_ENTRY
+                    )
                 else:
-                    flags.append(ApplicationFlags.RENOVATION_REQUIRES_NODAL_OFFICER_TOKEN_GENERATION)
+                    flags.append(
+                        ApplicationFlags.RENOVATION_REQUIRES_NODAL_OFFICER_TOKEN_GENERATION
+                    )
 
             elif st == ApplicationStatus.TOKEN_GENERATED:
                 self._add_phase_flags(application, flags)
@@ -138,8 +155,7 @@ class ApplicationDAO(BaseDAO):
     def _add_phase_flags(application: Application, flags: list[ApplicationFlags]):
         """Append phase-level and naka flags for TOKEN_GENERATED applications."""
         active_phases = [
-            p for p in application.phases
-            if p.status == ApplicationPhaseStatus.ACTIVE
+            p for p in application.phases if p.status == ApplicationPhaseStatus.ACTIVE
         ]
         if active_phases:
             flags.append(ApplicationFlags.PHASE_READY_FOR_NAKA)
@@ -212,8 +228,12 @@ class ApplicationDAO(BaseDAO):
             .options(
                 selectinload(Application.documents),
                 selectinload(Application.materials),
-                selectinload(Application.comments).selectinload(ApplicationComment.commenter),
-                selectinload(Application.approvals).selectinload(ApplicationApproval.approver),
+                selectinload(Application.comments).selectinload(
+                    ApplicationComment.commenter
+                ),
+                selectinload(Application.approvals).selectinload(
+                    ApplicationApproval.approver
+                ),
                 selectinload(Application.phases),
             )
         )
@@ -222,7 +242,9 @@ class ApplicationDAO(BaseDAO):
 
         return ApplicationResponse.model_validate(new_application)
 
-    async def get_application(self, application_id: int) -> Optional[ApplicationResponse]:
+    async def get_application(
+        self, application_id: int
+    ) -> Optional[ApplicationResponse]:
         """Get application."""
         stmt = (
             select(Application)
@@ -230,19 +252,30 @@ class ApplicationDAO(BaseDAO):
             .options(
                 selectinload(Application.documents),
                 selectinload(Application.materials),
-                selectinload(Application.comments).selectinload(ApplicationComment.commenter),
-                selectinload(Application.approvals).selectinload(ApplicationApproval.approver),
+                selectinload(Application.comments).selectinload(
+                    ApplicationComment.commenter
+                ),
+                selectinload(Application.approvals).selectinload(
+                    ApplicationApproval.approver
+                ),
                 selectinload(Application.phases),
             )
         )
         result = await self.session.execute(stmt)
         application = result.scalar_one_or_none()
 
-        # application = await self.session.get(Application, application_id) # Old method
         if not application:
             return None  # Handle outside
 
-        return ApplicationResponse.model_validate(application)
+        response = ApplicationResponse.model_validate(application)
+
+        # Attach token details if phases exist
+        if application.phases:
+            from backend.schemas.response.application import TokenResponse
+            token_dicts = await self._build_token_list_dicts(application.phases)
+            response.tokens = [TokenResponse.model_validate(t) for t in token_dicts]
+
+        return response
 
     async def get_applications(
         self,
@@ -255,8 +288,12 @@ class ApplicationDAO(BaseDAO):
         query = select(Application).options(
             selectinload(Application.documents),
             selectinload(Application.materials),
-            selectinload(Application.comments).selectinload(ApplicationComment.commenter),
-            selectinload(Application.approvals).selectinload(ApplicationApproval.approver),
+            selectinload(Application.comments).selectinload(
+                ApplicationComment.commenter
+            ),
+            selectinload(Application.approvals).selectinload(
+                ApplicationApproval.approver
+            ),
             selectinload(Application.phases),
         )
         if user_id:
@@ -264,19 +301,73 @@ class ApplicationDAO(BaseDAO):
 
         if flag is None:
             # No flag filter — return paginated results directly (citizen path)
-            applications = await self.session.scalars(query.offset(offset).limit(limit))
-            return [
+            applications = list(
+                await self.session.scalars(query.offset(offset).limit(limit))
+            )
+            responses = [
                 ApplicationResponse.model_validate(app) for app in applications
             ]
+            # Attach tokens for applications that have phases
+            apps_with_phases = [app for app in applications if app.phases]
+            if apps_with_phases:
+                from backend.schemas.response.application import TokenResponse
+
+                all_phases = [p for app in apps_with_phases for p in app.phases]
+                token_dicts = await self._build_token_list_dicts(all_phases)
+                # Group by application_id — get app_id from transport_code decode
+                # Since list dicts don't have app_id, use phase objects to map
+                # Build phase_id -> app_id mapping
+                phase_to_app = {p.id: p.application_id for app in apps_with_phases for p in app.phases}
+                # Build transport_code -> app_id from phases
+                from backend.core.transport_code import encode_transport_code
+                tc_to_app: dict[str, int] = {}
+                for app in apps_with_phases:
+                    for p in app.phases:
+                        tc = encode_transport_code(p.application_id, p.phase)
+                        tc_to_app[tc] = p.application_id
+                tokens_by_app: dict[int, list] = {}
+                for td in token_dicts:
+                    app_id = tc_to_app.get(td["transport_code"])
+                    if app_id:
+                        tokens_by_app.setdefault(app_id, []).append(td)
+                for resp in responses:
+                    if resp.id in tokens_by_app:
+                        resp.tokens = [
+                            TokenResponse.model_validate(t)
+                            for t in tokens_by_app[resp.id]
+                        ]
+            return responses
 
         # Flag filter — load all matching apps, compute flags, then paginate in Python
-        all_applications = (await self.session.scalars(query)).all()
-        matched = [
-            ApplicationResponse.model_validate(app)
-            for app in all_applications
-            if flag in self.get_required_flags(app)
+        all_applications = list((await self.session.scalars(query)).all())
+        matched_apps = [
+            app for app in all_applications if flag in self.get_required_flags(app)
         ]
-        return matched[offset : offset + limit]
+        paginated = matched_apps[offset : offset + limit]
+        responses = [ApplicationResponse.model_validate(app) for app in paginated]
+        # Attach tokens
+        apps_with_phases = [app for app in paginated if app.phases]
+        if apps_with_phases:
+            from backend.schemas.response.application import TokenResponse
+            from backend.core.transport_code import encode_transport_code as _enc
+
+            all_phases = [p for app in apps_with_phases for p in app.phases]
+            token_dicts = await self._build_token_list_dicts(all_phases)
+            tc_to_app: dict[str, int] = {}
+            for app in apps_with_phases:
+                for p in app.phases:
+                    tc_to_app[_enc(p.application_id, p.phase)] = p.application_id
+            tokens_by_app: dict[int, list] = {}
+            for td in token_dicts:
+                app_id = tc_to_app.get(td["transport_code"])
+                if app_id:
+                    tokens_by_app.setdefault(app_id, []).append(td)
+            for resp in responses:
+                if resp.id in tokens_by_app:
+                    resp.tokens = [
+                        TokenResponse.model_validate(t) for t in tokens_by_app[resp.id]
+                    ]
+        return responses
 
     async def approve_application(self, application_id: int) -> SuccessResponse:
         """Approve an Application (legacy simple path, use perform_workflow_action instead)."""
@@ -353,7 +444,7 @@ class ApplicationDAO(BaseDAO):
         self, application_id: int, user_id: int
     ) -> SuccessResponse:
         """Submit an application (change status from PENDING to SUBMITTED).
-        
+
         Validates that the application has the required document types:
         AADHAAR, PERMISSION_DOCUMENTS, and OWNERSHIP_DOCUMENTS.
         Only the owning CITIZEN can submit.
@@ -394,7 +485,7 @@ class ApplicationDAO(BaseDAO):
             raise HTTPException(
                 status_code=400,
                 detail=f"Cannot submit: missing required documents: {', '.join(sorted(missing_names))}. "
-                       f"Please upload AADHAAR, PERMISSION_DOCUMENTS, and OWNERSHIP_DOCUMENTS before submitting.",
+                f"Please upload AADHAAR, PERMISSION_DOCUMENTS, and OWNERSHIP_DOCUMENTS before submitting.",
             )
 
         # Update status
@@ -472,7 +563,8 @@ class ApplicationDAO(BaseDAO):
             # Create phases
             for phase_num in range(1, num_stages + 1):
                 phase_status = (
-                    ApplicationPhaseStatus.ACTIVE if phase_num == 1
+                    ApplicationPhaseStatus.ACTIVE
+                    if phase_num == 1
                     else ApplicationPhaseStatus.PENDING
                 )
                 self.session.add(
@@ -643,7 +735,9 @@ class ApplicationDAO(BaseDAO):
             )
 
         # Sum existing naka entries for this material in this phase
-        used_stmt = select(func.coalesce(func.sum(NakaEntry.quantity_brought), 0)).where(
+        used_stmt = select(
+            func.coalesce(func.sum(NakaEntry.quantity_brought), 0)
+        ).where(
             NakaEntry.application_id == application_id,
             NakaEntry.phase == phase,
             NakaEntry.material_id == material_id,
@@ -688,9 +782,7 @@ class ApplicationDAO(BaseDAO):
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    async def get_phase_material_summary(
-        self, application_id: int, phase: int
-    ) -> dict:
+    async def get_phase_material_summary(self, application_id: int, phase: int) -> dict:
         """Get material summary for a phase at the naka checkpoint.
 
         Returns dict with phase info and per-material allowed/brought/remaining.
@@ -732,7 +824,9 @@ class ApplicationDAO(BaseDAO):
         brought_stmt = (
             select(
                 NakaEntry.material_id,
-                func.coalesce(func.sum(NakaEntry.quantity_brought), 0).label("total_brought"),
+                func.coalesce(func.sum(NakaEntry.quantity_brought), 0).label(
+                    "total_brought"
+                ),
             )
             .where(
                 NakaEntry.application_id == application_id,
@@ -746,14 +840,16 @@ class ApplicationDAO(BaseDAO):
         materials = []
         for pm, mat in phase_materials:
             brought = brought_map.get(mat.id, 0)
-            materials.append({
-                "material_id": mat.id,
-                "material_name": mat.name,
-                "unit": mat.unit,
-                "allowed_qty": pm.quantity,
-                "brought_qty": brought,
-                "remaining_qty": pm.quantity - brought,
-            })
+            materials.append(
+                {
+                    "material_id": mat.id,
+                    "material_name": mat.name,
+                    "unit": mat.unit,
+                    "allowed_qty": pm.quantity,
+                    "brought_qty": brought,
+                    "remaining_qty": pm.quantity - brought,
+                }
+            )
 
         return {
             "phase": phase_record.phase,
@@ -847,6 +943,322 @@ class ApplicationDAO(BaseDAO):
         )
         await self.session.commit()
         return SuccessResponse(message="Comment added successfully")
+
+    # ── Token queries ─────────────────────────────────────────────────────
+    async def _build_token_list_dicts(
+        self, phases: list[ApprovedApplicationPhase]
+    ) -> list[dict]:
+        """Build lightweight token dicts for the listing table.
+
+        Returns only the 5 columns shown in the token list screen:
+        transport_code, token_number, application_number,
+        remaining_quantity_pct, valid_till, status.
+        """
+        from backend.core.transport_code import encode_transport_code
+        from backend.schemas.response.application import TOKEN_VALIDITY_DAYS
+
+        if not phases:
+            return []
+
+        # Gather all application_ids
+        app_ids = list({p.application_id for p in phases})
+
+        # Bulk-fetch phase materials
+        pm_stmt = (
+            select(ApplicationPhaseMaterial)
+            .where(ApplicationPhaseMaterial.application_id.in_(app_ids))
+        )
+        pm_result = await self.session.execute(pm_stmt)
+        pm_rows = list(pm_result.scalars().all())
+
+        # Index: (app_id, phase) -> total approved qty
+        pm_map: dict[tuple[int, int], int] = {}
+        for pm in pm_rows:
+            key = (pm.application_id, pm.phase)
+            pm_map[key] = pm_map.get(key, 0) + pm.quantity
+
+        # Bulk-fetch consumed quantities from naka_entries
+        brought_stmt = (
+            select(
+                NakaEntry.application_id,
+                NakaEntry.phase,
+                func.coalesce(func.sum(NakaEntry.quantity_brought), 0).label("total_brought"),
+            )
+            .where(NakaEntry.application_id.in_(app_ids))
+            .group_by(NakaEntry.application_id, NakaEntry.phase)
+        )
+        brought_result = await self.session.execute(brought_stmt)
+        brought_map: dict[tuple[int, int], int] = {}
+        for row in brought_result:
+            brought_map[(row.application_id, row.phase)] = row.total_brought
+
+        tokens: list[dict] = []
+        for phase_rec in phases:
+            key = (phase_rec.application_id, phase_rec.phase)
+            year = (
+                phase_rec.activated_at.year
+                if phase_rec.activated_at
+                else datetime.now().year
+            )
+            token_number = f"TKN-{year}-{phase_rec.id:03d}"
+            application_number = f"APP-{year}-{phase_rec.application_id:05d}"
+
+            valid_till = None
+            if phase_rec.activated_at:
+                valid_till = phase_rec.activated_at + timedelta(days=TOKEN_VALIDITY_DAYS)
+
+            total_approved = pm_map.get(key, 0)
+            total_brought = brought_map.get(key, 0)
+            remaining_pct = None
+            if total_approved > 0:
+                remaining_pct = round(
+                    ((total_approved - total_brought) / total_approved) * 100, 1
+                )
+
+            transport_code = encode_transport_code(
+                phase_rec.application_id, phase_rec.phase
+            )
+
+            tokens.append({
+                "transport_code": transport_code,
+                "token_number": token_number,
+                "application_number": application_number,
+                "remaining_quantity_pct": remaining_pct,
+                "valid_till": valid_till,
+                "status": phase_rec.status,
+            })
+
+        return tokens
+
+    async def get_token_detail(
+        self, application_id: int, phase: int
+    ) -> dict:
+        """Build a full token-detail dict for a single phase.
+
+        Includes application info, authority info, material summary,
+        and vehicle (naka) entries — everything shown on the
+        Token Detail screen.
+        """
+        from backend.core.transport_code import encode_transport_code
+        from backend.schemas.response.application import TOKEN_VALIDITY_DAYS
+        from backend.dbmodels.user import User
+        from backend.dbmodels.master import Ward
+
+        # ── Phase record ──────────────────────────────────────────────
+        phase_stmt = select(ApprovedApplicationPhase).where(
+            ApprovedApplicationPhase.application_id == application_id,
+            ApprovedApplicationPhase.phase == phase,
+        )
+        phase_result = await self.session.execute(phase_stmt)
+        phase_rec = phase_result.scalar_one_or_none()
+        if not phase_rec:
+            raise HTTPException(status_code=404, detail="Token not found")
+
+        # ── Application record ────────────────────────────────────────
+        app_stmt = (
+            select(Application)
+            .where(Application.id == application_id)
+            .options(
+                selectinload(Application.approvals).selectinload(ApplicationApproval.approver),
+            )
+        )
+        app_result = await self.session.execute(app_stmt)
+        application = app_result.scalar_one_or_none()
+        if not application:
+            raise HTTPException(status_code=404, detail="Application not found")
+
+        # ── Formatted numbers ─────────────────────────────────────────
+        year = (
+            phase_rec.activated_at.year
+            if phase_rec.activated_at
+            else datetime.now().year
+        )
+        token_number = f"TKN-{year}-{phase_rec.id:03d}"
+        application_number = f"APP-{year}-{application_id:05d}"
+
+        valid_till = None
+        if phase_rec.activated_at:
+            valid_till = phase_rec.activated_at + timedelta(days=TOKEN_VALIDITY_DAYS)
+
+        transport_code = encode_transport_code(application_id, phase)
+
+        # ── Authority info ────────────────────────────────────────────
+        # Find who generated the tokens (GENERATE_TOKENS action approval)
+        issued_by = None
+        issued_on = phase_rec.activated_at
+        for approval in application.approvals:
+            if approval.action == WorkflowAction.GENERATE_TOKENS:
+                # Build label like "Nodal Officer (Ward 3)"
+                approver_name = approval.approver.name if approval.approver else "Unknown"
+                ward_label = ""
+                if application.ward_id:
+                    ward_stmt = select(Ward).where(Ward.id == application.ward_id)
+                    ward_res = await self.session.execute(ward_stmt)
+                    ward = ward_res.scalar_one_or_none()
+                    if ward:
+                        ward_label = f" ({ward.name})"
+                issued_by = f"{approver_name}{ward_label}"
+                issued_on = approval.approved_at
+                break
+
+        token_generated_from = f"Approved {application.type.value.capitalize()} Application"
+
+        # ── Phase materials with consumed quantities ──────────────────
+        pm_stmt = (
+            select(ApplicationPhaseMaterial, Material)
+            .join(Material, ApplicationPhaseMaterial.material_id == Material.id)
+            .where(
+                ApplicationPhaseMaterial.application_id == application_id,
+                ApplicationPhaseMaterial.phase == phase,
+            )
+        )
+        pm_result = await self.session.execute(pm_stmt)
+        phase_materials = pm_result.all()
+
+        brought_stmt = (
+            select(
+                NakaEntry.material_id,
+                func.coalesce(func.sum(NakaEntry.quantity_brought), 0).label("total_brought"),
+            )
+            .where(
+                NakaEntry.application_id == application_id,
+                NakaEntry.phase == phase,
+            )
+            .group_by(NakaEntry.material_id)
+        )
+        brought_result = await self.session.execute(brought_stmt)
+        brought_map = {row.material_id: row.total_brought for row in brought_result}
+
+        materials_list = []
+        total_approved = 0
+        total_remaining = 0
+        for pm, mat in phase_materials:
+            brought = brought_map.get(mat.id, 0)
+            remaining = pm.quantity - brought
+            total_approved += pm.quantity
+            total_remaining += remaining
+            materials_list.append({
+                "material_id": mat.id,
+                "material_name": mat.name,
+                "unit": mat.unit,
+                "approved_quantity": pm.quantity,
+                "consumed_quantity": brought,
+                "remaining_quantity": remaining,
+            })
+
+        remaining_pct = None
+        if total_approved > 0:
+            remaining_pct = round((total_remaining / total_approved) * 100, 1)
+
+        # ── Vehicle entries (naka entries) ────────────────────────────
+        from backend.services.storage import generate_signed_file_url
+
+        naka_stmt = (
+            select(NakaEntry, Material)
+            .join(Material, NakaEntry.material_id == Material.id)
+            .where(
+                NakaEntry.application_id == application_id,
+                NakaEntry.phase == phase,
+            )
+            .order_by(NakaEntry.entry_at.desc())
+        )
+        naka_result = await self.session.execute(naka_stmt)
+        vehicle_entries = []
+        for entry, mat in naka_result.all():
+            access_url = None
+            if entry.media_path:
+                access_url = generate_signed_file_url(entry.media_path)
+            vehicle_entries.append({
+                "id": entry.id,
+                "vehicle_number": entry.vehicle_number,
+                "material_name": mat.name,
+                "material_unit": mat.unit,
+                "quantity_entered": entry.quantity_brought,
+                "entry_at": entry.entry_at,
+                "remarks": entry.remarks,
+                "media_path": entry.media_path,
+                "access_url": access_url,
+            })
+
+        return {
+            "transport_code": transport_code,
+            "token_number": token_number,
+            "status": phase_rec.status,
+            "valid_from": phase_rec.activated_at,
+            "valid_till": valid_till,
+            "application_id": application_id,
+            "application_number": application_number,
+            "applicant_name": application.applicant_name,
+            "property_address": application.property_address,
+            "property_usage": application.property_usage,
+            "application_type": application.type,
+            "authority": {
+                "issued_by": issued_by,
+                "issued_on": issued_on,
+                "token_generated_from": token_generated_from,
+            },
+            "materials": materials_list,
+            "remaining_quantity_pct": remaining_pct,
+            "vehicle_entries": vehicle_entries,
+        }
+
+    async def get_citizen_tokens(
+        self,
+        user_id: int,
+        status_filter: Optional[str] = None,
+        search: Optional[str] = None,
+        offset: int = 0,
+        limit: int = 10,
+    ) -> list[dict]:
+        """Get all tokens (phases) for applications owned by a citizen.
+
+        Supports filtering by phase status and searching by token/application number.
+        """
+        # Fetch phases for the user's applications
+        stmt = (
+            select(ApprovedApplicationPhase)
+            .join(
+                Application, ApprovedApplicationPhase.application_id == Application.id
+            )
+            .where(Application.user_id == user_id)
+            .order_by(ApprovedApplicationPhase.id.desc())
+        )
+        if status_filter:
+            try:
+                phase_status = ApplicationPhaseStatus(status_filter)
+                stmt = stmt.where(ApprovedApplicationPhase.status == phase_status)
+            except ValueError:
+                pass  # ignore invalid status filter
+
+        result = await self.session.execute(stmt)
+        phases = list(result.scalars().all())
+
+        # Build lightweight token dicts for listing
+        tokens = await self._build_token_list_dicts(phases)
+
+        # Search filter (on token_number or application_number)
+        if search:
+            search_lower = search.lower()
+            tokens = [
+                t
+                for t in tokens
+                if search_lower in t["token_number"].lower()
+                or search_lower in t["application_number"].lower()
+            ]
+
+        # Paginate
+        return tokens[offset : offset + limit]
+
+    async def get_application_tokens(self, application_id: int) -> list[dict]:
+        """Get all tokens (phases) for a single application with material summaries."""
+        stmt = (
+            select(ApprovedApplicationPhase)
+            .where(ApprovedApplicationPhase.application_id == application_id)
+            .order_by(ApprovedApplicationPhase.phase)
+        )
+        result = await self.session.execute(stmt)
+        phases = list(result.scalars().all())
+        return await self._build_token_list_dicts(phases)
 
 
 async def get_application_dao(

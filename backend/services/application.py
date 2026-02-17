@@ -12,7 +12,6 @@ from backend.meta import (
     ApplicationFlags,
     CommentType,
     UserRole,
-    WorkflowAction,
 )
 from backend.schemas.base.auth import UserDetails
 from backend.schemas.request.application import (
@@ -21,12 +20,13 @@ from backend.schemas.request.application import (
     ApplicationMaterialRequirements,
     InspectionReportCreate,
     NakaEntryCreate,
-    PhaseMaterialEntry,
     WorkflowActionRequest,
 )
 from backend.schemas.response.application import (
     ApplicationResponse,
     PhaseResponse,
+    TokenResponse,
+    TokenDetailResponse,
 )
 from backend.schemas.response.meta import SuccessResponse, DocumentUploadResponse
 from backend.services.base import BaseService
@@ -210,12 +210,11 @@ class ApplicationService(BaseService):
     async def get_naka_entries(self, application_id: int) -> list:
         """Get all naka entries for an application."""
         from backend.schemas.response.application import NakaEntryResponse
+
         entries = await self.dao.get_naka_entries(application_id)
         return [NakaEntryResponse.model_validate(e) for e in entries]
 
-    async def get_phase_material_summary(
-        self, application_id: int, phase: int
-    ) -> dict:
+    async def get_phase_material_summary(self, application_id: int, phase: int) -> dict:
         """Get material summary for a phase (used by naka checkpoint)."""
         return await self.dao.get_phase_material_summary(application_id, phase)
 
@@ -230,6 +229,37 @@ class ApplicationService(BaseService):
     ) -> SuccessResponse:
         """Mark a phase as completed."""
         return await self.dao.complete_phase(application_id, phase, user_id)
+
+    # ── Token queries ─────────────────────────────────────────────────────
+    async def get_citizen_tokens(
+        self,
+        user_id: int,
+        status_filter: Optional[str] = None,
+        search: Optional[str] = None,
+        offset: int = 0,
+        limit: int = 10,
+    ) -> list[TokenResponse]:
+        """Get all tokens for a citizen with optional filters."""
+        token_dicts = await self.dao.get_citizen_tokens(
+            user_id=user_id,
+            status_filter=status_filter,
+            search=search,
+            offset=offset,
+            limit=limit,
+        )
+        return [TokenResponse.model_validate(t) for t in token_dicts]
+
+    async def get_application_tokens(self, application_id: int) -> list[TokenResponse]:
+        """Get all tokens for a specific application."""
+        token_dicts = await self.dao.get_application_tokens(application_id)
+        return [TokenResponse.model_validate(t) for t in token_dicts]
+
+    async def get_token_detail(
+        self, application_id: int, phase: int
+    ) -> TokenDetailResponse:
+        """Get full token detail for a single phase (by decoded transport code)."""
+        detail_dict = await self.dao.get_token_detail(application_id, phase)
+        return TokenDetailResponse.model_validate(detail_dict)
 
 
 class ApplicationMaterialService(BaseService):
