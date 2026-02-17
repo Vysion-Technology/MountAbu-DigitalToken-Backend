@@ -51,9 +51,6 @@ SUPERADMIN_USERNAME = "superadmin"
 SUPERADMIN_PASSWORD = "SuperAdmin@123"
 SUPERADMIN_MOBILE = "9999999999"
 
-MINIO_DOCKER_HOST = "minio:9000"
-MINIO_PUBLIC_HOST = "localhost:9000"
-
 TESTDOCS_DIR = Path(__file__).resolve().parent.parent / "testdocs"
 
 # Authority users that will be created via /superadmin/users
@@ -97,10 +94,6 @@ def _headers(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _rewrite_minio_url(url: str) -> str:
-    return url.replace(f"http://{MINIO_DOCKER_HOST}", f"http://{MINIO_PUBLIC_HOST}")
-
-
 def _check(resp: requests.Response, context: str = ""):
     if resp.ok:
         return
@@ -141,21 +134,8 @@ def send_otp(base: str, mobile: str):
     _check(resp, "send-otp")
 
 
-def signup(base: str, mobile: str, name: str, otp: str = DEV_OTP) -> Optional[dict]:
-    resp = requests.post(
-        _url(base, "/auth/signup"),
-        json={"mobile": mobile, "otp": otp, "name": name},
-    )
-    if resp.status_code in (400, 409):
-        detail = resp.json().get("detail", "")
-        if "already" in detail.lower() or "registered" in detail.lower():
-            return None
-        _check(resp, "signup")
-    _check(resp, "signup")
-    return resp.json()
-
-
-def verify_otp_login(base: str, mobile: str, otp: str = DEV_OTP) -> dict:
+def login_otp(base: str, mobile: str, otp: str = DEV_OTP) -> dict:
+    """POST /auth/login/otp — auto-registers new users as CITIZEN."""
     resp = requests.post(
         _url(base, "/auth/login/otp"), json={"mobile": mobile, "otp": otp}
     )
@@ -176,10 +156,7 @@ def get_citizen_token(base: str) -> tuple[str, int]:
     """Create a random citizen and return (token, user_id)."""
     mobile = generate_mobile()
     send_otp(base, mobile)
-    data = signup(base, mobile, "Workflow Test Citizen")
-    if data is None:
-        send_otp(base, mobile)
-        data = verify_otp_login(base, mobile)
+    data = login_otp(base, mobile)
     return data["access_token"], data["user_id"]
 
 
@@ -377,7 +354,7 @@ def create_inspection(base: str, token: str, app_id: int,
     return resp.json()
 
 
-def create_naka_entry(base: str, token: str, app_id: int, phase: int,
+def create_naka_entry(base: str, token: str, transport_code: str,
                       material_id: int, quantity: int,
                       vehicle_number: str = None) -> requests.Response:
     payload: dict = {
@@ -387,7 +364,7 @@ def create_naka_entry(base: str, token: str, app_id: int, phase: int,
     if vehicle_number:
         payload["vehicle_number"] = vehicle_number
     resp = requests.post(
-        _url(base, f"/api/applications/{app_id}/phases/{phase}/naka-entry"),
+        _url(base, f"/api/naka/{transport_code}/entry"),
         json=payload,
         headers=_headers(token),
     )
@@ -504,9 +481,13 @@ def test_new_application_workflow(base: str, citizen_token: str, tokens: dict,
             break
     assert allocated_qty is not None
 
+    # Get transport code for phase 1 from phases response
+    phase1_transport_code = phases[0]["transport_code"]
+    assert phase1_transport_code, "Phase 1 should have a transport_code"
+
     # Log a valid entry
     half_qty = max(1, allocated_qty // 2)
-    resp = create_naka_entry(base, tokens["NAKA_INCHARGE"], app_id, 1,
+    resp = create_naka_entry(base, tokens["NAKA_INCHARGE"], phase1_transport_code,
                              first_mat_id, half_qty, vehicle_number="RJ-25-AB-1234")
     _check(resp, "naka entry")
     print(f"  Logged {half_qty}/{allocated_qty} of material {first_mat_id}")
@@ -515,7 +496,7 @@ def test_new_application_workflow(base: str, citizen_token: str, tokens: dict,
     print("\n--- Step 6b: Test exceeding naka quantity limit ---")
     remaining = allocated_qty - half_qty
     over_qty = remaining + 100  # way too much
-    resp = create_naka_entry(base, tokens["NAKA_INCHARGE"], app_id, 1,
+    resp = create_naka_entry(base, tokens["NAKA_INCHARGE"], phase1_transport_code,
                              first_mat_id, over_qty)
     _expect_error(resp, 400, "naka entry over limit")
     print(f"  Correctly rejected over-limit entry ({over_qty} > remaining {remaining})")
@@ -727,11 +708,12 @@ def test_invalid_transitions(base: str, citizen_token: str, tokens: dict, master
                            num_stages=2)
     _expect_error(resp, 400, "tokens on SUBMITTED")
 
-    # Naka entry on non-TOKEN_GENERATED app
-    print("\n--- Test: Naka entry on SUBMITTED app ---")
-    resp = create_naka_entry(base, tokens["NAKA_INCHARGE"], app_id, 1,
+    # Naka entry on non-TOKEN_GENERATED app — use a bogus transport code.
+    # The endpoint should reject it with 400 (invalid/tampered code).
+    print("\n--- Test: Naka entry with invalid transport code ---")
+    resp = create_naka_entry(base, tokens["NAKA_INCHARGE"], "bogus-code",
                              material_ids[0], 10)
-    _expect_error(resp, 400, "naka on SUBMITTED")
+    _expect_error(resp, 400, "naka with invalid code")
 
     print(f"\n  ✅ Invalid transition tests PASSED")
 

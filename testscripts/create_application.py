@@ -2,7 +2,7 @@
 End-to-end test script: Citizen creates and submits an application.
 
 Steps:
-  1. Generate random 10-digit mobile, send OTP, signup (or login if exists), verify OTP
+  1. Generate random 10-digit mobile, send OTP, login (auto-registers if new)
   2. Setup SUPERADMIN, login, seed master data (wards, departments, roles, complaint categories, materials)
   3. Citizen: create application, upload documents via presigned URLs, submit application
 
@@ -31,11 +31,8 @@ SUPERADMIN_MOBILE = "9999999999"
 SUPERADMIN_USERNAME = "superadmin"
 SUPERADMIN_PASSWORD = "SuperAdmin@123"
 
-# MinIO runs inside Docker as "minio:9000" but is exposed on localhost:9000.
-# Presigned URLs returned by the backend contain the Docker-internal hostname.
-# We rewrite them so the test script (running on the host) can reach MinIO.
-MINIO_DOCKER_HOST = "minio:9000"
-MINIO_PUBLIC_HOST = "localhost:9000"
+# Presigned URLs are now rewritten server-side (via MINIO_PUBLIC_HOST config)
+# so no client-side hostname rewriting is needed.
 
 TESTDOCS_DIR = Path(__file__).resolve().parent.parent / "testdocs"
 
@@ -53,8 +50,8 @@ def _headers(token: str) -> dict:
 
 
 def _rewrite_minio_url(url: str) -> str:
-    """Replace Docker-internal minio hostname with localhost so the host can reach it."""
-    return url.replace(f"http://{MINIO_DOCKER_HOST}", f"http://{MINIO_PUBLIC_HOST}")
+    """No-op: presigned URLs are now rewritten server-side."""
+    return url
 
 
 def _check(resp: requests.Response, context: str = ""):
@@ -92,34 +89,16 @@ def send_otp(base: str, mobile: str) -> dict:
     return data
 
 
-def signup(base: str, mobile: str, name: str, otp: str = DEV_OTP) -> Optional[dict]:
-    """POST /auth/signup — returns token data or None if user exists."""
-    print(f"  -> Signing up {mobile} as '{name}' ...")
-    resp = requests.post(
-        _url(base, "/auth/signup"),
-        json={"mobile": mobile, "otp": otp, "name": name},
-    )
-    if resp.status_code in (400, 409):
-        detail = resp.json().get("detail", "")
-        if "already" in detail.lower() or "registered" in detail.lower():
-            print("     User already registered, will login instead.")
-            return None
-        _check(resp, "signup")
-    _check(resp, "signup")
-    data = resp.json()
-    print(f"     Signed up! user_id={data['user_id']}, role={data['role']}")
-    return data
-
-
-def verify_otp_login(base: str, mobile: str, otp: str = DEV_OTP) -> dict:
-    """POST /auth/login/otp"""
-    print(f"  -> Verifying OTP / logging in {mobile} ...")
+def login_otp(base: str, mobile: str, otp: str = DEV_OTP) -> dict:
+    """POST /auth/login/otp — auto-registers new users as CITIZEN."""
+    print(f"  -> Logging in {mobile} via OTP ...")
     resp = requests.post(
         _url(base, "/auth/login/otp"), json={"mobile": mobile, "otp": otp}
     )
     _check(resp, "login/otp")
     data = resp.json()
-    print(f"     Logged in! user_id={data['user_id']}, role={data['role']}")
+    new = " (new user)" if data.get("is_new_user") else ""
+    print(f"     Logged in! user_id={data['user_id']}, role={data['role']}{new}")
     return data
 
 
@@ -354,13 +333,9 @@ def upload_file_to_presigned_url(upload_url: str, file_path: Path, content_type:
     MinIO, but we must keep the ``Host`` header as ``minio:9000`` so the
     signature verification still passes.
     """
-    rewritten_url = _rewrite_minio_url(upload_url)
     headers = {"Content-Type": content_type}
-    # Preserve the original Host header so the presigned signature stays valid
-    if MINIO_DOCKER_HOST in upload_url:
-        headers["Host"] = MINIO_DOCKER_HOST
     with open(file_path, "rb") as f:
-        resp = requests.put(rewritten_url, data=f, headers=headers)
+        resp = requests.put(upload_url, data=f, headers=headers)
     if resp.status_code not in (200, 204):
         raise RuntimeError(
             f"Upload to presigned URL failed: {resp.status_code} {resp.text}"
@@ -465,20 +440,14 @@ def run(base_url: str):
     print("=" * 60)
 
     # ------------------------------------------------------------------
-    # STEP 1: Citizen auth (signup or login)
+    # STEP 1: Citizen auth (send OTP -> login, auto-registers if new)
     # ------------------------------------------------------------------
     print("\n=== Step 1: Citizen Authentication ===")
     citizen_mobile = generate_mobile()
-    citizen_name = "Test Citizen"
     print(f"  Generated mobile: {citizen_mobile}")
 
     send_otp(base_url, citizen_mobile)
-
-    token_data = signup(base_url, citizen_mobile, citizen_name)
-    if token_data is None:
-        # Already registered — login via OTP
-        send_otp(base_url, citizen_mobile)
-        token_data = verify_otp_login(base_url, citizen_mobile)
+    token_data = login_otp(base_url, citizen_mobile)
 
     citizen_token = token_data["access_token"]
     citizen_user_id = token_data["user_id"]

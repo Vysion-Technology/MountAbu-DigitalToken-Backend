@@ -30,17 +30,28 @@ class StorageService:
         await file.seek(0) # Reset pointer if needed elsewhere
         return f"{self.bucket_name}/{object_name}"
 
+    def _rewrite_presigned_url(self, url: str) -> str:
+        """Replace Docker-internal MinIO host with the public host so
+        presigned URLs are directly usable by external clients."""
+        internal = f"{settings.MINIO_HOST}:9000"
+        public = f"{settings.MINIO_PUBLIC_HOST}:9000"
+        if internal != public:
+            url = url.replace(f"http://{internal}", f"http://{public}")
+        return url
+
     def get_file_url(self, object_name: str) -> str:
         # Generate presigned URL valid for 1 hour
-        return self.client.presigned_get_object(self.bucket_name, object_name)
+        url = self.client.presigned_get_object(self.bucket_name, object_name)
+        return self._rewrite_presigned_url(url)
 
     def get_presigned_upload_url(self, object_name: str) -> str:
         # Generate presigned PUT URL valid for 10 minutes
         from datetime import timedelta
 
-        return self.client.presigned_put_object(
+        url = self.client.presigned_put_object(
             self.bucket_name, object_name, expires=timedelta(minutes=10)
         )
+        return self._rewrite_presigned_url(url)
 
     def delete_file(self, object_path: str) -> None:
         """Delete object from storage. object_path may be either an object name or a stored path like 'bucket/object'."""
