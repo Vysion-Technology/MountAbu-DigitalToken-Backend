@@ -4,7 +4,7 @@ End-to-end test script: Citizen creates and submits an application.
 Steps:
   1. Generate random 10-digit mobile, send OTP, login (auto-registers if new)
   2. Setup SUPERADMIN, login, seed master data (wards, departments, roles, complaint categories, materials)
-  3. Citizen: create application, upload documents via presigned URLs, submit application
+  3. Citizen: create application, upload documents via backend media proxy, submit application
 
 Usage:
     python testscripts/create_application.py [--base-url http://localhost:8000]
@@ -31,9 +31,6 @@ SUPERADMIN_MOBILE = "9999999999"
 SUPERADMIN_USERNAME = "superadmin"
 SUPERADMIN_PASSWORD = "SuperAdmin@123"
 
-# Presigned URLs are now rewritten server-side (via MINIO_PUBLIC_HOST config)
-# so no client-side hostname rewriting is needed.
-
 TESTDOCS_DIR = Path(__file__).resolve().parent.parent / "testdocs"
 
 # ---------------------------------------------------------------------------
@@ -47,11 +44,6 @@ def _url(base: str, path: str) -> str:
 
 def _headers(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
-
-
-def _rewrite_minio_url(url: str) -> str:
-    """No-op: presigned URLs are now rewritten server-side."""
-    return url
 
 
 def _check(resp: requests.Response, context: str = ""):
@@ -305,41 +297,25 @@ def create_application(
     return app
 
 
-def get_presigned_url(
+def upload_media(
     base: str,
-    filename: str,
-    content_type: str,
+    file_path: Path,
     category: str = "application",
     entity_id: Optional[int] = None,
 ) -> dict:
-    """POST /api/media/presigned-url"""
-    payload = {
-        "filename": filename,
-        "content_type": content_type,
-        "category": category,
-    }
+    """POST /api/media/upload — upload file through the backend (proxied to MinIO)."""
+    content_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
+    data = {"category": category}
     if entity_id:
-        payload["entity_id"] = entity_id
-    resp = requests.post(_url(base, "/api/media/presigned-url"), json=payload)
-    _check(resp, "presigned-url")
-    return resp.json()
-
-
-def upload_file_to_presigned_url(upload_url: str, file_path: Path, content_type: str):
-    """PUT file content to the presigned upload URL.
-
-    The presigned URL is signed for ``minio:9000`` (Docker-internal host).
-    We rewrite the URL to ``localhost:9000`` so the host machine can reach
-    MinIO, but we must keep the ``Host`` header as ``minio:9000`` so the
-    signature verification still passes.
-    """
-    headers = {"Content-Type": content_type}
+        data["entity_id"] = str(entity_id)
     with open(file_path, "rb") as f:
-        resp = requests.put(upload_url, data=f, headers=headers)
-    if resp.status_code not in (200, 204):
-        raise RuntimeError(
-            f"Upload to presigned URL failed: {resp.status_code} {resp.text}"
+        resp = requests.post(
+            _url(base, "/api/media/upload"),
+            files={"file": (file_path.name, f, content_type)},
+            data=data,
         )
+    _check(resp, "media/upload")
+    return resp.json()
 
 
 def upload_document_to_application(
@@ -365,7 +341,7 @@ def upload_document_to_application(
     return data
 
 
-def upload_via_presigned(
+def upload_via_media_proxy(
     base: str,
     token: str,
     application_id: int,
@@ -373,27 +349,19 @@ def upload_via_presigned(
     document_type: str,
 ) -> dict:
     """
-    Upload a file using the presigned-URL flow:
-      1. Get presigned upload URL
-      2. PUT file to MinIO via presigned URL
-      3. Attach as application document via multipart upload (since that's
-         what the current API supports for document records)
+    Upload a file using the backend media proxy:
+      1. POST file to /api/media/upload (backend proxies to MinIO)
+      2. Attach document record to application
     """
-    print(f"  -> Uploading {file_path.name} as {document_type} (presigned) ...")
-    content_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
+    print(f"  -> Uploading {file_path.name} as {document_type} (via media proxy) ...")
 
-    # Step 1: Get presigned URL
-    presigned = get_presigned_url(
-        base, file_path.name, content_type, category="application", entity_id=application_id
-    )
-    print(f"     Got presigned URL for key: {presigned['object_key']}")
+    # Step 1: Upload file through backend proxy
+    media = upload_media(base, file_path, category="application", entity_id=application_id)
+    print(f"     Uploaded to MinIO: {media['object_key']}")
 
-    # Step 2: PUT file to presigned URL (rewrites Docker hostname internally)
-    upload_file_to_presigned_url(presigned["upload_url"], file_path, content_type)
-    print("     File uploaded to MinIO")
-
-    # Step 3: Attach document record to application
+    # Step 2: Attach document record to application
     with open(file_path, "rb") as f:
+        content_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
         resp = requests.post(
             _url(base, f"/api/applications/{application_id}/document"),
             files={"document": (file_path.name, f, content_type)},
@@ -496,9 +464,9 @@ def run(base_url: str):
             print(f"  !! File not found: {file_path}, skipping {doc_type}")
             continue
         try:
-            upload_via_presigned(base_url, citizen_token, app_id, file_path, doc_type)
+            upload_via_media_proxy(base_url, citizen_token, app_id, file_path, doc_type)
         except Exception as e:
-            print(f"  !! Presigned upload failed ({e}), falling back to direct upload")
+            print(f"  !! Media proxy upload failed ({e}), falling back to direct upload")
             upload_document_to_application(base_url, citizen_token, app_id, file_path, doc_type)
 
     # ------------------------------------------------------------------

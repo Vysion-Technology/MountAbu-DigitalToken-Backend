@@ -12,7 +12,6 @@ class Settings(BaseSettings):
     DATABASE_HOST: str = "postgres"
 
     MINIO_HOST: str = "minio"
-    MINIO_PUBLIC_HOST: str = "localhost"  # External hostname for presigned URLs
     MINIO_ACCESS_KEY: str = "minioadmin"
     MINIO_SECRET_KEY: str = "minioadmin123"
 
