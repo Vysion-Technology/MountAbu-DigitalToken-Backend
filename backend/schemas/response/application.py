@@ -19,8 +19,35 @@ class ApplicationDocumentResponse(BaseModel):
     document_path: str
     document_type: ApplicationDocumentType
     document_name: Optional[str]
+    access_url: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def compute_access_url(cls, data):
+        """Generate a signed download URL from *document_path*."""
+        from backend.services.storage import generate_signed_file_url
+
+        path = None
+        if hasattr(data, "document_path"):
+            path = data.document_path
+        elif isinstance(data, dict):
+            path = data.get("document_path")
+
+        if path:
+            url = generate_signed_file_url(path)
+            if hasattr(data, "__dict__"):
+                return {
+                    "id": data.id,
+                    "document_path": path,
+                    "document_type": data.document_type,
+                    "document_name": getattr(data, "document_name", None),
+                    "access_url": url,
+                }
+            else:
+                data["access_url"] = url
+        return data
 
 
 class ApplicationMaterialResponse(BaseModel):
@@ -133,8 +160,24 @@ class NakaEntryResponse(BaseModel):
     vehicle_number: Optional[str] = None
     remarks: Optional[str] = None
     media_path: Optional[str] = None
+    access_url: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def compute_access_url(cls, data):
+        from backend.services.storage import generate_signed_file_url
+        path = getattr(data, "media_path", None) if hasattr(data, "media_path") else (data.get("media_path") if isinstance(data, dict) else None)
+        if path:
+            url = generate_signed_file_url(path)
+            if hasattr(data, "__dict__") and not isinstance(data, dict):
+                d = {k: getattr(data, k) for k in ["id", "application_id", "phase", "material_id", "quantity_brought", "entry_by", "entry_at", "vehicle_number", "remarks", "media_path"]}
+                d["access_url"] = url
+                return d
+            elif isinstance(data, dict):
+                data["access_url"] = url
+        return data
 
 
 class InspectionReportResponse(BaseModel):

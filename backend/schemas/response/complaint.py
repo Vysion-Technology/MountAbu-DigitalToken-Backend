@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from backend.meta import ComplaintStatus
 
 
@@ -18,6 +18,19 @@ class MediaResponse(BaseModel):
     is_initial: bool
     access_url: Optional[str] = None  # Computed
 
+    @model_validator(mode="before")
+    @classmethod
+    def compute_access_url(cls, data):
+        from backend.services.storage import generate_signed_file_url
+        path = getattr(data, "media_path", None) if hasattr(data, "media_path") else (data.get("media_path") if isinstance(data, dict) else None)
+        if path:
+            url = generate_signed_file_url(path)
+            if hasattr(data, "__dict__") and not isinstance(data, dict):
+                return {"id": data.id, "media_path": path, "media_type": data.media_type, "is_initial": data.is_initial, "access_url": url}
+            elif isinstance(data, dict):
+                data["access_url"] = url
+        return data
+
 
 class CommentResponse(BaseModel):
     id: int
@@ -26,6 +39,19 @@ class CommentResponse(BaseModel):
     comment_by: Optional[int] = None  # User ID
     media_path: Optional[str] = None
     access_url: Optional[str] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def compute_access_url(cls, data):
+        from backend.services.storage import generate_signed_file_url
+        path = getattr(data, "media_path", None) if hasattr(data, "media_path") else (data.get("media_path") if isinstance(data, dict) else None)
+        if path:
+            url = generate_signed_file_url(path)
+            if hasattr(data, "__dict__") and not isinstance(data, dict):
+                return {"id": data.id, "comment": data.comment, "created_at": data.created_at, "comment_by": getattr(data, "comment_by", None), "media_path": path, "access_url": url}
+            elif isinstance(data, dict):
+                data["access_url"] = url
+        return data
 
 
 class ComplaintResponse(BaseModel):

@@ -1,7 +1,11 @@
 from minio import Minio
 from backend.config import settings
 from fastapi import UploadFile
+import hmac
+import hashlib
 import io
+import time
+import urllib.parse
 
 class StorageService:
     def __init__(self):
@@ -41,9 +45,23 @@ class StorageService:
         )
         return f"{self.bucket_name}/{object_name}"
 
-    def get_file_url(self, object_name: str) -> str:
-        # Generate presigned GET URL valid for 1 hour
-        return self.client.presigned_get_object(self.bucket_name, object_name)
+    def get_file_url(self, object_name: str, expires_hours: int = 3) -> str:
+        """Generate a signed backend proxy URL valid for *expires_hours* hours.
+
+        The URL points to the backend download-proxy endpoint so that
+        clients never talk to MinIO directly.
+        """
+        return generate_signed_file_url(object_name, expires_hours)
+
+    def get_file_stream(self, object_name: str):
+        """Return the raw MinIO response object (streaming) for *object_name*.
+
+        Callers are responsible for closing the response when done.
+        """
+        # Normalise: strip bucket prefix if the stored path includes it
+        if object_name.startswith(f"{self.bucket_name}/"):
+            object_name = object_name.split("/", 1)[1]
+        return self.client.get_object(self.bucket_name, object_name)
 
     def get_presigned_upload_url(self, object_name: str) -> str:
         # Generate presigned PUT URL valid for 10 minutes
@@ -67,6 +85,48 @@ class StorageService:
             # Log and re-raise so callers can handle or fail gracefully
             print(f"Warning: failed to delete object {object_path}: {e}")
             raise
+
+
+# ---------------------------------------------------------------------------
+# Standalone signed-URL helpers (usable without a StorageService instance)
+# ---------------------------------------------------------------------------
+
+def _sign_download_token(object_path: str, expires_at: int) -> str:
+    """Create an HMAC-SHA256 token binding *object_path* to *expires_at*."""
+    message = f"{object_path}:{expires_at}"
+    return hmac.new(
+        settings.SECRET_KEY.encode(),
+        message.encode(),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def generate_signed_file_url(object_path: str, expires_hours: int = 3) -> str:
+    """Return a backend-proxied download URL with a signed token.
+
+    This can be called from anywhere (services, Pydantic validators, etc.)
+    without needing a StorageService instance.
+    """
+    # Normalise stored paths that may include the bucket prefix
+    clean_path = object_path
+    if clean_path.startswith("documents/"):
+        clean_path = clean_path.split("/", 1)[1]
+
+    expires_at = int(time.time()) + expires_hours * 3600
+    token = _sign_download_token(clean_path, expires_at)
+    encoded_path = urllib.parse.quote(clean_path, safe="/")
+    return (
+        f"{settings.BACKEND_BASE_URL}/api/media/file/"
+        f"{encoded_path}?token={token}&expires={expires_at}"
+    )
+
+
+def verify_download_token(object_path: str, token: str, expires: int) -> bool:
+    """Verify that *token* is valid for *object_path* and has not expired."""
+    if time.time() > expires:
+        return False
+    expected = _sign_download_token(object_path, expires)
+    return hmac.compare_digest(token, expected)
 
 
 _storage_service = None
