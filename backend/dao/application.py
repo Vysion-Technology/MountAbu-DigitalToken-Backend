@@ -15,7 +15,8 @@ from backend.dbmodels.application import (
     ApplicationComment,
     ApplicationActionLog,
     InspectionReport,
-    NakaEntry,
+    VehicleEntry,
+    VehicleMaterial,
 )
 from backend.dao.base import BaseDAO
 from backend.meta import ApplicationStatus, CommentType, WorkflowAction
@@ -50,7 +51,7 @@ _APPLICATION_LOAD_OPTIONS = [
     selectinload(Application.phases),
     selectinload(Application.phase_materials),
     selectinload(Application.inspections),
-    selectinload(Application.naka_entries),
+    selectinload(Application.vehicle_entries).selectinload(VehicleEntry.materials),
     selectinload(Application.action_logs),
 ]
 
@@ -272,6 +273,7 @@ class ApplicationDAO(BaseDAO):
         # Attach token details if phases exist
         if application.phases:
             from backend.schemas.response.application import TokenResponse
+
             token_dicts = await self._build_token_list_dicts(application.phases)
             response.tokens = [TokenResponse.model_validate(t) for t in token_dicts]
 
@@ -317,9 +319,9 @@ class ApplicationDAO(BaseDAO):
                 # Group by application_id — get app_id from transport_code decode
                 # Since list dicts don't have app_id, use phase objects to map
                 # Build phase_id -> app_id mapping
-                phase_to_app = {p.id: p.application_id for app in apps_with_phases for p in app.phases}
                 # Build transport_code -> app_id from phases
                 from backend.core.transport_code import encode_transport_code
+
                 tc_to_app: dict[str, int] = {}
                 for app in apps_with_phases:
                     for p in app.phases:
@@ -386,6 +388,51 @@ class ApplicationDAO(BaseDAO):
         await self.session.delete(application)
         await self.session.commit()
         return SuccessResponse(message=None)
+
+    async def withdraw_application(
+        self, application_id: int, user_id: int
+    ) -> SuccessResponse:
+        """Withdraw an application by the applicant."""
+        application = await self.session.get(Application, application_id)
+        if not application:
+            raise HTTPException(status_code=404, detail="Application not found")
+
+        if application.user_id != user_id:
+            raise HTTPException(
+                status_code=403, detail="You can only withdraw your own applications"
+            )
+
+        # Allow withdrawal only if PENDING or SUBMITTED
+        if application.status not in (
+            ApplicationStatus.PENDING,
+            ApplicationStatus.SUBMITTED,
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot withdraw application in '{application.status.value}' status. Only PENDING or SUBMITTED applications can be withdrawn.",
+            )
+
+        old_status = application.status
+        print(
+            f"DEBUG: old_status={old_status}, user_id={user_id}, application_id={application_id}"
+        )
+        application.status = ApplicationStatus.WITHDRAWN
+
+        # Log the action
+        self.session.add(
+            ApplicationActionLog(
+                application_id=application_id,
+                action=WorkflowAction.WITHDRAW,
+                from_status=old_status,
+                to_status=ApplicationStatus.WITHDRAWN,
+                performed_by=user_id,
+                performed_at=datetime.now(),
+                remarks="Withdrawn by applicant",
+            )
+        )
+
+        await self.session.commit()
+        return SuccessResponse(message="Application withdrawn successfully")
 
     async def add_document(
         self,
@@ -735,12 +782,15 @@ class ApplicationDAO(BaseDAO):
             )
 
         # Sum existing naka entries for this material in this phase
-        used_stmt = select(
-            func.coalesce(func.sum(NakaEntry.quantity_brought), 0)
-        ).where(
-            NakaEntry.application_id == application_id,
-            NakaEntry.phase == phase,
-            NakaEntry.material_id == material_id,
+        used_stmt = (
+            select(func.coalesce(func.sum(VehicleMaterial.quantity), 0))
+            .select_from(VehicleEntry)
+            .join(VehicleMaterial)
+            .where(
+                VehicleEntry.application_id == application_id,
+                VehicleEntry.phase == phase,
+                VehicleMaterial.material_id == material_id,
+            )
         )
         used_result = await self.session.execute(used_stmt)
         already_brought: int = used_result.scalar() or 0
@@ -756,28 +806,37 @@ class ApplicationDAO(BaseDAO):
                 ),
             )
 
-        self.session.add(
-            NakaEntry(
-                application_id=application_id,
-                phase=phase,
-                material_id=material_id,
-                quantity_brought=quantity_brought,
-                entry_by=user_id,
-                entry_at=datetime.now(),
-                vehicle_number=vehicle_number,
-                remarks=remarks,
-                media_path=media_path,
-            )
+        # Create Vehicle Entry
+        vehicle_entry = VehicleEntry(
+            application_id=application_id,
+            phase=phase,
+            entry_by=user_id,
+            entry_at=datetime.now(),
+            vehicle_number=vehicle_number or "UNKNOWN",
+            remarks=remarks,
+            media_path=media_path,
         )
+        self.session.add(vehicle_entry)
+        await self.session.flush()  # Get ID
+
+        # Create Vehicle Material
+        vehicle_material = VehicleMaterial(
+            vehicle_entry_id=vehicle_entry.id,
+            material_id=material_id,
+            quantity=float(quantity_brought),
+        )
+        self.session.add(vehicle_material)
+
         await self.session.commit()
         return SuccessResponse(message="Naka entry recorded successfully")
 
-    async def get_naka_entries(self, application_id: int) -> list[NakaEntry]:
+    async def get_naka_entries(self, application_id: int) -> list[VehicleEntry]:
         """Get all naka entries for an application."""
         stmt = (
-            select(NakaEntry)
-            .where(NakaEntry.application_id == application_id)
-            .order_by(NakaEntry.entry_at.desc())
+            select(VehicleEntry)
+            .where(VehicleEntry.application_id == application_id)
+            .options(selectinload(VehicleEntry.materials))
+            .order_by(VehicleEntry.entry_at.desc())
         )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
@@ -823,16 +882,18 @@ class ApplicationDAO(BaseDAO):
         # Sum brought quantities per material from naka entries
         brought_stmt = (
             select(
-                NakaEntry.material_id,
-                func.coalesce(func.sum(NakaEntry.quantity_brought), 0).label(
+                VehicleMaterial.material_id,
+                func.coalesce(func.sum(VehicleMaterial.quantity), 0).label(
                     "total_brought"
                 ),
             )
+            .select_from(VehicleEntry)
+            .join(VehicleMaterial)
             .where(
-                NakaEntry.application_id == application_id,
-                NakaEntry.phase == phase,
+                VehicleEntry.application_id == application_id,
+                VehicleEntry.phase == phase,
             )
-            .group_by(NakaEntry.material_id)
+            .group_by(VehicleMaterial.material_id)
         )
         brought_result = await self.session.execute(brought_stmt)
         brought_map = {row.material_id: row.total_brought for row in brought_result}
@@ -964,9 +1025,8 @@ class ApplicationDAO(BaseDAO):
         app_ids = list({p.application_id for p in phases})
 
         # Bulk-fetch phase materials
-        pm_stmt = (
-            select(ApplicationPhaseMaterial)
-            .where(ApplicationPhaseMaterial.application_id.in_(app_ids))
+        pm_stmt = select(ApplicationPhaseMaterial).where(
+            ApplicationPhaseMaterial.application_id.in_(app_ids)
         )
         pm_result = await self.session.execute(pm_stmt)
         pm_rows = list(pm_result.scalars().all())
@@ -977,15 +1037,19 @@ class ApplicationDAO(BaseDAO):
             key = (pm.application_id, pm.phase)
             pm_map[key] = pm_map.get(key, 0) + pm.quantity
 
-        # Bulk-fetch consumed quantities from naka_entries
+        # Bulk-fetch consumed quantities from vehicle_entries
         brought_stmt = (
             select(
-                NakaEntry.application_id,
-                NakaEntry.phase,
-                func.coalesce(func.sum(NakaEntry.quantity_brought), 0).label("total_brought"),
+                VehicleEntry.application_id,
+                VehicleEntry.phase,
+                func.coalesce(func.sum(VehicleMaterial.quantity), 0).label(
+                    "total_brought"
+                ),
             )
-            .where(NakaEntry.application_id.in_(app_ids))
-            .group_by(NakaEntry.application_id, NakaEntry.phase)
+            .select_from(VehicleEntry)
+            .join(VehicleMaterial)
+            .where(VehicleEntry.application_id.in_(app_ids))
+            .group_by(VehicleEntry.application_id, VehicleEntry.phase)
         )
         brought_result = await self.session.execute(brought_stmt)
         brought_map: dict[tuple[int, int], int] = {}
@@ -1005,7 +1069,9 @@ class ApplicationDAO(BaseDAO):
 
             valid_till = None
             if phase_rec.activated_at:
-                valid_till = phase_rec.activated_at + timedelta(days=TOKEN_VALIDITY_DAYS)
+                valid_till = phase_rec.activated_at + timedelta(
+                    days=TOKEN_VALIDITY_DAYS
+                )
 
             total_approved = pm_map.get(key, 0)
             total_brought = brought_map.get(key, 0)
@@ -1019,20 +1085,20 @@ class ApplicationDAO(BaseDAO):
                 phase_rec.application_id, phase_rec.phase
             )
 
-            tokens.append({
-                "transport_code": transport_code,
-                "token_number": token_number,
-                "application_number": application_number,
-                "remaining_quantity_pct": remaining_pct,
-                "valid_till": valid_till,
-                "status": phase_rec.status,
-            })
+            tokens.append(
+                {
+                    "transport_code": transport_code,
+                    "token_number": token_number,
+                    "application_number": application_number,
+                    "remaining_quantity_pct": remaining_pct,
+                    "valid_till": valid_till,
+                    "status": phase_rec.status,
+                }
+            )
 
         return tokens
 
-    async def get_token_detail(
-        self, application_id: int, phase: int
-    ) -> dict:
+    async def get_token_detail(self, application_id: int, phase: int) -> dict:
         """Build a full token-detail dict for a single phase.
 
         Includes application info, authority info, material summary,
@@ -1059,7 +1125,9 @@ class ApplicationDAO(BaseDAO):
             select(Application)
             .where(Application.id == application_id)
             .options(
-                selectinload(Application.approvals).selectinload(ApplicationApproval.approver),
+                selectinload(Application.approvals).selectinload(
+                    ApplicationApproval.approver
+                ),
             )
         )
         app_result = await self.session.execute(app_stmt)
@@ -1089,7 +1157,9 @@ class ApplicationDAO(BaseDAO):
         for approval in application.approvals:
             if approval.action == WorkflowAction.GENERATE_TOKENS:
                 # Build label like "Nodal Officer (Ward 3)"
-                approver_name = approval.approver.name if approval.approver else "Unknown"
+                approver_name = (
+                    approval.approver.name if approval.approver else "Unknown"
+                )
                 ward_label = ""
                 if application.ward_id:
                     ward_stmt = select(Ward).where(Ward.id == application.ward_id)
@@ -1101,7 +1171,9 @@ class ApplicationDAO(BaseDAO):
                 issued_on = approval.approved_at
                 break
 
-        token_generated_from = f"Approved {application.type.value.capitalize()} Application"
+        token_generated_from = (
+            f"Approved {application.type.value.capitalize()} Application"
+        )
 
         # ── Phase materials with consumed quantities ──────────────────
         pm_stmt = (
@@ -1117,14 +1189,18 @@ class ApplicationDAO(BaseDAO):
 
         brought_stmt = (
             select(
-                NakaEntry.material_id,
-                func.coalesce(func.sum(NakaEntry.quantity_brought), 0).label("total_brought"),
+                VehicleMaterial.material_id,
+                func.coalesce(func.sum(VehicleMaterial.quantity), 0).label(
+                    "total_brought"
+                ),
             )
+            .select_from(VehicleEntry)
+            .join(VehicleMaterial)
             .where(
-                NakaEntry.application_id == application_id,
-                NakaEntry.phase == phase,
+                VehicleEntry.application_id == application_id,
+                VehicleEntry.phase == phase,
             )
-            .group_by(NakaEntry.material_id)
+            .group_by(VehicleMaterial.material_id)
         )
         brought_result = await self.session.execute(brought_stmt)
         brought_map = {row.material_id: row.total_brought for row in brought_result}
@@ -1137,14 +1213,16 @@ class ApplicationDAO(BaseDAO):
             remaining = pm.quantity - brought
             total_approved += pm.quantity
             total_remaining += remaining
-            materials_list.append({
-                "material_id": mat.id,
-                "material_name": mat.name,
-                "unit": mat.unit,
-                "approved_quantity": pm.quantity,
-                "consumed_quantity": brought,
-                "remaining_quantity": remaining,
-            })
+            materials_list.append(
+                {
+                    "material_id": mat.id,
+                    "material_name": mat.name,
+                    "unit": mat.unit,
+                    "approved_quantity": pm.quantity,
+                    "consumed_quantity": brought,
+                    "remaining_quantity": remaining,
+                }
+            )
 
         remaining_pct = None
         if total_approved > 0:
@@ -1154,31 +1232,35 @@ class ApplicationDAO(BaseDAO):
         from backend.services.storage import generate_signed_file_url
 
         naka_stmt = (
-            select(NakaEntry, Material)
-            .join(Material, NakaEntry.material_id == Material.id)
+            select(VehicleEntry, Material, VehicleMaterial)
+            .select_from(VehicleEntry)
+            .join(VehicleMaterial)
+            .join(Material, VehicleMaterial.material_id == Material.id)
             .where(
-                NakaEntry.application_id == application_id,
-                NakaEntry.phase == phase,
+                VehicleEntry.application_id == application_id,
+                VehicleEntry.phase == phase,
             )
-            .order_by(NakaEntry.entry_at.desc())
+            .order_by(VehicleEntry.entry_at.desc())
         )
         naka_result = await self.session.execute(naka_stmt)
         vehicle_entries = []
-        for entry, mat in naka_result.all():
+        for entry, mat, vmat in naka_result.all():
             access_url = None
             if entry.media_path:
                 access_url = generate_signed_file_url(entry.media_path)
-            vehicle_entries.append({
-                "id": entry.id,
-                "vehicle_number": entry.vehicle_number,
-                "material_name": mat.name,
-                "material_unit": mat.unit,
-                "quantity_entered": entry.quantity_brought,
-                "entry_at": entry.entry_at,
-                "remarks": entry.remarks,
-                "media_path": entry.media_path,
-                "access_url": access_url,
-            })
+            vehicle_entries.append(
+                {
+                    "id": entry.id,
+                    "vehicle_number": entry.vehicle_number,
+                    "material_name": mat.name,
+                    "material_unit": mat.unit,
+                    "quantity_entered": vmat.quantity,
+                    "entry_at": entry.entry_at,
+                    "remarks": entry.remarks,
+                    "media_path": entry.media_path,
+                    "access_url": access_url,
+                }
+            )
 
         return {
             "transport_code": transport_code,

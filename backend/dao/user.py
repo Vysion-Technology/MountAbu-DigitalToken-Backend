@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Sequence
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -72,3 +72,18 @@ class UserDAO:
         otp_record = ActiveUserOTP(mobile=mobile, otp=otp)
         session.add(otp_record)
         await session.commit()
+
+    async def get_users_filtered(
+        self, session: AsyncSession, is_citizen: bool
+    ) -> Sequence[User]:
+        stmt = select(User)
+        if is_citizen:
+            stmt = stmt.where(User.role == UserRole.CITIZEN)
+        else:
+            stmt = stmt.where(User.role != UserRole.CITIZEN)
+
+        # Order by most recent first, or name? Let's do name for now, or ID desc
+        stmt = stmt.order_by(User.id.desc())
+
+        result = await session.execute(stmt)
+        return result.scalars().all()

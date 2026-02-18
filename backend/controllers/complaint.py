@@ -8,9 +8,9 @@ from backend.database import get_db
 from backend.dbmodels.complaint import Complaint, ComplaintMedia, ComplaintComment
 from backend.meta import ComplaintStatus, UserRole
 from backend.schemas.request.complaint import (
-    ComplaintCreateRequest, 
-    CommentCreateRequest, 
-    ComplaintMediaAddRequest
+    ComplaintCreateRequest,
+    CommentCreateRequest,
+    ComplaintMediaAddRequest,
 )
 from backend.schemas.response.complaint import ComplaintResponse, ComplaintListResponse
 from backend.middlewares.auth import get_current_user, get_current_user_id
@@ -18,16 +18,19 @@ from backend.schemas.base.auth import UserDetails
 
 router = APIRouter()
 
+
 async def get_complaint_or_404(db: AsyncSession, complaint_id: int):
-    stmt = select(Complaint).where(Complaint.id == complaint_id).options(
-        selectinload(Complaint.media),
-        selectinload(Complaint.comments)
+    stmt = (
+        select(Complaint)
+        .where(Complaint.id == complaint_id)
+        .options(selectinload(Complaint.media), selectinload(Complaint.comments))
     )
     result = await db.execute(stmt)
     complaint = result.scalars().first()
     if not complaint:
         raise HTTPException(status_code=404, detail="Complaint not found")
     return complaint
+
 
 def format_access_url(storage, media_path: str):
     if not media_path:
@@ -37,7 +40,9 @@ def format_access_url(storage, media_path: str):
 
 @router.get("/complaints/my", response_model=ComplaintListResponse)
 async def get_my_complaints(
-    status_filter: Optional[ComplaintStatus] = Query(None, alias="status", description="Filter by complaint status"),
+    status_filter: Optional[ComplaintStatus] = Query(
+        None, alias="status", description="Filter by complaint status"
+    ),
     offset: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
     user_id: int = Depends(get_current_user_id),
@@ -65,15 +70,21 @@ async def get_my_complaints(
     result = await db.execute(stmt)
     complaints = [ComplaintResponse.model_validate(c) for c in result.scalars().all()]
 
-    return ComplaintListResponse(items=complaints, total=total, offset=offset, limit=limit)
+    return ComplaintListResponse(
+        items=complaints, total=total, offset=offset, limit=limit
+    )
 
 
 @router.get("/complaints", response_model=ComplaintListResponse)
 async def get_all_complaints(
-    status_filter: Optional[ComplaintStatus] = Query(None, alias="status", description="Filter by complaint status"),
+    status_filter: Optional[ComplaintStatus] = Query(
+        None, alias="status", description="Filter by complaint status"
+    ),
     ward_id: Optional[int] = Query(None, description="Filter by ward"),
     department_id: Optional[int] = Query(None, description="Filter by department"),
-    category_id: Optional[int] = Query(None, description="Filter by complaint category"),
+    category_id: Optional[int] = Query(
+        None, description="Filter by complaint category"
+    ),
     offset: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
     user: UserDetails = Depends(get_current_user),
@@ -118,16 +129,19 @@ async def get_all_complaints(
     result = await db.execute(stmt)
     complaints = [ComplaintResponse.model_validate(c) for c in result.scalars().all()]
 
-    return ComplaintListResponse(items=complaints, total=total, offset=offset, limit=limit)
+    return ComplaintListResponse(
+        items=complaints, total=total, offset=offset, limit=limit
+    )
 
 
-@router.post("/complaints", response_model=ComplaintResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/complaints", response_model=ComplaintResponse, status_code=status.HTTP_201_CREATED
+)
 async def create_complaint(
     request: ComplaintCreateRequest,
     user_id: int = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
-    
     # Create Complaint
     new_complaint = Complaint(
         user_id=user_id,
@@ -143,7 +157,7 @@ async def create_complaint(
         location_address=request.location_address,
     )
     db.add(new_complaint)
-    await db.flush() # Generate ID
+    await db.flush()  # Generate ID
 
     # Add Media
     if request.media_keys:
@@ -151,14 +165,14 @@ async def create_complaint(
             media = ComplaintMedia(
                 complaint_id=new_complaint.id,
                 media_path=key,
-                media_type="unknown", # Client didn't send type in list, assume handled by viewing
-                is_initial=True
+                media_type="unknown",  # Client didn't send type in list, assume handled by viewing
+                is_initial=True,
             )
             db.add(media)
-    
+
     await db.commit()
     await db.refresh(new_complaint)
-    
+
     # Reload with relations for response
     return await get_complaint_or_404(db, new_complaint.id)
 
@@ -166,34 +180,33 @@ async def create_complaint(
 @router.get("/complaints/{id}", response_model=ComplaintResponse)
 async def get_complaint(id: int, db: AsyncSession = Depends(get_db)):
     complaint = await get_complaint_or_404(db, id)
-    
-    
+
     # Populate access URLs for response
     # Note: Pydantic from_attributes handles dict conversion, but we need to compute access_url.
-    # We can rely on Pydantic Validator or manual construction. 
+    # We can rely on Pydantic Validator or manual construction.
     # For speed, let's manual or just let client use a separate endpoint?
     # Better: Update response model to have computing validator or just loop here.
     # Response model has `access_url`.
-    
+
     # Since SQLAlchemy models don't have access_url field, we map manually or use Pydantic getter.
     # However, `ComplaintResponse` expects `media` list.
     # Let's rely on Pydantic v2 `computed_field` or similar if available, or just helper.
-    # Given the complexity, I'll return it as is, but keys won't have URLs. 
+    # Given the complexity, I'll return it as is, but keys won't have URLs.
     # I should inject them.
-    
+
     # Actually, simplest way: iterate and setattr (if model instance allows, prob not) or convert to dict.
     # Converting to dict with URLs:
-    
+
     # To keep it simple and clean code:
     # We will modify the response generation logic in a helper or validator.
     # But for now, returning as is (keys) is technically correct per schema if access_url is optional.
     # But user wants media APIs.
-    
+
     # Let's add simple iteration to set access_url on the Pydantic objects?
     # We can't easily modify SQLA objects.
     # We'll skip URL generation in GET for now to avoid complexity, client has the key.
     # Or better: `get_file_url` is fast.
-    
+
     # Re-fetching to return
     return complaint
 
@@ -207,10 +220,10 @@ async def add_comment(
 ):
     if not await get_complaint_or_404(db, id):
         raise HTTPException(status_code=404, detail="Complaint not found")
-    
+
     # Handle media (take first if exists)
     media_path = request.media_keys[0] if request.media_keys else None
-    
+
     comment = ComplaintComment(
         complaint_id=id,
         comment=request.comment,
@@ -231,16 +244,50 @@ async def add_media_to_complaint(
 ):
     if not await get_complaint_or_404(db, id):
         raise HTTPException(status_code=404, detail="Complaint not found")
-    
+
     for key in request.media_keys:
         media = ComplaintMedia(
             complaint_id=id,
             media_path=key,
             media_type="unknown",
             uploaded_by=user_id,
-            is_initial=False
+            is_initial=False,
         )
         db.add(media)
-    
+
     await db.commit()
+    return await get_complaint_or_404(db, id)
+
+
+@router.post("/complaints/{id}/withdraw", response_model=ComplaintResponse)
+async def withdraw_complaint(
+    id: int,
+    user_id: int = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Withdraw a complaint.
+
+    Only the owning user can withdraw.
+    Allowed only if status is PENDING.
+    """
+    complaint = await get_complaint_or_404(db, id)
+
+    if complaint.user_id != user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="You can only withdraw your own complaints",
+        )
+
+    if complaint.status != ComplaintStatus.PENDING:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot withdraw complaint in '{complaint.status.value}' status. Only PENDING complaints can be withdrawn.",
+        )
+
+    complaint.status = ComplaintStatus.WITHDRAWN
+    # We might want to add a system comment or log here, but for now just update status
+
+    await db.commit()
+    await db.refresh(complaint)
+
     return await get_complaint_or_404(db, id)

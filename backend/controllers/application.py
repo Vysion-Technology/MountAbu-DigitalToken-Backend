@@ -38,35 +38,74 @@ FLAG_ALLOWED_ROLES: dict[ApplicationFlags, list[UserRole]] = {
     ApplicationFlags.ALL: [*_ADMIN_ROLES],
     ApplicationFlags.CITIZEN: [UserRole.CITIZEN],
     ApplicationFlags.OBJECTED_CITIZEN_ACTION: [*_ADMIN_ROLES, UserRole.CITIZEN],
-
     # ── New Application ───────────────────────────────────────────────────
     ApplicationFlags.NEW_APPLICATION_REQUIRES_NODAL_OFFICER_ACTION: [*_ADMIN_ROLES],
-    ApplicationFlags.NEW_APPLICATION_REQUIRES_JEN_INSPECTION: [*_ADMIN_ROLES, UserRole.JEN],
-    ApplicationFlags.NEW_APPLICATION_REQUIRES_JEN_FIELD_INSPECTION: [*_ADMIN_ROLES, UserRole.JEN],
-    ApplicationFlags.NEW_APPLICATION_REQUIRES_JEN_MATERIAL_ENTRY: [*_ADMIN_ROLES, UserRole.JEN],
-    ApplicationFlags.NEW_APPLICATION_REQUIRES_NODAL_OFFICER_TOKEN_GENERATION: [*_ADMIN_ROLES],
-
+    ApplicationFlags.NEW_APPLICATION_REQUIRES_JEN_INSPECTION: [
+        *_ADMIN_ROLES,
+        UserRole.JEN,
+    ],
+    ApplicationFlags.NEW_APPLICATION_REQUIRES_JEN_FIELD_INSPECTION: [
+        *_ADMIN_ROLES,
+        UserRole.JEN,
+    ],
+    ApplicationFlags.NEW_APPLICATION_REQUIRES_JEN_MATERIAL_ENTRY: [
+        *_ADMIN_ROLES,
+        UserRole.JEN,
+    ],
+    ApplicationFlags.NEW_APPLICATION_REQUIRES_NODAL_OFFICER_TOKEN_GENERATION: [
+        *_ADMIN_ROLES
+    ],
     # ── Renovation ────────────────────────────────────────────────────────
     ApplicationFlags.RENOVATION_REQUIRES_COMMISSIONER_FORWARD: [*_ADMIN_ROLES],
     ApplicationFlags.RENOVATION_REQUIRES_DEPT_COMMENT: [
-        *_ADMIN_ROLES, UserRole.JEN, UserRole.DEPT_ATP, UserRole.DEPT_LAND, UserRole.DEPT_LEGAL,
+        *_ADMIN_ROLES,
+        UserRole.JEN,
+        UserRole.DEPT_ATP,
+        UserRole.DEPT_LAND,
+        UserRole.DEPT_LEGAL,
     ],
-    ApplicationFlags.RENOVATION_REQUIRES_JEN_FIELD_INSPECTION: [*_ADMIN_ROLES, UserRole.JEN],
-    ApplicationFlags.RENOVATION_REQUIRES_JEN_MATERIAL_ENTRY: [*_ADMIN_ROLES, UserRole.JEN],
+    ApplicationFlags.RENOVATION_REQUIRES_JEN_FIELD_INSPECTION: [
+        *_ADMIN_ROLES,
+        UserRole.JEN,
+    ],
+    ApplicationFlags.RENOVATION_REQUIRES_JEN_MATERIAL_ENTRY: [
+        *_ADMIN_ROLES,
+        UserRole.JEN,
+    ],
     ApplicationFlags.RENOVATION_REQUIRES_COMMISSIONER_ACTION: [*_ADMIN_ROLES],
     ApplicationFlags.RENOVATION_REQUIRES_NODAL_OFFICER_ACTION: [*_ADMIN_ROLES],
-    ApplicationFlags.RENOVATION_REQUIRES_NODAL_OFFICER_TOKEN_GENERATION: [*_ADMIN_ROLES],
-    ApplicationFlags.RENOVATION_REQUIRES_NODAL_OFFICER_APPROVAL_PHASE_1: [*_ADMIN_ROLES],
-    ApplicationFlags.RENOVATION_REQUIRES_NODAL_OFFICER_APPROVAL_PHASE_2: [*_ADMIN_ROLES],
-    ApplicationFlags.RENOVATION_REQUIRES_NODAL_OFFICER_APPROVAL_PHASE_3: [*_ADMIN_ROLES],
-    ApplicationFlags.RENOVATION_REQUIRES_NODAL_OFFICER_APPROVAL_PHASE_4: [*_ADMIN_ROLES],
-    ApplicationFlags.RENOVATION_REQUIRES_NODAL_OFFICER_APPROVAL_PHASE_5: [*_ADMIN_ROLES],
+    ApplicationFlags.RENOVATION_REQUIRES_NODAL_OFFICER_TOKEN_GENERATION: [
+        *_ADMIN_ROLES
+    ],
+    ApplicationFlags.RENOVATION_REQUIRES_NODAL_OFFICER_APPROVAL_PHASE_1: [
+        *_ADMIN_ROLES
+    ],
+    ApplicationFlags.RENOVATION_REQUIRES_NODAL_OFFICER_APPROVAL_PHASE_2: [
+        *_ADMIN_ROLES
+    ],
+    ApplicationFlags.RENOVATION_REQUIRES_NODAL_OFFICER_APPROVAL_PHASE_3: [
+        *_ADMIN_ROLES
+    ],
+    ApplicationFlags.RENOVATION_REQUIRES_NODAL_OFFICER_APPROVAL_PHASE_4: [
+        *_ADMIN_ROLES
+    ],
+    ApplicationFlags.RENOVATION_REQUIRES_NODAL_OFFICER_APPROVAL_PHASE_5: [
+        *_ADMIN_ROLES
+    ],
     ApplicationFlags.RENOVATION_OVERDUE_COMMENTS: [*_ADMIN_ROLES],
     ApplicationFlags.RENOVATION_OVERDUE_COMMENTS_JEN: [*_ADMIN_ROLES, UserRole.JEN],
-    ApplicationFlags.RENOVATION_OVERDUE_COMMENTS_ATP: [*_ADMIN_ROLES, UserRole.DEPT_ATP],
-    ApplicationFlags.RENOVATION_OVERDUE_COMMENTS_LAND: [*_ADMIN_ROLES, UserRole.DEPT_LAND],
-    ApplicationFlags.RENOVATION_OVERDUE_COMMENTS_LEGAL: [*_ADMIN_ROLES, UserRole.DEPT_LEGAL],
-
+    ApplicationFlags.RENOVATION_OVERDUE_COMMENTS_ATP: [
+        *_ADMIN_ROLES,
+        UserRole.DEPT_ATP,
+    ],
+    ApplicationFlags.RENOVATION_OVERDUE_COMMENTS_LAND: [
+        *_ADMIN_ROLES,
+        UserRole.DEPT_LAND,
+    ],
+    ApplicationFlags.RENOVATION_OVERDUE_COMMENTS_LEGAL: [
+        *_ADMIN_ROLES,
+        UserRole.DEPT_LEGAL,
+    ],
     # ── Phase & Naka ──────────────────────────────────────────────────────
     ApplicationFlags.PHASE_READY_FOR_NAKA: [*_ADMIN_ROLES],
     ApplicationFlags.NAKA_INCHARGE_ACTION: [*_ADMIN_ROLES],
@@ -101,10 +140,14 @@ async def create_application(
 
 @router.get("/applications", response_model=List[ApplicationResponse])
 async def get_applications(
-    flag: ApplicationFlags = Query(..., description="Filter applications by workflow flag"),
+    flag: ApplicationFlags = Query(
+        ..., description="Filter applications by workflow flag"
+    ),
     offset: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
-    citizen_user_id: Optional[int] = Query(None, description="Citizen user ID (required when flag=CITIZEN)"),
+    citizen_user_id: Optional[int] = Query(
+        None, description="Citizen user ID (required when flag=CITIZEN)"
+    ),
     application_service: ApplicationService = Depends(get_application_service),
     user: UserDetails = Depends(get_current_user),
 ) -> List[ApplicationResponse]:
@@ -137,7 +180,9 @@ async def get_applications(
     # ALL flag: returns all applications without flag filtering
     if flag == ApplicationFlags.ALL:
         return await application_service.get_applications(
-            flag=None, offset=offset, limit=limit,
+            flag=None,
+            offset=offset,
+            limit=limit,
             user_id=citizen_user_id,  # optionally scope to a specific citizen
         )
 
@@ -221,7 +266,7 @@ async def submit_application(
     user: UserDetails = Depends(get_current_user),
 ) -> SuccessResponse:
     """Submit an application (PENDING -> SUBMITTED).
-    
+
     Only the owning CITIZEN can submit. Validates that AADHAAR,
     PERMISSION_DOCUMENTS and OWNERSHIP_DOCUMENTS are attached.
     """
@@ -231,6 +276,25 @@ async def submit_application(
             detail="Only citizens can submit their applications",
         )
     return await application_service.submit_application(application_id, user.user_id)
+
+
+@router.post("/applications/{application_id}/withdraw", response_model=SuccessResponse)
+async def withdraw_application(
+    application_id: int,
+    application_service: ApplicationService = Depends(get_application_service),
+    user: UserDetails = Depends(get_current_user),
+) -> SuccessResponse:
+    """Withdraw an application.
+
+    Only the owning CITIZEN can withdraw.
+    Allowed only if status is PENDING or SUBMITTED.
+    """
+    if user.role != UserRole.CITIZEN:
+        raise HTTPException(
+            status_code=403,
+            detail="Only citizens can withdraw their applications",
+        )
+    return await application_service.withdraw_application(application_id, user.user_id)
 
 
 @router.put("/applications/{application_id}/action", response_model=SuccessResponse)
@@ -280,9 +344,7 @@ async def create_inspection(
 # See /api/naka/{transport_code} endpoints in controllers/naka.py
 
 
-@router.get(
-    "/applications/{application_id}/phases", response_model=List[PhaseResponse]
-)
+@router.get("/applications/{application_id}/phases", response_model=List[PhaseResponse])
 async def get_phases(
     application_id: int,
     application_service: ApplicationService = Depends(get_application_service),
@@ -308,9 +370,7 @@ async def complete_phase(
             status_code=403,
             detail="Only NODAL_OFFICER or SUPERADMIN can complete phases",
         )
-    return await application_service.complete_phase(
-        application_id, phase, user.user_id
-    )
+    return await application_service.complete_phase(application_id, phase, user.user_id)
 
 
 @router.put("/applications/{application_id}/comment", response_model=SuccessResponse)
@@ -371,8 +431,12 @@ async def delete_application(
 
 @router.get("/tokens", response_model=List[TokenResponse])
 async def list_tokens(
-    status: Optional[str] = Query(None, description="Filter by token status: ACTIVE, PENDING, COMPLETED"),
-    search: Optional[str] = Query(None, description="Search by token number or application number"),
+    status: Optional[str] = Query(
+        None, description="Filter by token status: ACTIVE, PENDING, COMPLETED"
+    ),
+    search: Optional[str] = Query(
+        None, description="Search by token number or application number"
+    ),
     offset: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
     application_service: ApplicationService = Depends(get_application_service),
@@ -390,7 +454,12 @@ async def list_tokens(
     Supports filtering by status (ACTIVE, PENDING, COMPLETED) and
     searching by token or application number.
     """
-    if user.role not in (UserRole.CITIZEN, UserRole.SUPERADMIN, UserRole.NODAL_OFFICER, UserRole.COMMISSIONER):
+    if user.role not in (
+        UserRole.CITIZEN,
+        UserRole.SUPERADMIN,
+        UserRole.NODAL_OFFICER,
+        UserRole.COMMISSIONER,
+    ):
         raise HTTPException(
             status_code=403,
             detail="Only citizens and admins can list tokens",
@@ -405,9 +474,7 @@ async def list_tokens(
     )
 
 
-@router.get(
-    "/applications/{application_id}/tokens", response_model=List[TokenResponse]
-)
+@router.get("/applications/{application_id}/tokens", response_model=List[TokenResponse])
 async def get_application_tokens(
     application_id: int,
     application_service: ApplicationService = Depends(get_application_service),
@@ -443,10 +510,13 @@ async def get_token_detail(
             detail="NAKA_INCHARGE must use /api/naka/{transport_code} endpoints",
         )
     from backend.core.transport_code import decode_transport_code
+
     try:
         code_data = decode_transport_code(transport_code)
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid or tampered transport code")
+        raise HTTPException(
+            status_code=400, detail="Invalid or tampered transport code"
+        )
     return await application_service.get_token_detail(
         code_data.application_id, code_data.phase
     )

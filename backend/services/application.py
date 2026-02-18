@@ -141,6 +141,12 @@ class ApplicationService(BaseService):
         """Update an application."""
         return await self.dao.update_application(application_id, application)
 
+    async def withdraw_application(
+        self, application_id: int, user_id: int
+    ) -> SuccessResponse:
+        """Withdraw an application by the applicant."""
+        return await self.dao.withdraw_application(application_id, user_id)
+
     async def add_application_materials(
         self,
         application_id: int,
