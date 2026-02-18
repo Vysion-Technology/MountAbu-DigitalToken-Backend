@@ -49,8 +49,13 @@ class MasterDataDAO:
         return result.scalars().all()
 
     # Ward Operations
-    async def create_ward(self, session: AsyncSession, ward: WardCreate) -> Ward:
-        return await self._create(session, Ward, ward.model_dump())
+    async def create_ward(
+        self, session: AsyncSession, ward: WardCreate, created_by_id: Optional[int] = None
+    ) -> Ward:
+        data = ward.model_dump()
+        if created_by_id:
+            data["created_by_id"] = created_by_id
+        return await self._create(session, Ward, data)
 
     async def get_ward(self, session: AsyncSession, ward_id: int) -> Optional[Ward]:
         return await self._get(session, Ward, ward_id)
@@ -67,9 +72,12 @@ class MasterDataDAO:
 
     # Department Operations
     async def create_department(
-        self, session: AsyncSession, dept: DepartmentCreate
+        self, session: AsyncSession, dept: DepartmentCreate, created_by_id: Optional[int] = None
     ) -> Department:
-        return await self._create(session, Department, dept.model_dump())
+        data = dept.model_dump()
+        if created_by_id:
+            data["created_by_id"] = created_by_id
+        return await self._create(session, Department, data)
 
     async def get_department(
         self, session: AsyncSession, dept_id: int
@@ -87,8 +95,13 @@ class MasterDataDAO:
         return await self._list(session, Department)
 
     # Role Operations
-    async def create_role(self, session: AsyncSession, role: RoleCreate) -> Role:
-        return await self._create(session, Role, role.model_dump())
+    async def create_role(
+        self, session: AsyncSession, role: RoleCreate, created_by_id: Optional[int] = None
+    ) -> Role:
+        data = role.model_dump()
+        if created_by_id:
+            data["created_by_id"] = created_by_id
+        return await self._create(session, Role, data)
 
     async def get_role(self, session: AsyncSession, role_id: int) -> Optional[Role]:
         return await self._get(session, Role, role_id)
@@ -105,9 +118,15 @@ class MasterDataDAO:
 
     # Complaint Category Operations
     async def create_complaint_category(
-        self, session: AsyncSession, category: ComplaintCategoryCreate
+        self,
+        session: AsyncSession,
+        category: ComplaintCategoryCreate,
+        created_by_id: Optional[int] = None,
     ) -> ComplaintCategory:
-        return await self._create(session, ComplaintCategory, category.model_dump())
+        data = category.model_dump()
+        if created_by_id:
+            data["created_by_id"] = created_by_id
+        return await self._create(session, ComplaintCategory, data)
 
     async def get_complaint_category(
         self, session: AsyncSession, category_id: int
@@ -131,12 +150,15 @@ class MasterDataDAO:
 
     # Material Operations
     async def create_material(
-        self, session: AsyncSession, material: MaterialCreate
+        self, session: AsyncSession, material: MaterialCreate, created_by_id: Optional[int] = None
     ) -> Material:
         # Import here to avoid circular dependencies if any, or just standard import at top
         from backend.dbmodels.application import Material
 
-        return await self._create(session, Material, material.model_dump())
+        data = material.model_dump()
+        if created_by_id:
+            data["created_by_id"] = created_by_id
+        return await self._create(session, Material, data)
 
     async def list_materials(self, session: AsyncSession) -> List[Material]:
         from backend.dbmodels.application import Material

@@ -38,7 +38,7 @@ async def create_ward(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ):
-    return await dao.create_ward(session, ward)
+    return await dao.create_ward(session, ward, created_by_id=current_user.id)
 
 
 @router.get("/wards", response_model=List[WardResponse])
@@ -66,7 +66,7 @@ async def create_department(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ):
-    return await dao.create_department(session, dept)
+    return await dao.create_department(session, dept, created_by_id=current_user.id)
 
 
 @router.get("/departments", response_model=List[DepartmentResponse])
@@ -94,7 +94,7 @@ async def create_role(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ):
-    return await dao.create_role(session, role)
+    return await dao.create_role(session, role, created_by_id=current_user.id)
 
 
 @router.get("/roles", response_model=List[RoleResponse])
@@ -122,7 +122,7 @@ async def create_complaint_category(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ):
-    return await dao.create_complaint_category(session, category)
+    return await dao.create_complaint_category(session, category, created_by_id=current_user.id)
 
 
 @router.get("/complaint-categories", response_model=List[ComplaintCategoryResponse])
@@ -152,7 +152,7 @@ async def create_material(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ):
-    return await dao.create_material(session, material)
+    return await dao.create_material(session, material, created_by_id=current_user.id)
 
 
 @router.get("/materials", response_model=List[MaterialResponse])

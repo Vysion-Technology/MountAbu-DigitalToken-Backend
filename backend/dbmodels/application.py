@@ -87,8 +87,8 @@ class Application(Base):
     phase_materials: Mapped[list["ApplicationPhaseMaterial"]] = relationship(
         "ApplicationPhaseMaterial", back_populates="application"
     )
-    naka_entries: Mapped[list["NakaEntry"]] = relationship(
-        "NakaEntry", back_populates="application"
+    vehicle_entries: Mapped[list["VehicleEntry"]] = relationship(
+        "VehicleEntry", back_populates="application"
     )
     inspections: Mapped[list["InspectionReport"]] = relationship(
         "InspectionReport", back_populates="application"
@@ -180,12 +180,12 @@ class ApprovedApplicationPhase(Base):
         foreign_keys="[ApplicationPhaseMaterial.application_id, ApplicationPhaseMaterial.phase]",
         viewonly=True,
     )
-    naka_entries: Mapped[list["NakaEntry"]] = relationship(
-        "NakaEntry",
+    vehicle_entries: Mapped[list["VehicleEntry"]] = relationship(
+        "VehicleEntry",
         back_populates="phase_record",
-        primaryjoin="and_(ApprovedApplicationPhase.application_id==NakaEntry.application_id, "
-                    "ApprovedApplicationPhase.phase==NakaEntry.phase)",
-        foreign_keys="[NakaEntry.application_id, NakaEntry.phase]",
+        primaryjoin="and_(ApprovedApplicationPhase.application_id==VehicleEntry.application_id, "
+                    "ApprovedApplicationPhase.phase==VehicleEntry.phase)",
+        foreign_keys="[VehicleEntry.application_id, VehicleEntry.phase]",
         viewonly=True,
     )
 
@@ -240,37 +240,57 @@ __all__ = [
     "ApplicationDocument",
     "ApprovedApplicationPhase",
     "ApplicationPhaseMaterial",
-    "NakaEntry",
+    "VehicleEntry",
+    "VehicleMaterial",
     "InspectionReport",
     "ApplicationActionLog",
 ]
 
 
-class NakaEntry(Base):
-    """Material checkpoint entry at Naka by NAKA_INCHARGE."""
-    __tablename__ = "naka_entries"
+class VehicleEntry(Base):
+    """Vehicle material entry at Naka by NAKA_INCHARGE."""
+    __tablename__ = "vehicle_entries"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     application_id: Mapped[int] = mapped_column(ForeignKey("applications.id"), index=True)
     phase: Mapped[int] = mapped_column(Integer, index=True)
-    material_id: Mapped[int] = mapped_column(ForeignKey("materials.id"), index=True)
-    quantity_brought: Mapped[int] = mapped_column(Integer)
+    
+    # Vehicle Details
+    vehicle_number: Mapped[str] = mapped_column(String, index=True)
+    driver_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    driver_mobile: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    
     entry_by: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     entry_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, index=True)
-    vehicle_number: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    
     remarks: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     media_path: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
-    application: Mapped["Application"] = relationship("Application", back_populates="naka_entries")
-    material: Mapped["Material"] = relationship("Material")
+    application: Mapped["Application"] = relationship("Application", back_populates="vehicle_entries")
     entered_by_user: Mapped[User] = relationship("User")
     phase_record: Mapped["ApprovedApplicationPhase"] = relationship(
         "ApprovedApplicationPhase",
-        back_populates="naka_entries",
-        primaryjoin="and_(NakaEntry.application_id==ApprovedApplicationPhase.application_id, "
-                    "NakaEntry.phase==ApprovedApplicationPhase.phase)",
-        foreign_keys="[NakaEntry.application_id, NakaEntry.phase]",
+        back_populates="vehicle_entries",
+        primaryjoin="and_(VehicleEntry.application_id==ApprovedApplicationPhase.application_id, "
+                    "VehicleEntry.phase==ApprovedApplicationPhase.phase)",
+        foreign_keys="[VehicleEntry.application_id, VehicleEntry.phase]",
         viewonly=True,
     )
+    
+    materials: Mapped[list["VehicleMaterial"]] = relationship(
+        "VehicleMaterial", back_populates="vehicle_entry", cascade="all, delete-orphan"
+    )
+
+
+class VehicleMaterial(Base):
+    """Materials within a single vehicle entry."""
+    __tablename__ = "vehicle_materials"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    vehicle_entry_id: Mapped[int] = mapped_column(ForeignKey("vehicle_entries.id"), index=True)
+    material_id: Mapped[int] = mapped_column(ForeignKey("materials.id"), index=True)
+    quantity: Mapped[float] = mapped_column(Float)
+    
+    vehicle_entry: Mapped["VehicleEntry"] = relationship("VehicleEntry", back_populates="materials")
+    material: Mapped["Material"] = relationship("Material")
 
 
 class InspectionReport(Base):

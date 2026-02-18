@@ -1,8 +1,34 @@
 """Response schemas for NAKA checkpoint operations."""
 
-from pydantic import BaseModel
+from datetime import datetime
+from typing import Optional
+from pydantic import BaseModel, ConfigDict
 
 from backend.meta import ApplicationPhaseStatus
+from backend.schemas.response.master import UserSummary, MaterialResponse
+
+
+class VehicleMaterialResponse(BaseModel):
+    id: int
+    material: MaterialResponse
+    quantity: float
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class VehicleEntryResponse(BaseModel):
+    id: int
+    phase: int
+    vehicle_number: str
+    driver_name: Optional[str]
+    driver_mobile: Optional[str]
+    entry_at: datetime
+    entered_by_user: Optional[UserSummary]
+    remarks: Optional[str]
+    media_path: Optional[str]
+    materials: list[VehicleMaterialResponse]
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class NakaMaterialSummary(BaseModel):
@@ -21,3 +47,4 @@ class NakaPhaseResponse(BaseModel):
     phase: int
     phase_status: ApplicationPhaseStatus
     materials: list[NakaMaterialSummary]
+    vehicle_entries: list[VehicleEntryResponse] = []

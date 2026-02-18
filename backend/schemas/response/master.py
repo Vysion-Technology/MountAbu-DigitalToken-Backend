@@ -1,5 +1,14 @@
+from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, ConfigDict
+
+
+class UserSummary(BaseModel):
+    id: int
+    name: str
+    role: str
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class WardResponse(BaseModel):
@@ -9,6 +18,8 @@ class WardResponse(BaseModel):
     type: str
     description: Optional[str]
     status: bool
+    created_at: datetime
+    created_by: Optional[UserSummary]
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -19,6 +30,8 @@ class DepartmentResponse(BaseModel):
     code: str
     type: str
     status: bool
+    created_at: datetime
+    created_by: Optional[UserSummary]
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -29,6 +42,8 @@ class RoleResponse(BaseModel):
     code: str
     permissions: Optional[str]
     status: bool
+    created_at: datetime
+    created_by: Optional[UserSummary]
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -38,6 +53,8 @@ class ComplaintCategoryResponse(BaseModel):
     name: str
     description: Optional[str]
     status: bool
+    created_at: datetime
+    created_by: Optional[UserSummary]
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -46,5 +63,7 @@ class MaterialResponse(BaseModel):
     id: int
     name: str
     unit: str
+    created_at: datetime
+    created_by: Optional[UserSummary]
 
     model_config = ConfigDict(from_attributes=True)

@@ -4,8 +4,6 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     debug: bool = True
 
-
-
     POSTGRES_USER: str = "etoken_user"
     POSTGRES_PASSWORD: str = "etoken_secure_password_123"
     POSTGRES_DB: str = "mountabu_etoken"

@@ -1,5 +1,8 @@
-from sqlalchemy import Boolean, Integer, String
-from sqlalchemy.orm import Mapped, mapped_column
+from datetime import datetime
+from typing import Optional
+
+from sqlalchemy import Boolean, Integer, String, DateTime, ForeignKey
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.database import Base
 
@@ -12,6 +15,14 @@ class Ward(Base):
     type: Mapped[str] = mapped_column(String, default="Ward")  # Ward or Zone
     description: Mapped[str] = mapped_column(String, nullable=True)
     status: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, default=datetime.now, nullable=True
+    )
+    created_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id"), nullable=True, default=1
+    )
+
+    created_by: Mapped["User"] = relationship("User")
 
 
 class Department(Base):
@@ -21,6 +32,14 @@ class Department(Base):
     code: Mapped[str] = mapped_column(String, index=True, unique=True)
     type: Mapped[str] = mapped_column(String)  # Municipal, Planning, etc.
     status: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, default=datetime.now, nullable=True
+    )
+    created_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id"), nullable=True, default=1
+    )
+
+    created_by: Mapped["User"] = relationship("User")
 
 
 class Role(Base):
@@ -32,6 +51,14 @@ class Role(Base):
         String, nullable=True
     )  # JSON or CSV of permissions
     status: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, default=datetime.now, nullable=True
+    )
+    created_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id"), nullable=True, default=1
+    )
+
+    created_by: Mapped["User"] = relationship("User")
 
 
 class ComplaintCategory(Base):
@@ -40,3 +67,11 @@ class ComplaintCategory(Base):
     name: Mapped[str] = mapped_column(String, index=True)
     description: Mapped[str] = mapped_column(String, nullable=True)
     status: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, default=datetime.now, nullable=True
+    )
+    created_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id"), nullable=True, default=1
+    )
+
+    created_by: Mapped["User"] = relationship("User")
