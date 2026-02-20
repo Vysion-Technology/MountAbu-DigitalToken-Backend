@@ -16,7 +16,7 @@ from backend.dbmodels.application import (
     ApprovedApplicationPhase,
     InspectionReport,
     Material,
-    NakaEntry,
+    VehicleEntry as NakaEntry,
 )
 from backend.dbmodels.complaint import Complaint
 from backend.dbmodels.master import ComplaintCategory, Ward
@@ -72,10 +72,12 @@ class AuthorityDashboardDAO(BaseDAO):
             await self.session.execute(
                 _base_app_filter(
                     select(func.count(Application.id)).where(
-                        Application.status.in_([
-                            ApplicationStatus.APPROVED,
-                            ApplicationStatus.TOKEN_GENERATED,
-                        ])
+                        Application.status.in_(
+                            [
+                                ApplicationStatus.APPROVED,
+                                ApplicationStatus.TOKEN_GENERATED,
+                            ]
+                        )
                     )
                 )
             )
@@ -130,9 +132,7 @@ class AuthorityDashboardDAO(BaseDAO):
             .subquery()
         )
         prev_total = (
-            await self.session.execute(
-                select(func.count()).select_from(prev_actions)
-            )
+            await self.session.execute(select(func.count()).select_from(prev_actions))
         ).scalar() or 0
 
         prev_complaints = (
@@ -163,11 +163,36 @@ class AuthorityDashboardDAO(BaseDAO):
             return round(((cur - prev) / prev) * 100, 1)
 
         return [
-            {"label": "Total Applications", "value": cur_total, "previous_value": prev_total, "percent_change": pct(cur_total, prev_total)},
-            {"label": "Approved", "value": cur_approved, "previous_value": None, "percent_change": None},
-            {"label": "Tokens Issued", "value": cur_tokens, "previous_value": None, "percent_change": None},
-            {"label": "Complaints", "value": cur_complaints, "previous_value": prev_complaints, "percent_change": pct(cur_complaints, prev_complaints)},
-            {"label": "Complaints Closed", "value": cur_closed, "previous_value": prev_closed, "percent_change": pct(cur_closed, prev_closed)},
+            {
+                "label": "Total Applications",
+                "value": cur_total,
+                "previous_value": prev_total,
+                "percent_change": pct(cur_total, prev_total),
+            },
+            {
+                "label": "Approved",
+                "value": cur_approved,
+                "previous_value": None,
+                "percent_change": None,
+            },
+            {
+                "label": "Tokens Issued",
+                "value": cur_tokens,
+                "previous_value": None,
+                "percent_change": None,
+            },
+            {
+                "label": "Complaints",
+                "value": cur_complaints,
+                "previous_value": prev_complaints,
+                "percent_change": pct(cur_complaints, prev_complaints),
+            },
+            {
+                "label": "Complaints Closed",
+                "value": cur_closed,
+                "previous_value": prev_closed,
+                "percent_change": pct(cur_closed, prev_closed),
+            },
         ]
 
     async def application_status_breakdown(
@@ -211,47 +236,41 @@ class AuthorityDashboardDAO(BaseDAO):
             if r[2] > 0
         ]
 
-    async def ward_activity(
-        self, department_id: Optional[int] = None
-    ) -> list[dict]:
+    async def ward_activity(self, department_id: Optional[int] = None) -> list[dict]:
         """Per-ward counts: applications, approved, tokens, complaints."""
-        app_sq = (
-            select(
-                Application.ward_id,
-                func.count(Application.id).label("applications"),
-                func.count(
-                    case(
-                        (
-                            Application.status.in_([
+        app_sq = select(
+            Application.ward_id,
+            func.count(Application.id).label("applications"),
+            func.count(
+                case(
+                    (
+                        Application.status.in_(
+                            [
                                 ApplicationStatus.APPROVED,
                                 ApplicationStatus.TOKEN_GENERATED,
-                            ]),
-                            Application.id,
-                        )
+                            ]
+                        ),
+                        Application.id,
                     )
-                ).label("approved"),
-                func.count(
-                    case(
-                        (
-                            Application.status == ApplicationStatus.TOKEN_GENERATED,
-                            Application.id,
-                        )
+                )
+            ).label("approved"),
+            func.count(
+                case(
+                    (
+                        Application.status == ApplicationStatus.TOKEN_GENERATED,
+                        Application.id,
                     )
-                ).label("tokens_issued"),
-            )
-            .group_by(Application.ward_id)
-        )
+                )
+            ).label("tokens_issued"),
+        ).group_by(Application.ward_id)
         if department_id:
             app_sq = app_sq.where(Application.department_id == department_id)
         app_sq = app_sq.subquery()
 
-        comp_sq = (
-            select(
-                Complaint.ward_id,
-                func.count(Complaint.id).label("complaints"),
-            )
-            .group_by(Complaint.ward_id)
-        )
+        comp_sq = select(
+            Complaint.ward_id,
+            func.count(Complaint.id).label("complaints"),
+        ).group_by(Complaint.ward_id)
         if department_id:
             comp_sq = comp_sq.where(Complaint.department_id == department_id)
         comp_sq = comp_sq.subquery()
@@ -299,25 +318,37 @@ class AuthorityDashboardDAO(BaseDAO):
         ).scalar() or 0
 
         # Apps needing JEN inspection (APPROVED, NEW, no inspection yet)
-        pending_sq = (
-            select(func.count(Application.id))
-            .where(
-                Application.status == ApplicationStatus.APPROVED,
-                Application.type == ApplicationType.NEW,
-                ~Application.id.in_(
-                    select(InspectionReport.application_id).where(
-                        InspectionReport.inspected_by == user_id
-                    )
-                ),
-            )
+        pending_sq = select(func.count(Application.id)).where(
+            Application.status == ApplicationStatus.APPROVED,
+            Application.type == ApplicationType.NEW,
+            ~Application.id.in_(
+                select(InspectionReport.application_id).where(
+                    InspectionReport.inspected_by == user_id
+                )
+            ),
         )
         pending = (await self.session.execute(pending_sq)).scalar() or 0
 
         assigned = verified + pending
         return [
-            {"label": "Assigned", "value": assigned, "previous_value": None, "percent_change": None},
-            {"label": "Verified", "value": verified, "previous_value": None, "percent_change": None},
-            {"label": "Pending", "value": pending, "previous_value": None, "percent_change": None},
+            {
+                "label": "Assigned",
+                "value": assigned,
+                "previous_value": None,
+                "percent_change": None,
+            },
+            {
+                "label": "Verified",
+                "value": verified,
+                "previous_value": None,
+                "percent_change": None,
+            },
+            {
+                "label": "Pending",
+                "value": pending,
+                "previous_value": None,
+                "percent_change": None,
+            },
         ]
 
     async def jen_verification_status(self, user_id: int) -> list[dict]:
@@ -329,9 +360,7 @@ class AuthorityDashboardDAO(BaseDAO):
         # Inspected
         inspected_count = (
             await self.session.execute(
-                select(func.count()).select_from(
-                    inspected_ids.distinct().subquery()
-                )
+                select(func.count()).select_from(inspected_ids.distinct().subquery())
             )
         ).scalar() or 0
 
@@ -385,17 +414,13 @@ class AuthorityDashboardDAO(BaseDAO):
         )
         rows = (await self.session.execute(stmt)).all()
         return [
-            {"period": str(r[0]), "avg_hours": round(float(r[1] or 0), 1)}
-            for r in rows
+            {"period": str(r[0]), "avg_hours": round(float(r[1] or 0), 1)} for r in rows
         ]
 
-    async def jen_latest_applications(
-        self, user_id: int, limit: int = 5
-    ) -> list[dict]:
+    async def jen_latest_applications(self, user_id: int, limit: int = 5) -> list[dict]:
         """Latest applications relevant to JEN (inspected or pending)."""
-        inspected_ids = (
-            select(InspectionReport.application_id)
-            .where(InspectionReport.inspected_by == user_id)
+        inspected_ids = select(InspectionReport.application_id).where(
+            InspectionReport.inspected_by == user_id
         )
 
         stmt = (
@@ -436,13 +461,16 @@ class AuthorityDashboardDAO(BaseDAO):
     async def naka_kpis(self, user_id: int) -> list[dict]:
         total = (
             await self.session.execute(
-                select(func.count(NakaEntry.id)).where(
-                    NakaEntry.entry_by == user_id
-                )
+                select(func.count(NakaEntry.id)).where(NakaEntry.entry_by == user_id)
             )
         ).scalar() or 0
         return [
-            {"label": "Total Entries", "value": total, "previous_value": None, "percent_change": None},
+            {
+                "label": "Total Entries",
+                "value": total,
+                "previous_value": None,
+                "percent_change": None,
+            },
         ]
 
     async def naka_entries_by_user(self) -> list[dict]:
@@ -458,9 +486,7 @@ class AuthorityDashboardDAO(BaseDAO):
             .order_by(func.count(NakaEntry.id).desc())
         )
         rows = (await self.session.execute(stmt)).all()
-        return [
-            {"user_id": r[0], "user_name": r[1], "entry_count": r[2]} for r in rows
-        ]
+        return [{"user_id": r[0], "user_name": r[1], "entry_count": r[2]} for r in rows]
 
     async def naka_vehicle_entry_list(
         self, user_id: int, limit: int = 20
@@ -506,25 +532,41 @@ class AuthorityDashboardDAO(BaseDAO):
         pending = (
             await self.session.execute(
                 select(func.count(Complaint.id)).where(
-                    Complaint.status.in_([
-                        ComplaintStatus.PENDING,
-                        ComplaintStatus.IN_PROGRESS,
-                    ])
+                    Complaint.status.in_(
+                        [
+                            ComplaintStatus.PENDING,
+                            ComplaintStatus.IN_PROGRESS,
+                        ]
+                    )
                 )
             )
         ).scalar() or 0
 
         return [
-            {"label": "Received", "value": received, "previous_value": None, "percent_change": None},
-            {"label": "Resolved", "value": resolved, "previous_value": None, "percent_change": None},
-            {"label": "Pending", "value": pending, "previous_value": None, "percent_change": None},
+            {
+                "label": "Received",
+                "value": received,
+                "previous_value": None,
+                "percent_change": None,
+            },
+            {
+                "label": "Resolved",
+                "value": resolved,
+                "previous_value": None,
+                "percent_change": None,
+            },
+            {
+                "label": "Pending",
+                "value": pending,
+                "previous_value": None,
+                "percent_change": None,
+            },
         ]
 
     async def complaint_resolution_status(self) -> list[dict]:
-        stmt = (
-            select(Complaint.status, func.count(Complaint.id).label("count"))
-            .group_by(Complaint.status)
-        )
+        stmt = select(
+            Complaint.status, func.count(Complaint.id).label("count")
+        ).group_by(Complaint.status)
         rows = (await self.session.execute(stmt)).all()
         return [{"status": r[0].value, "count": r[1]} for r in rows]
 
@@ -571,19 +613,26 @@ class AuthorityDashboardDAO(BaseDAO):
         ).scalar() or 0
 
         return [
-            {"label": "Tokens Generated", "value": tokens_generated, "previous_value": None, "percent_change": None},
-            {"label": "Tokens Utilized", "value": tokens_utilized, "previous_value": None, "percent_change": None},
+            {
+                "label": "Tokens Generated",
+                "value": tokens_generated,
+                "previous_value": None,
+                "percent_change": None,
+            },
+            {
+                "label": "Tokens Utilized",
+                "value": tokens_utilized,
+                "previous_value": None,
+                "percent_change": None,
+            },
         ]
 
     async def nodal_token_status(self) -> list[dict]:
         """Phase-status breakdown (donut chart)."""
-        stmt = (
-            select(
-                ApprovedApplicationPhase.status,
-                func.count(ApprovedApplicationPhase.id).label("count"),
-            )
-            .group_by(ApprovedApplicationPhase.status)
-        )
+        stmt = select(
+            ApprovedApplicationPhase.status,
+            func.count(ApprovedApplicationPhase.id).label("count"),
+        ).group_by(ApprovedApplicationPhase.status)
         rows = (await self.session.execute(stmt)).all()
         return [{"status": r[0].value, "count": r[1]} for r in rows]
 
@@ -619,10 +668,7 @@ class AuthorityDashboardDAO(BaseDAO):
             )
             .outerjoin(permitted_sq, Material.id == permitted_sq.c.material_id)
             .outerjoin(used_sq, Material.id == used_sq.c.material_id)
-            .where(
-                (permitted_sq.c.approved.isnot(None))
-                | (used_sq.c.used.isnot(None))
-            )
+            .where((permitted_sq.c.approved.isnot(None)) | (used_sq.c.used.isnot(None)))
             .order_by(Material.name)
         )
         rows = (await self.session.execute(stmt)).all()
@@ -667,6 +713,7 @@ class AuthorityDashboardDAO(BaseDAO):
 
 
 # ── Dependency injection ──────────────────────────────────────────────────────
+
 
 async def get_authority_dashboard_dao(
     session: AsyncSession = Depends(get_db),
