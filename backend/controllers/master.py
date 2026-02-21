@@ -1,3 +1,4 @@
+from backend.schemas.base.auth import UserDetails
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -5,8 +6,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database import get_db
 from backend.dao.master import MasterDataDAO
-from backend.middlewares.auth import get_current_user
-from backend.dbmodels.user import User
+from backend.middlewares.auth import (
+    get_current_user,
+    get_admin_or_nodal,
+    get_superadmin,
+)
 
 from backend.schemas.request.master import (
     WardCreate,
@@ -35,10 +39,10 @@ dao = MasterDataDAO()
 @router.post("/wards", response_model=WardResponse)
 async def create_ward(
     ward: WardCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: UserDetails = Depends(get_admin_or_nodal),
     session: AsyncSession = Depends(get_db),
 ):
-    return await dao.create_ward(session, ward, created_by_id=current_user.id)
+    return await dao.create_ward(session, ward, created_by_id=current_user.user_id)
 
 
 @router.get("/wards", response_model=List[WardResponse])
@@ -50,7 +54,7 @@ async def list_wards(session: AsyncSession = Depends(get_db)):
 async def update_ward(
     ward_id: int,
     ward: WardUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: UserDetails = Depends(get_admin_or_nodal),
     session: AsyncSession = Depends(get_db),
 ):
     updated = await dao.update_ward(session, ward_id, ward)
@@ -63,10 +67,12 @@ async def update_ward(
 @router.post("/departments", response_model=DepartmentResponse)
 async def create_department(
     dept: DepartmentCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: UserDetails = Depends(get_admin_or_nodal),
     session: AsyncSession = Depends(get_db),
 ):
-    return await dao.create_department(session, dept, created_by_id=current_user.id)
+    return await dao.create_department(
+        session, dept, created_by_id=current_user.user_id
+    )
 
 
 @router.get("/departments", response_model=List[DepartmentResponse])
@@ -78,7 +84,7 @@ async def list_departments(session: AsyncSession = Depends(get_db)):
 async def update_department(
     dept_id: int,
     dept: DepartmentUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: UserDetails = Depends(get_admin_or_nodal),
     session: AsyncSession = Depends(get_db),
 ):
     updated = await dao.update_department(session, dept_id, dept)
@@ -91,10 +97,10 @@ async def update_department(
 @router.post("/roles", response_model=RoleResponse)
 async def create_role(
     role: RoleCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: UserDetails = Depends(get_superadmin),
     session: AsyncSession = Depends(get_db),
 ):
-    return await dao.create_role(session, role, created_by_id=current_user.id)
+    return await dao.create_role(session, role, created_by_id=current_user.user_id)
 
 
 @router.get("/roles", response_model=List[RoleResponse])
@@ -106,7 +112,7 @@ async def list_roles(session: AsyncSession = Depends(get_db)):
 async def update_role(
     role_id: int,
     role: RoleUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: UserDetails = Depends(get_superadmin),
     session: AsyncSession = Depends(get_db),
 ):
     updated = await dao.update_role(session, role_id, role)
@@ -119,10 +125,12 @@ async def update_role(
 @router.post("/complaint-categories", response_model=ComplaintCategoryResponse)
 async def create_complaint_category(
     category: ComplaintCategoryCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: UserDetails = Depends(get_admin_or_nodal),
     session: AsyncSession = Depends(get_db),
 ):
-    return await dao.create_complaint_category(session, category, created_by_id=current_user.id)
+    return await dao.create_complaint_category(
+        session, category, created_by_id=current_user.user_id
+    )
 
 
 @router.get("/complaint-categories", response_model=List[ComplaintCategoryResponse])
@@ -136,7 +144,7 @@ async def list_complaint_categories(session: AsyncSession = Depends(get_db)):
 async def update_complaint_category(
     category_id: int,
     category: ComplaintCategoryUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: UserDetails = Depends(get_admin_or_nodal),
     session: AsyncSession = Depends(get_db),
 ):
     updated = await dao.update_complaint_category(session, category_id, category)
@@ -149,10 +157,12 @@ async def update_complaint_category(
 @router.post("/materials", response_model=MaterialResponse)
 async def create_material(
     material: MaterialCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: UserDetails = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ):
-    return await dao.create_material(session, material, created_by_id=current_user.id)
+    return await dao.create_material(
+        session, material, created_by_id=current_user.user_id
+    )
 
 
 @router.get("/materials", response_model=List[MaterialResponse])

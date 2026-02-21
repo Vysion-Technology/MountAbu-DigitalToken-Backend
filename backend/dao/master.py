@@ -1,5 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete
+from sqlalchemy.orm import joinedload
 from typing import List, Optional, Type, TypeVar
 
 from backend.database import Base
@@ -26,31 +27,47 @@ class MasterDataDAO:
         db_obj = model(**data)
         session.add(db_obj)
         await session.commit()
-        await session.refresh(db_obj)
-        return db_obj
+        # Refresh and load relationships
+        stmt = select(model).where(model.id == db_obj.id)
+        if hasattr(model, "created_by"):
+            stmt = stmt.options(joinedload(getattr(model, "created_by")))
+        result = await session.execute(stmt)
+        return result.scalar_one()
 
     async def _get(self, session: AsyncSession, model: Type[T], id: int) -> Optional[T]:
-        result = await session.execute(select(model).where(model.id == id))
+        stmt = select(model).where(model.id == id)
+        if hasattr(model, "created_by"):
+            stmt = stmt.options(joinedload(getattr(model, "created_by")))
+        result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
     async def _update(
         self, session: AsyncSession, model: Type[T], id: int, data: dict
     ) -> Optional[T]:
-        stmt = update(model).where(model.id == id).values(**data).returning(model)
+        stmt = update(model).where(model.id == id).values(**data).returning(model.id)
         result = await session.execute(stmt)
-        return result.scalar_one_or_none()
+        row = result.fetchone()
+        if not row:
+            return None
+        return await self._get(session, model, row[0])
 
     async def _delete(self, session: AsyncSession, model: Type[T], id: int) -> bool:
         result = await session.execute(delete(model).where(model.id == id))
         return result.rowcount > 0
 
     async def _list(self, session: AsyncSession, model: Type[T]) -> List[T]:
-        result = await session.execute(select(model))
+        stmt = select(model)
+        if hasattr(model, "created_by"):
+            stmt = stmt.options(joinedload(getattr(model, "created_by")))
+        result = await session.execute(stmt)
         return result.scalars().all()
 
     # Ward Operations
     async def create_ward(
-        self, session: AsyncSession, ward: WardCreate, created_by_id: Optional[int] = None
+        self,
+        session: AsyncSession,
+        ward: WardCreate,
+        created_by_id: Optional[int] = None,
     ) -> Ward:
         data = ward.model_dump()
         if created_by_id:
@@ -72,7 +89,10 @@ class MasterDataDAO:
 
     # Department Operations
     async def create_department(
-        self, session: AsyncSession, dept: DepartmentCreate, created_by_id: Optional[int] = None
+        self,
+        session: AsyncSession,
+        dept: DepartmentCreate,
+        created_by_id: Optional[int] = None,
     ) -> Department:
         data = dept.model_dump()
         if created_by_id:
@@ -96,7 +116,10 @@ class MasterDataDAO:
 
     # Role Operations
     async def create_role(
-        self, session: AsyncSession, role: RoleCreate, created_by_id: Optional[int] = None
+        self,
+        session: AsyncSession,
+        role: RoleCreate,
+        created_by_id: Optional[int] = None,
     ) -> Role:
         data = role.model_dump()
         if created_by_id:
@@ -150,7 +173,10 @@ class MasterDataDAO:
 
     # Material Operations
     async def create_material(
-        self, session: AsyncSession, material: MaterialCreate, created_by_id: Optional[int] = None
+        self,
+        session: AsyncSession,
+        material: MaterialCreate,
+        created_by_id: Optional[int] = None,
     ) -> Material:
         # Import here to avoid circular dependencies if any, or just standard import at top
         from backend.dbmodels.application import Material

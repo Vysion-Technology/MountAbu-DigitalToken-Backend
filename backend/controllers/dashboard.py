@@ -4,8 +4,8 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from backend.core.dependencies import get_current_user
-from backend.dbmodels.user import User
+from backend.middlewares.auth import get_current_user
+from backend.schemas.base.auth import UserDetails
 from backend.meta import UserRole
 from backend.schemas.response.dashboard import CitizenDashboardResponse
 from backend.schemas.response.authority_dashboard import AuthorityDashboardResponse
@@ -31,9 +31,10 @@ AUTHORITY_ROLES = {
 
 # ── Citizen dashboard ─────────────────────────────────────────────────────────
 
+
 @router.get("/dashboard/citizen", response_model=CitizenDashboardResponse)
 async def get_citizen_dashboard(
-    current_user: User = Depends(get_current_user),
+    current_user: UserDetails = Depends(get_current_user),
     service: DashboardService = Depends(get_dashboard_service),
 ):
     """
@@ -42,17 +43,18 @@ async def get_citizen_dashboard(
     Shows the user's own applications, complaints, material usage,
     and phase-wise token information.
     """
-    return await service.get_citizen_dashboard(current_user.id)
+    return await service.get_citizen_dashboard(current_user.user_id)
 
 
 # ── Authority dashboard ───────────────────────────────────────────────────────
+
 
 @router.get("/dashboard/authority", response_model=AuthorityDashboardResponse)
 async def get_authority_dashboard(
     days: int = Query(7, ge=1, le=365, description="Period in days for KPI comparison"),
     department_id: Optional[int] = Query(None, description="Filter by department"),
     ward_id: Optional[int] = Query(None, description="Filter by ward"),
-    current_user: User = Depends(get_current_user),
+    current_user: UserDetails = Depends(get_current_user),
     service: AuthorityDashboardService = Depends(get_authority_dashboard_service),
 ):
     """
@@ -81,7 +83,7 @@ async def get_authority_dashboard(
 
     return await service.get_dashboard(
         role=current_user.role,
-        user_id=current_user.id,
+        user_id=current_user.user_id,
         days=days,
         ward_id=ward_id,
         department_id=department_id,

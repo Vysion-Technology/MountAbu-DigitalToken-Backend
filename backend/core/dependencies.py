@@ -14,7 +14,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login/password")  # Or what
 user_dao = UserDAO()
 
 
-async def get_current_user(
+async def get_db_user(
     token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)
 ) -> User:
     credentials_exception = HTTPException(
@@ -39,8 +39,8 @@ async def get_current_user(
     return user
 
 
-async def get_current_superadmin(
-    current_user: User = Depends(get_current_user),
+async def get_db_superadmin(
+    current_user: User = Depends(get_db_user),
 ) -> User:
     if current_user.role != UserRole.SUPERADMIN:
         raise HTTPException(

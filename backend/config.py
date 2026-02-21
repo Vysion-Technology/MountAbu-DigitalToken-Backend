@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     POSTGRES_USER: str = "etoken_user"
     POSTGRES_PASSWORD: str = "etoken_secure_password_123"
     POSTGRES_DB: str = "mountabu_etoken"
-    DATABASE_HOST: str = "postgres"
+    DATABASE_HOST: str = "localhost"
 
     MINIO_HOST: str = "minio"
     MINIO_ACCESS_KEY: str = "minioadmin"

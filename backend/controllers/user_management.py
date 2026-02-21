@@ -7,9 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.dao.user import UserDAO
 from backend.database import get_db
-from backend.dbmodels.user import User
 from backend.meta import UserRole
-from backend.core.dependencies import get_current_user
+from backend.middlewares.auth import get_current_user
+from backend.schemas.base.auth import UserDetails
 
 router = APIRouter()
 user_dao = UserDAO()
@@ -33,8 +33,8 @@ class UserResponse(BaseModel):
 
 
 async def get_current_official(
-    current_user: User = Depends(get_current_user),
-) -> User:
+    current_user: UserDetails = Depends(get_current_user),
+) -> UserDetails:
     allowed_roles = [
         UserRole.SUPERADMIN,
         UserRole.NODAL_OFFICER,
@@ -58,7 +58,7 @@ async def list_users(
         ..., description="Filter users by type (CITIZEN or OFFICIAL)"
     ),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_official),
+    current_user: UserDetails = Depends(get_current_official),
 ):
     """
     List users based on the filter.

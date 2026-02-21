@@ -26,13 +26,24 @@ class MediaResponse(BaseModel):
     @classmethod
     def compute_access_url(cls, data):
         from backend.services.storage import generate_signed_file_url
-        path = getattr(data, "media_path", None) if hasattr(data, "media_path") else (data.get("media_path") if isinstance(data, dict) else None)
+
+        path = (
+            getattr(data, "media_path", None)
+            if hasattr(data, "media_path")
+            else (data.get("media_path") if isinstance(data, dict) else None)
+        )
         if path:
             url = generate_signed_file_url(path)
             if isinstance(data, dict):
                 data["access_url"] = url
             elif hasattr(data, "__dict__"):
-                return {"id": data.id, "media_path": path, "media_type": data.media_type, "is_initial": data.is_initial, "access_url": url}
+                return {
+                    "id": data.id,
+                    "media_path": path,
+                    "media_type": data.media_type,
+                    "is_initial": data.is_initial,
+                    "access_url": url,
+                }
         return data
 
 
@@ -41,7 +52,7 @@ class CommentResponse(BaseModel):
 
     id: int
     comment: str
-    created_at: datetime
+    created_at: Optional[datetime] = None
     comment_by: Optional[int] = None  # User ID
     media_path: Optional[str] = None
     access_url: Optional[str] = None
@@ -52,13 +63,25 @@ class CommentResponse(BaseModel):
     @classmethod
     def compute_access_url(cls, data):
         from backend.services.storage import generate_signed_file_url
-        path = getattr(data, "media_path", None) if hasattr(data, "media_path") else (data.get("media_path") if isinstance(data, dict) else None)
+
+        path = (
+            getattr(data, "media_path", None)
+            if hasattr(data, "media_path")
+            else (data.get("media_path") if isinstance(data, dict) else None)
+        )
         if path:
             url = generate_signed_file_url(path)
             if isinstance(data, dict):
                 data["access_url"] = url
             elif hasattr(data, "__dict__"):
-                return {"id": data.id, "comment": data.comment, "created_at": data.created_at, "comment_by": getattr(data, "comment_by", None), "media_path": path, "access_url": url}
+                return {
+                    "id": data.id,
+                    "comment": data.comment,
+                    "created_at": data.created_at,
+                    "comment_by": getattr(data, "comment_by", None),
+                    "media_path": path,
+                    "access_url": url,
+                }
         return data
 
 
@@ -82,16 +105,13 @@ class ComplaintResponse(BaseModel):
     longitude: Optional[float]
     location_address: Optional[str]
 
-    created_at: datetime
-    updated_at: datetime
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
     media: List[MediaResponse] = []
     comments: List[CommentResponse] = []
 
-    model_config = {
-        "from_attributes": True,
-        "ignored_types": (ComplaintStatus,)
-    }
+    model_config = {"from_attributes": True, "ignored_types": (ComplaintStatus,)}
 
 
 class ComplaintListResponse(BaseModel):

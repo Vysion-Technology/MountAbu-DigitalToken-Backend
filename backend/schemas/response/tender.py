@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from backend.meta import TenderStatus
 
@@ -15,7 +15,7 @@ class TenderResponse(BaseModel):
     submission_deadline: Optional[datetime]
     status: TenderStatus
     created_by: Optional[int]
-    created_at: datetime
+    created_at: Optional[datetime] = None
 
 
 class TendersListResponse(BaseModel):

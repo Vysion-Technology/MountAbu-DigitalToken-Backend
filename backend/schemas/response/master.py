@@ -18,8 +18,8 @@ class WardResponse(BaseModel):
     type: str
     description: Optional[str]
     status: bool
-    created_at: datetime
-    created_by: Optional[UserSummary]
+    created_at: Optional[datetime] = None
+    created_by: Optional[UserSummary] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -30,8 +30,8 @@ class DepartmentResponse(BaseModel):
     code: str
     type: str
     status: bool
-    created_at: datetime
-    created_by: Optional[UserSummary]
+    created_at: Optional[datetime] = None
+    created_by: Optional[UserSummary] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -42,8 +42,8 @@ class RoleResponse(BaseModel):
     code: str
     permissions: Optional[str]
     status: bool
-    created_at: datetime
-    created_by: Optional[UserSummary]
+    created_at: Optional[datetime] = None
+    created_by: Optional[UserSummary] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -53,8 +53,8 @@ class ComplaintCategoryResponse(BaseModel):
     name: str
     description: Optional[str]
     status: bool
-    created_at: datetime
-    created_by: Optional[UserSummary]
+    created_at: Optional[datetime] = None
+    created_by: Optional[UserSummary] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -63,7 +63,7 @@ class MaterialResponse(BaseModel):
     id: int
     name: str
     unit: str
-    created_at: datetime
-    created_by: Optional[UserSummary]
+    created_at: Optional[datetime] = None
+    created_by: Optional[UserSummary] = None
 
     model_config = ConfigDict(from_attributes=True)

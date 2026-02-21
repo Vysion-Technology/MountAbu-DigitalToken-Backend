@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from backend.meta import NoticeStatus
 
@@ -13,7 +13,7 @@ class LeaderResponse(BaseModel):
     tenure_end: Optional[datetime]
     status: NoticeStatus
     created_by: Optional[int]
-    created_at: datetime
+    created_at: Optional[datetime] = None
 
 
 class LeadersListResponse(BaseModel):

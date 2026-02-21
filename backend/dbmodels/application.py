@@ -21,6 +21,14 @@ class Material(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String, index=True)
     unit: Mapped[str] = mapped_column(String, index=True)
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, default=datetime.now, nullable=True
+    )
+    created_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id"), nullable=True, default=1
+    )
+
+    created_by: Mapped["User"] = relationship("User")
 
 
 class Application(Base):
@@ -116,6 +124,7 @@ class ApplicationMaterial(Base):
     )
     material: Mapped["Material"] = relationship("Material")
 
+
 class ApplicationComment(Base):
     __tablename__ = "application_comments"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
@@ -134,7 +143,9 @@ class ApplicationComment(Base):
     )
 
     commenter: Mapped[User] = relationship("User")
-    application: Mapped["Application"] = relationship("Application", back_populates="comments")
+    application: Mapped["Application"] = relationship(
+        "Application", back_populates="comments"
+    )
 
 
 class ApplicationDocument(Base):
@@ -171,12 +182,14 @@ class ApprovedApplicationPhase(Base):
     activated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
-    application: Mapped["Application"] = relationship("Application", back_populates="phases")
+    application: Mapped["Application"] = relationship(
+        "Application", back_populates="phases"
+    )
     phase_materials: Mapped[list["ApplicationPhaseMaterial"]] = relationship(
         "ApplicationPhaseMaterial",
         back_populates="phase_record",
         primaryjoin="and_(ApprovedApplicationPhase.application_id==ApplicationPhaseMaterial.application_id, "
-                    "ApprovedApplicationPhase.phase==ApplicationPhaseMaterial.phase)",
+        "ApprovedApplicationPhase.phase==ApplicationPhaseMaterial.phase)",
         foreign_keys="[ApplicationPhaseMaterial.application_id, ApplicationPhaseMaterial.phase]",
         viewonly=True,
     )
@@ -184,7 +197,7 @@ class ApprovedApplicationPhase(Base):
         "VehicleEntry",
         back_populates="phase_record",
         primaryjoin="and_(ApprovedApplicationPhase.application_id==VehicleEntry.application_id, "
-                    "ApprovedApplicationPhase.phase==VehicleEntry.phase)",
+        "ApprovedApplicationPhase.phase==VehicleEntry.phase)",
         foreign_keys="[VehicleEntry.application_id, VehicleEntry.phase]",
         viewonly=True,
     )
@@ -201,16 +214,19 @@ class ApplicationPhaseMaterial(Base):
     material_id: Mapped[int] = mapped_column(ForeignKey("materials.id"), index=True)
     quantity: Mapped[int] = mapped_column(Integer, index=True)
 
-    application: Mapped["Application"] = relationship("Application", back_populates="phase_materials")
+    application: Mapped["Application"] = relationship(
+        "Application", back_populates="phase_materials"
+    )
     material: Mapped["Material"] = relationship("Material")
     phase_record: Mapped["ApprovedApplicationPhase"] = relationship(
         "ApprovedApplicationPhase",
         back_populates="phase_materials",
         primaryjoin="and_(ApplicationPhaseMaterial.application_id==ApprovedApplicationPhase.application_id, "
-                    "ApplicationPhaseMaterial.phase==ApprovedApplicationPhase.phase)",
+        "ApplicationPhaseMaterial.phase==ApprovedApplicationPhase.phase)",
         foreign_keys="[ApplicationPhaseMaterial.application_id, ApplicationPhaseMaterial.phase]",
         viewonly=True,
     )
+
 
 class ApplicationApproval(Base):
     __tablename__ = "application_approvals"
@@ -228,7 +244,9 @@ class ApplicationApproval(Base):
     approved_at: Mapped[datetime] = mapped_column(DateTime, index=True)
 
     approver: Mapped[User] = relationship("User")
-    application: Mapped["Application"] = relationship("Application", back_populates="approvals")
+    application: Mapped["Application"] = relationship(
+        "Application", back_populates="approvals"
+    )
 
 
 __all__ = [
@@ -249,33 +267,40 @@ __all__ = [
 
 class VehicleEntry(Base):
     """Vehicle material entry at Naka by NAKA_INCHARGE."""
+
     __tablename__ = "vehicle_entries"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    application_id: Mapped[int] = mapped_column(ForeignKey("applications.id"), index=True)
+    application_id: Mapped[int] = mapped_column(
+        ForeignKey("applications.id"), index=True
+    )
     phase: Mapped[int] = mapped_column(Integer, index=True)
-    
+
     # Vehicle Details
     vehicle_number: Mapped[str] = mapped_column(String, index=True)
     driver_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     driver_mobile: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    
+
     entry_by: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    entry_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, index=True)
-    
+    entry_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.now, index=True
+    )
+
     remarks: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     media_path: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
-    application: Mapped["Application"] = relationship("Application", back_populates="vehicle_entries")
+    application: Mapped["Application"] = relationship(
+        "Application", back_populates="vehicle_entries"
+    )
     entered_by_user: Mapped[User] = relationship("User")
     phase_record: Mapped["ApprovedApplicationPhase"] = relationship(
         "ApprovedApplicationPhase",
         back_populates="vehicle_entries",
         primaryjoin="and_(VehicleEntry.application_id==ApprovedApplicationPhase.application_id, "
-                    "VehicleEntry.phase==ApprovedApplicationPhase.phase)",
+        "VehicleEntry.phase==ApprovedApplicationPhase.phase)",
         foreign_keys="[VehicleEntry.application_id, VehicleEntry.phase]",
         viewonly=True,
     )
-    
+
     materials: Mapped[list["VehicleMaterial"]] = relationship(
         "VehicleMaterial", back_populates="vehicle_entry", cascade="all, delete-orphan"
     )
@@ -283,45 +308,64 @@ class VehicleEntry(Base):
 
 class VehicleMaterial(Base):
     """Materials within a single vehicle entry."""
+
     __tablename__ = "vehicle_materials"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    vehicle_entry_id: Mapped[int] = mapped_column(ForeignKey("vehicle_entries.id"), index=True)
+    vehicle_entry_id: Mapped[int] = mapped_column(
+        ForeignKey("vehicle_entries.id"), index=True
+    )
     material_id: Mapped[int] = mapped_column(ForeignKey("materials.id"), index=True)
     quantity: Mapped[float] = mapped_column(Float)
-    
-    vehicle_entry: Mapped["VehicleEntry"] = relationship("VehicleEntry", back_populates="materials")
+
+    vehicle_entry: Mapped["VehicleEntry"] = relationship(
+        "VehicleEntry", back_populates="materials"
+    )
     material: Mapped["Material"] = relationship("Material")
 
 
 class InspectionReport(Base):
     """Site inspection report by JEN."""
+
     __tablename__ = "inspection_reports"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    application_id: Mapped[int] = mapped_column(ForeignKey("applications.id"), index=True)
+    application_id: Mapped[int] = mapped_column(
+        ForeignKey("applications.id"), index=True
+    )
     inspected_by: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    inspected_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, index=True)
+    inspected_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.now, index=True
+    )
     latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     remarks: Mapped[str] = mapped_column(String)
     media_paths: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
     recommended_phases: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
-    application: Mapped["Application"] = relationship("Application", back_populates="inspections")
+    application: Mapped["Application"] = relationship(
+        "Application", back_populates="inspections"
+    )
     inspector: Mapped[User] = relationship("User")
 
 
 class ApplicationActionLog(Base):
     """Audit log of every workflow action taken on an application."""
+
     __tablename__ = "application_action_logs"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    application_id: Mapped[int] = mapped_column(ForeignKey("applications.id"), index=True)
+    application_id: Mapped[int] = mapped_column(
+        ForeignKey("applications.id"), index=True
+    )
     action: Mapped[WorkflowAction] = mapped_column(Enum(WorkflowAction), index=True)
     from_status: Mapped[ApplicationStatus] = mapped_column(Enum(ApplicationStatus))
     to_status: Mapped[ApplicationStatus] = mapped_column(Enum(ApplicationStatus))
     performed_by: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    performed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, index=True)
+    performed_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.now, index=True
+    )
     remarks: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     phase: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
-    application: Mapped["Application"] = relationship("Application", back_populates="action_logs")
+    application: Mapped["Application"] = relationship(
+        "Application", back_populates="action_logs"
+    )
     performer: Mapped[User] = relationship("User")

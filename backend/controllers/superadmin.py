@@ -4,9 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.core.dependencies import get_current_superadmin
+from backend.middlewares.auth import get_superadmin
 from backend.database import get_db
-from backend.dbmodels.user import User
+from backend.schemas.base.auth import UserDetails
 from backend.meta import UserRole
 from backend.schemas.response.meta import MessageResponse, UserCreatedResponse
 from backend.services.user import UserService
@@ -62,7 +62,7 @@ async def create_initial_superadmin(
 async def create_user(
     request: CreateUserRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_superadmin),
+    current_user: UserDetails = Depends(get_superadmin),
 ) -> UserCreatedResponse:
     """
     Superadmin can create new users with some role.
@@ -98,7 +98,7 @@ async def create_user(
 async def change_password(
     request: ChangePasswordRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_superadmin),
+    current_user: UserDetails = Depends(get_superadmin),
 ) -> MessageResponse:
     """
     Superadmin can change the password of a user.

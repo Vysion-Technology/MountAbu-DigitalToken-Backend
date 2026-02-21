@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.database import get_db
-from backend.core.dependencies import get_current_superadmin
-from backend.dbmodels.user import User
+from backend.middlewares.auth import get_admin_or_nodal
+from backend.schemas.base.auth import UserDetails
 from backend.services.notices import NoticesService, get_notices_service
 from backend.schemas.request.notice import NoticeCreate, NoticeUpdate
 from backend.schemas.response.notice import NoticeResponse, NoticesListResponse
@@ -15,19 +15,28 @@ router = APIRouter()
 async def create_notice(
     payload: NoticeCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_superadmin),
+    current_user: UserDetails = Depends(get_admin_or_nodal),
     service: NoticesService = Depends(get_notices_service),
 ):
-    return await service.create_notice(db, payload, current_user.id)
+    return await service.create_notice(db, payload, current_user.user_id)
 
 
 @router.get("/notices", response_model=NoticesListResponse)
-async def list_notices(limit: int = 50, offset: int = 0, db: AsyncSession = Depends(get_db), service: NoticesService = Depends(get_notices_service)):
+async def list_notices(
+    limit: int = 50,
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db),
+    service: NoticesService = Depends(get_notices_service),
+):
     return await service.list_notices(db, limit=limit, offset=offset)
 
 
 @router.get("/notices/{notice_id}", response_model=NoticeResponse)
-async def get_notice(notice_id: int, db: AsyncSession = Depends(get_db), service: NoticesService = Depends(get_notices_service)):
+async def get_notice(
+    notice_id: int,
+    db: AsyncSession = Depends(get_db),
+    service: NoticesService = Depends(get_notices_service),
+):
     return await service.get_notice(db, notice_id)
 
 
@@ -36,7 +45,7 @@ async def update_notice(
     notice_id: int,
     payload: NoticeUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_superadmin),
+    current_user: UserDetails = Depends(get_admin_or_nodal),
     service: NoticesService = Depends(get_notices_service),
 ):
     return await service.update_notice(db, notice_id, payload)
@@ -46,7 +55,7 @@ async def update_notice(
 async def delete_notice(
     notice_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_superadmin),
+    current_user: UserDetails = Depends(get_admin_or_nodal),
     service: NoticesService = Depends(get_notices_service),
 ):
     ok = await service.delete_notice(db, notice_id)

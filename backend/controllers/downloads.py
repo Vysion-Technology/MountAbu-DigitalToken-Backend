@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.database import get_db
-from backend.core.dependencies import get_current_superadmin
-from backend.dbmodels.user import User
+from backend.middlewares.auth import get_admin_or_nodal
+from backend.schemas.base.auth import UserDetails
 from backend.services.downloads import DownloadsService, get_downloads_service
 from backend.schemas.request.download import DownloadCreate, DownloadUpdate
 from backend.schemas.response.download import DownloadResponse, DownloadsListResponse
@@ -21,7 +21,7 @@ async def create_download(
     status: DownloadStatus | None = Form(DownloadStatus.ACTIVE),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_superadmin),
+    current_user: UserDetails = Depends(get_admin_or_nodal),
     service: DownloadsService = Depends(get_downloads_service),
 ):
     payload = DownloadCreate(
@@ -31,16 +31,25 @@ async def create_download(
         description=description,
         status=status,
     )
-    return await service.create_download(db, payload, file, current_user.id)
+    return await service.create_download(db, payload, file, current_user.user_id)
 
 
 @router.get("/downloads", response_model=DownloadsListResponse)
-async def list_downloads(limit: int = 50, offset: int = 0, db: AsyncSession = Depends(get_db), service: DownloadsService = Depends(get_downloads_service)):
+async def list_downloads(
+    limit: int = 50,
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db),
+    service: DownloadsService = Depends(get_downloads_service),
+):
     return await service.list_downloads(db, limit=limit, offset=offset)
 
 
 @router.get("/downloads/{download_id}", response_model=DownloadResponse)
-async def get_download(download_id: int, db: AsyncSession = Depends(get_db), service: DownloadsService = Depends(get_downloads_service)):
+async def get_download(
+    download_id: int,
+    db: AsyncSession = Depends(get_db),
+    service: DownloadsService = Depends(get_downloads_service),
+):
     return await service.get_download(db, download_id)
 
 
@@ -49,7 +58,7 @@ async def update_download(
     download_id: int,
     payload: DownloadUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_superadmin),
+    current_user: UserDetails = Depends(get_admin_or_nodal),
     service: DownloadsService = Depends(get_downloads_service),
 ):
     # Only superadmin can update
@@ -60,7 +69,7 @@ async def update_download(
 async def delete_download(
     download_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_superadmin),
+    current_user: UserDetails = Depends(get_admin_or_nodal),
     service: DownloadsService = Depends(get_downloads_service),
 ):
     ok = await service.delete_download(db, download_id)

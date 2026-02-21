@@ -62,6 +62,29 @@ async def get_current_user_id(
             raise credentials_exception
 
         return int(user_id_str)
-
     except (JWTError, ValueError):
         raise credentials_exception
+
+
+async def get_superadmin(
+    current_user: UserDetails = Depends(get_current_user),
+) -> UserDetails:
+    """Verify that the current user is a superadmin."""
+    if current_user.role != UserRole.SUPERADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only superadmins can access this resource",
+        )
+    return current_user
+
+
+async def get_admin_or_nodal(
+    current_user: UserDetails = Depends(get_current_user),
+) -> UserDetails:
+    """Verify that the current user is a superadmin or nodal officer."""
+    if current_user.role not in (UserRole.SUPERADMIN, UserRole.NODAL_OFFICER):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only superadmins or nodal officers can access this resource",
+        )
+    return current_user

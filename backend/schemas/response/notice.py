@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from backend.meta import NoticeStatus, Visibility
 
@@ -14,7 +14,7 @@ class NoticeResponse(BaseModel):
     status: NoticeStatus
     visibility: Visibility
     created_by: Optional[int]
-    created_at: datetime
+    created_at: Optional[datetime] = None
 
 
 class NoticesListResponse(BaseModel):

@@ -24,6 +24,6 @@ class CityProfileResponse(BaseModel):
     birth_certificate_per_year: Optional[int]
 
     created_by_id: int
-    created_at: datetime
+    created_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
