@@ -58,8 +58,17 @@ class MaterialRequest(BaseModel):
     material_qty: int = Field(..., description="Material Quantity")
 
 
+class PhaseMaterialEntry(BaseModel):
+    """Material allocation for a specific phase during token generation."""
+
+    phase: int = Field(..., ge=1, description="Phase number")
+    material_id: int = Field(..., description="Material ID")
+    quantity: int = Field(..., ge=1, description="Permitted quantity for this phase")
+
+
 class WorkflowActionRequest(BaseModel):
     """Request body for workflow actions (approve/reject/object/forward)."""
+
     action: WorkflowAction = Field(..., description="Workflow action to perform")
     remarks: Optional[str] = Field(None, description="Remarks for the action")
     num_stages: Optional[int] = Field(
@@ -68,21 +77,15 @@ class WorkflowActionRequest(BaseModel):
         ge=1,
         le=10,
     )
-    phase_materials: Optional[List["PhaseMaterialEntry"]] = Field(
+    phase_materials: Optional[List[PhaseMaterialEntry]] = Field(
         None,
         description="Materials per phase (required for GENERATE_TOKENS)",
     )
 
 
-class PhaseMaterialEntry(BaseModel):
-    """Material allocation for a specific phase during token generation."""
-    phase: int = Field(..., ge=1, description="Phase number")
-    material_id: int = Field(..., description="Material ID")
-    quantity: int = Field(..., ge=1, description="Permitted quantity for this phase")
-
-
 class InspectionReportCreate(BaseModel):
     """JEN creates an inspection report."""
+
     latitude: Optional[float] = Field(None, description="GPS Latitude")
     longitude: Optional[float] = Field(None, description="GPS Longitude")
     remarks: str = Field(..., min_length=5, description="Inspection remarks")
@@ -100,6 +103,7 @@ class InspectionReportCreate(BaseModel):
 
 class NakaEntryCreate(BaseModel):
     """Naka incharge logs materials brought at checkpoint."""
+
     material_id: int = Field(..., description="Material ID")
     quantity_brought: int = Field(..., ge=1, description="Quantity brought")
     vehicle_number: Optional[str] = Field(None, description="Vehicle number")
