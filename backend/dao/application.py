@@ -21,7 +21,7 @@ from backend.dbmodels.application import (
 from backend.dao.base import BaseDAO
 from backend.meta import ApplicationStatus, CommentType, WorkflowAction
 from backend.schemas.request.application import ApplicationCreate
-from backend.schemas.response.application import ApplicationResponse, TokenResponse
+from backend.schemas.response.application import ApplicationResponse
 from backend.schemas.response.meta import SuccessResponse
 from backend.dbmodels.application import (
     Application,
@@ -226,17 +226,7 @@ class ApplicationDAO(BaseDAO):
         stmt = (
             select(Application)
             .where(Application.id == new_application_id)
-            .options(
-                selectinload(Application.documents),
-                selectinload(Application.materials),
-                selectinload(Application.comments).selectinload(
-                    ApplicationComment.commenter
-                ),
-                selectinload(Application.approvals).selectinload(
-                    ApplicationApproval.approver
-                ),
-                selectinload(Application.phases),
-            )
+            .options(*_APPLICATION_LOAD_OPTIONS)
         )
         result = await self.session.execute(stmt)
         new_application = result.scalar_one()
@@ -250,17 +240,7 @@ class ApplicationDAO(BaseDAO):
         stmt = (
             select(Application)
             .where(Application.id == application_id)
-            .options(
-                selectinload(Application.documents),
-                selectinload(Application.materials),
-                selectinload(Application.comments).selectinload(
-                    ApplicationComment.commenter
-                ),
-                selectinload(Application.approvals).selectinload(
-                    ApplicationApproval.approver
-                ),
-                selectinload(Application.phases),
-            )
+            .options(*_APPLICATION_LOAD_OPTIONS)
         )
         result = await self.session.execute(stmt)
         application = result.scalar_one_or_none()
@@ -287,17 +267,7 @@ class ApplicationDAO(BaseDAO):
         user_id: Optional[int] = None,
     ) -> list[ApplicationResponse]:
         """Get applications, optionally filtered by flag."""
-        query = select(Application).options(
-            selectinload(Application.documents),
-            selectinload(Application.materials),
-            selectinload(Application.comments).selectinload(
-                ApplicationComment.commenter
-            ),
-            selectinload(Application.approvals).selectinload(
-                ApplicationApproval.approver
-            ),
-            selectinload(Application.phases),
-        )
+        query = select(Application).options(*_APPLICATION_LOAD_OPTIONS)
         if user_id:
             query = query.where(Application.user_id == user_id)
 

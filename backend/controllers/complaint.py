@@ -15,8 +15,11 @@ from backend.schemas.request.complaint import (
 from backend.schemas.response.complaint import ComplaintResponse, ComplaintListResponse
 from backend.middlewares.auth import get_current_user, get_current_user_id
 from backend.schemas.base.auth import UserDetails
+from backend.services.audit import AuditService
+from backend.meta.audit import AuditAction
 
 router = APIRouter()
+audit_service = AuditService()
 
 
 async def get_complaint_or_404(db: AsyncSession, complaint_id: int):
@@ -174,7 +177,16 @@ async def create_complaint(
     await db.refresh(new_complaint)
 
     # Reload with relations for response
-    return await get_complaint_or_404(db, new_complaint.id)
+    response = await get_complaint_or_404(db, new_complaint.id)
+    await audit_service.log(
+        db,
+        "COMPLAINT",
+        AuditAction.CREATED,
+        user_id,
+        new_state=response.model_dump() if hasattr(response, "model_dump") else None,
+    )
+    await db.commit()
+    return response
 
 
 @router.get("/complaints/{id}", response_model=ComplaintResponse)
@@ -287,6 +299,13 @@ async def withdraw_complaint(
     complaint.status = ComplaintStatus.WITHDRAWN
     # We might want to add a system comment or log here, but for now just update status
 
+    await audit_service.log(
+        db,
+        "COMPLAINT",
+        AuditAction.CHANGED,
+        user_id,
+        new_state={"status": "WITHDRAWN", "id": id},
+    )
     await db.commit()
     await db.refresh(complaint)
 

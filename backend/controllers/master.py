@@ -11,6 +11,8 @@ from backend.middlewares.auth import (
     get_admin_or_nodal,
     get_superadmin,
 )
+from backend.services.audit import AuditService
+from backend.meta.audit import AuditAction
 
 from backend.schemas.request.master import (
     WardCreate,
@@ -33,6 +35,7 @@ from backend.schemas.response.master import (
 
 router = APIRouter(prefix="/master", tags=["Master Data"])
 dao = MasterDataDAO()
+audit_service = AuditService()
 
 
 # Wards
@@ -42,7 +45,16 @@ async def create_ward(
     current_user: UserDetails = Depends(get_admin_or_nodal),
     session: AsyncSession = Depends(get_db),
 ):
-    return await dao.create_ward(session, ward, created_by_id=current_user.user_id)
+    response = await dao.create_ward(session, ward, created_by_id=current_user.user_id)
+    await audit_service.log(
+        session,
+        "WARD",
+        AuditAction.CREATED,
+        current_user.user_id,
+        new_state=response.model_dump() if hasattr(response, "model_dump") else None,
+    )
+    await session.commit()
+    return response
 
 
 @router.get("/wards", response_model=List[WardResponse])
@@ -60,6 +72,15 @@ async def update_ward(
     updated = await dao.update_ward(session, ward_id, ward)
     if not updated:
         raise HTTPException(status_code=404, detail="Ward not found")
+
+    await audit_service.log(
+        session,
+        "WARD",
+        AuditAction.CHANGED,
+        current_user.user_id,
+        new_state=updated.model_dump() if hasattr(updated, "model_dump") else None,
+    )
+    await session.commit()
     return updated
 
 

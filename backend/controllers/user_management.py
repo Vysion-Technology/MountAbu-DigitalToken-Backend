@@ -11,8 +11,12 @@ from backend.meta import UserRole
 from backend.middlewares.auth import get_current_user
 from backend.schemas.base.auth import UserDetails
 
+from backend.services.audit import AuditService
+from backend.meta.audit import AuditAction
+
 router = APIRouter()
 user_dao = UserDAO()
+audit_service = AuditService()
 
 
 class UserFilter(str, Enum):
@@ -66,4 +70,12 @@ async def list_users(
     """
     is_citizen = filter == UserFilter.CITIZEN
     users = await user_dao.get_users_filtered(db, is_citizen=is_citizen)
+    await audit_service.log(
+        db,
+        "USER",
+        AuditAction.VIEWED,
+        current_user.user_id,
+        new_state={"filter": filter.value},
+    )
+    await db.commit()
     return users

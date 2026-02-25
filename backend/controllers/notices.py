@@ -7,8 +7,11 @@ from backend.services.notices import NoticesService, get_notices_service
 from backend.schemas.request.notice import NoticeCreate, NoticeUpdate
 from backend.schemas.response.notice import NoticeResponse, NoticesListResponse
 from backend.schemas.response.meta import SuccessResponse
+from backend.services.audit import AuditService
+from backend.meta.audit import AuditAction
 
 router = APIRouter()
+audit_service = AuditService()
 
 
 @router.post("/notices", response_model=NoticeResponse, status_code=201)
@@ -18,7 +21,16 @@ async def create_notice(
     current_user: UserDetails = Depends(get_admin_or_nodal),
     service: NoticesService = Depends(get_notices_service),
 ):
-    return await service.create_notice(db, payload, current_user.user_id)
+    response = await service.create_notice(db, payload, current_user.user_id)
+    await audit_service.log(
+        db,
+        "NOTICE",
+        AuditAction.CREATED,
+        current_user.user_id,
+        new_state=response.model_dump() if hasattr(response, "model_dump") else None,
+    )
+    await db.commit()
+    return response
 
 
 @router.get("/notices", response_model=NoticesListResponse)
@@ -48,7 +60,16 @@ async def update_notice(
     current_user: UserDetails = Depends(get_admin_or_nodal),
     service: NoticesService = Depends(get_notices_service),
 ):
-    return await service.update_notice(db, notice_id, payload)
+    response = await service.update_notice(db, notice_id, payload)
+    await audit_service.log(
+        db,
+        "NOTICE",
+        AuditAction.CHANGED,
+        current_user.user_id,
+        new_state=response.model_dump() if hasattr(response, "model_dump") else None,
+    )
+    await db.commit()
+    return response
 
 
 @router.delete("/notices/{notice_id}", response_model=SuccessResponse)
@@ -61,4 +82,13 @@ async def delete_notice(
     ok = await service.delete_notice(db, notice_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Notice not found")
+
+    await audit_service.log(
+        db,
+        "NOTICE",
+        AuditAction.CHANGED,
+        current_user.user_id,
+        new_state={"id": notice_id, "action": "deleted"},
+    )
+    await db.commit()
     return SuccessResponse(message="Notice deleted successfully")

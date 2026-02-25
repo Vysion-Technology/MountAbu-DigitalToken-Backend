@@ -8,8 +8,11 @@ from backend.schemas.request.download import DownloadCreate, DownloadUpdate
 from backend.schemas.response.download import DownloadResponse, DownloadsListResponse
 from backend.meta import DownloadStatus
 from backend.schemas.response.meta import SuccessResponse
+from backend.services.audit import AuditService
+from backend.meta.audit import AuditAction
 
 router = APIRouter()
+audit_service = AuditService()
 
 
 @router.post("/downloads", response_model=DownloadResponse, status_code=201)
@@ -31,7 +34,16 @@ async def create_download(
         description=description,
         status=status,
     )
-    return await service.create_download(db, payload, file, current_user.user_id)
+    response = await service.create_download(db, payload, file, current_user.user_id)
+    await audit_service.log(
+        db,
+        "DOWNLOAD",
+        AuditAction.CREATED,
+        current_user.user_id,
+        new_state=response.model_dump() if hasattr(response, "model_dump") else None,
+    )
+    await db.commit()
+    return response
 
 
 @router.get("/downloads", response_model=DownloadsListResponse)
@@ -62,7 +74,16 @@ async def update_download(
     service: DownloadsService = Depends(get_downloads_service),
 ):
     # Only superadmin can update
-    return await service.update_download(db, download_id, payload)
+    response = await service.update_download(db, download_id, payload)
+    await audit_service.log(
+        db,
+        "DOWNLOAD",
+        AuditAction.CHANGED,
+        current_user.user_id,
+        new_state=response.model_dump() if hasattr(response, "model_dump") else None,
+    )
+    await db.commit()
+    return response
 
 
 @router.delete("/downloads/{download_id}", response_model=SuccessResponse)
@@ -75,4 +96,13 @@ async def delete_download(
     ok = await service.delete_download(db, download_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Download not found")
+
+    await audit_service.log(
+        db,
+        "DOWNLOAD",
+        AuditAction.CHANGED,
+        current_user.user_id,
+        new_state={"id": download_id, "action": "deleted"},
+    )
+    await db.commit()
     return SuccessResponse(message="Download deleted successfully")

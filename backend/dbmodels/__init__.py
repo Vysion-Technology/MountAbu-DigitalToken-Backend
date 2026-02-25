@@ -13,6 +13,7 @@ from .master import Ward, Department, Role, ComplaintCategory
 from .city_profile import CityProfile
 from .download import Download
 from .notice import Notice
+from .audit_log import AuditLog
 
 
 __all__ = [
@@ -45,4 +46,6 @@ __all__ = [
     "Event",
     # Leaders
     "Leader",
+    # Audit Logs
+    "AuditLog",
 ]

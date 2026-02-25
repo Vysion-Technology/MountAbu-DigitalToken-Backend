@@ -88,3 +88,19 @@ async def get_admin_or_nodal(
             detail="Only superadmins or nodal officers can access this resource",
         )
     return current_user
+
+
+async def get_audit_viewer(
+    current_user: UserDetails = Depends(get_current_user),
+) -> UserDetails:
+    """Verify that the current user can view audit logs."""
+    if current_user.role not in (
+        UserRole.ADMIN,
+        UserRole.SUPERADMIN,
+        UserRole.NODAL_OFFICER,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only Admin, Superadmin, or Nodal Officers can view audit logs",
+        )
+    return current_user

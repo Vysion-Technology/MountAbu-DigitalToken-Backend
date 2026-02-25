@@ -7,8 +7,11 @@ from backend.services.tenders import TendersService, get_tenders_service
 from backend.schemas.request.tender import TenderCreate, TenderUpdate
 from backend.schemas.response.tender import TenderResponse, TendersListResponse
 from backend.schemas.response.meta import SuccessResponse
+from backend.services.audit import AuditService
+from backend.meta.audit import AuditAction
 
 router = APIRouter()
+audit_service = AuditService()
 
 
 @router.post("/tenders", response_model=TenderResponse, status_code=201)
@@ -18,7 +21,16 @@ async def create_tender(
     current_user: UserDetails = Depends(get_admin_or_nodal),
     service: TendersService = Depends(get_tenders_service),
 ):
-    return await service.create_tender(db, payload, current_user.user_id)
+    response = await service.create_tender(db, payload, current_user.user_id)
+    await audit_service.log(
+        db,
+        "TENDER",
+        AuditAction.CREATED,
+        current_user.user_id,
+        new_state=response.model_dump() if hasattr(response, "model_dump") else None,
+    )
+    await db.commit()
+    return response
 
 
 @router.get("/tenders", response_model=TendersListResponse)
@@ -48,7 +60,16 @@ async def update_tender(
     current_user: UserDetails = Depends(get_admin_or_nodal),
     service: TendersService = Depends(get_tenders_service),
 ):
-    return await service.update_tender(db, tender_id, payload)
+    response = await service.update_tender(db, tender_id, payload)
+    await audit_service.log(
+        db,
+        "TENDER",
+        AuditAction.CHANGED,
+        current_user.user_id,
+        new_state=response.model_dump() if hasattr(response, "model_dump") else None,
+    )
+    await db.commit()
+    return response
 
 
 @router.delete("/tenders/{tender_id}", response_model=SuccessResponse)
@@ -61,4 +82,13 @@ async def delete_tender(
     ok = await service.delete_tender(db, tender_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Tender not found")
+
+    await audit_service.log(
+        db,
+        "TENDER",
+        AuditAction.CHANGED,
+        current_user.user_id,
+        new_state={"id": tender_id, "action": "deleted"},
+    )
+    await db.commit()
     return SuccessResponse(message="Tender deleted successfully")

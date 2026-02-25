@@ -3,6 +3,7 @@ from enum import Enum as PyEnum
 
 class UserRole(str, PyEnum):
     SUPERADMIN = "SUPERADMIN"
+    ADMIN = "ADMIN"
     NODAL_OFFICER = "NODAL_OFFICER"
     COMMISSIONER = "COMMISSIONER"
     CITIZEN = "CITIZEN"

@@ -25,9 +25,11 @@ from backend.schemas.response.application import (
 )
 from backend.schemas.response.meta import SuccessResponse, DocumentUploadResponse
 from backend.services.application import get_application_service, ApplicationService
-
+from backend.services.audit import AuditService
+from backend.meta.audit import AuditAction
 
 router = APIRouter()
+audit_service = AuditService()
 
 # Roles that can access every flag
 _ADMIN_ROLES = [UserRole.SUPERADMIN, UserRole.NODAL_OFFICER, UserRole.COMMISSIONER]
@@ -128,9 +130,20 @@ async def create_application(
             # Should not happen as user_id is from token
             raise HTTPException(status_code=404, detail="User not found")
 
-        return await application_service.create_application(
+        response = await application_service.create_application(
             application_create, user_id, mobile=user.mobile
         )
+        await audit_service.log(
+            db,
+            "APPLICATION",
+            AuditAction.CREATED,
+            user_id,
+            new_state=response.model_dump()
+            if hasattr(response, "model_dump")
+            else None,
+        )
+        await db.commit()
+        return response
     except Exception as e:
         import traceback
 
@@ -233,10 +246,20 @@ async def add_materials(
 async def delete_document(
     application_id: int,
     application_service: ApplicationService = Depends(get_application_service),
+    db: AsyncSession = Depends(get_db),
     user_id: int = Depends(get_current_user_id),
 ) -> SuccessResponse:
     """Delete a document from an application."""
-    return await application_service.delete_document(application_id)
+    response = await application_service.delete_document(application_id)
+    await audit_service.log(
+        db,
+        "APPLICATION_DOCUMENT",
+        AuditAction.CHANGED,
+        user_id,
+        new_state={"application_id": application_id, "action": "deleted"},
+    )
+    await db.commit()
+    return response
 
 
 @router.get(
@@ -246,6 +269,7 @@ async def get_application(
     application_id: int,
     request_user_data: bool = False,
     application_service: ApplicationService = Depends(get_application_service),
+    db: AsyncSession = Depends(get_db),
     user: UserDetails = Depends(get_current_user),
 ) -> Optional[ApplicationResponse]:
     """Get a specific application by ID."""
@@ -254,15 +278,26 @@ async def get_application(
             status_code=403,
             detail="NAKA_INCHARGE must use /api/naka/{transport_code} endpoints",
         )
-    return await application_service.get_application(
+    application = await application_service.get_application(
         application_id, user, request_user_data
     )
+    if application:
+        await audit_service.log(
+            db,
+            "APPLICATION",
+            AuditAction.VIEWED,
+            user.user_id,
+            new_state={"id": application_id},
+        )
+        await db.commit()
+    return application
 
 
 @router.put("/applications/{application_id}/submit", response_model=SuccessResponse)
 async def submit_application(
     application_id: int,
     application_service: ApplicationService = Depends(get_application_service),
+    db: AsyncSession = Depends(get_db),
     user: UserDetails = Depends(get_current_user),
 ) -> SuccessResponse:
     """Submit an application (PENDING -> SUBMITTED).
@@ -275,13 +310,30 @@ async def submit_application(
             status_code=403,
             detail="Only citizens can submit their applications",
         )
-    return await application_service.submit_application(application_id, user.user_id)
+    # Pre-fetch for audit
+    prev_app = await application_service.get_application(application_id, user)
+
+    response = await application_service.submit_application(
+        application_id, user.user_id
+    )
+
+    await audit_service.log(
+        db,
+        "APPLICATION",
+        AuditAction.CHANGED,
+        user.user_id,
+        previous_state=prev_app.model_dump() if prev_app else None,
+        new_state={"status": "SUBMITTED"},
+    )
+    await db.commit()
+    return response
 
 
 @router.post("/applications/{application_id}/withdraw", response_model=SuccessResponse)
 async def withdraw_application(
     application_id: int,
     application_service: ApplicationService = Depends(get_application_service),
+    db: AsyncSession = Depends(get_db),
     user: UserDetails = Depends(get_current_user),
 ) -> SuccessResponse:
     """Withdraw an application.
@@ -294,7 +346,23 @@ async def withdraw_application(
             status_code=403,
             detail="Only citizens can withdraw their applications",
         )
-    return await application_service.withdraw_application(application_id, user.user_id)
+    # Pre-fetch for audit
+    prev_app = await application_service.get_application(application_id, user)
+
+    response = await application_service.withdraw_application(
+        application_id, user.user_id
+    )
+
+    await audit_service.log(
+        db,
+        "APPLICATION",
+        AuditAction.CHANGED,
+        user.user_id,
+        previous_state=prev_app.model_dump() if prev_app else None,
+        new_state={"status": "WITHDRAWN"},
+    )
+    await db.commit()
+    return response
 
 
 @router.put("/applications/{application_id}/action", response_model=SuccessResponse)
@@ -302,6 +370,7 @@ async def workflow_action(
     application_id: int,
     request: WorkflowActionRequest,
     application_service: ApplicationService = Depends(get_application_service),
+    db: AsyncSession = Depends(get_db),
     user: UserDetails = Depends(get_current_user),
 ) -> SuccessResponse:
     """Execute a workflow action on an application.
@@ -310,12 +379,26 @@ async def workflow_action(
     The state machine validates the transition based on current status,
     application type, and the caller's role.
     """
-    return await application_service.perform_workflow_action(
+    # Pre-fetch for audit
+    prev_app = await application_service.get_application(application_id, user)
+
+    response = await application_service.perform_workflow_action(
         application_id=application_id,
         request=request,
         user_id=user.user_id,
         user_role=user.role,
     )
+
+    await audit_service.log(
+        db,
+        "APPLICATION",
+        AuditAction.CHANGED,
+        user.user_id,
+        previous_state=prev_app.model_dump() if prev_app else None,
+        new_state={"action": request.action, "remarks": request.remarks},
+    )
+    await db.commit()
+    return response
 
 
 @router.post(
@@ -325,6 +408,7 @@ async def create_inspection(
     application_id: int,
     report: InspectionReportCreate,
     application_service: ApplicationService = Depends(get_application_service),
+    db: AsyncSession = Depends(get_db),
     user: UserDetails = Depends(get_current_user),
 ) -> SuccessResponse:
     """JEN creates a site inspection report."""
@@ -333,11 +417,20 @@ async def create_inspection(
             status_code=403,
             detail="Only JEN or SUPERADMIN can create inspection reports",
         )
-    return await application_service.create_inspection_report(
+    response = await application_service.create_inspection_report(
         application_id=application_id,
         report=report,
         user_id=user.user_id,
     )
+    await audit_service.log(
+        db,
+        "INSPECTION_REPORT",
+        AuditAction.CREATED,
+        user.user_id,
+        new_state=report.model_dump(),
+    )
+    await db.commit()
+    return response
 
 
 # NOTE: Naka entry creation and listing now uses transport codes.
@@ -362,6 +455,7 @@ async def complete_phase(
     application_id: int,
     phase: int,
     application_service: ApplicationService = Depends(get_application_service),
+    db: AsyncSession = Depends(get_db),
     user: UserDetails = Depends(get_current_user),
 ) -> SuccessResponse:
     """Mark a phase as completed and activate the next one."""
@@ -370,7 +464,22 @@ async def complete_phase(
             status_code=403,
             detail="Only NODAL_OFFICER or SUPERADMIN can complete phases",
         )
-    return await application_service.complete_phase(application_id, phase, user.user_id)
+    response = await application_service.complete_phase(
+        application_id, phase, user.user_id
+    )
+    await audit_service.log(
+        db,
+        "APPLICATION_PHASE",
+        AuditAction.CHANGED,
+        user.user_id,
+        new_state={
+            "application_id": application_id,
+            "phase": phase,
+            "action": "completed",
+        },
+    )
+    await db.commit()
+    return response
 
 
 @router.put("/applications/{application_id}/comment", response_model=SuccessResponse)
@@ -378,6 +487,7 @@ async def comment_on_application(
     application_id: int,
     comment_request: CommentRequest,
     application_service: ApplicationService = Depends(get_application_service),
+    db: AsyncSession = Depends(get_db),
     user: UserDetails = Depends(get_current_user),
 ) -> SuccessResponse:
     """Add a comment to an application. Any authority or the applicant can comment."""
@@ -393,13 +503,25 @@ async def comment_on_application(
                 detail="You can only comment on your own applications",
             )
 
-    return await application_service.comment_on_application(
+    response = await application_service.comment_on_application(
         application_id,
         comment_request.comment,
         user.user_id,
         comment_type=comment_request.comment_type,
         media_paths=comment_request.media_paths,
     )
+    await audit_service.log(
+        db,
+        "APPLICATION_COMMENT",
+        AuditAction.CREATED,
+        user.user_id,
+        new_state={
+            "application_id": application_id,
+            "comment": comment_request.comment,
+        },
+    )
+    await db.commit()
+    return response
 
 
 @router.get(
@@ -420,10 +542,20 @@ async def get_application_comments(
 async def delete_application(
     application_id: int,
     application_service: ApplicationService = Depends(get_application_service),
+    db: AsyncSession = Depends(get_db),
     user_id: int = Depends(get_current_user_id),
 ) -> SuccessResponse:
     """Delete an application."""
-    return await application_service.delete_application(application_id)
+    response = await application_service.delete_application(application_id)
+    await audit_service.log(
+        db,
+        "APPLICATION",
+        AuditAction.CHANGED,
+        user_id,
+        new_state={"id": application_id, "action": "deleted"},
+    )
+    await db.commit()
+    return response
 
 
 # ── Token endpoints ──────────────────────────────────────────────────────
