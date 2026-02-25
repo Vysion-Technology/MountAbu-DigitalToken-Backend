@@ -1,7 +1,12 @@
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, Form, Query
-from backend.meta import ApplicationDocumentType, ApplicationFlags, UserRole
+from backend.meta import (
+    ApplicationDocumentType,
+    ApplicationFlags,
+    UserRole,
+    CommentType,
+)
 
 from backend.middlewares.auth import get_current_user_id, get_current_user
 from backend.services.user import UserService, get_user_service
@@ -491,6 +496,18 @@ async def comment_on_application(
     user: UserDetails = Depends(get_current_user),
 ) -> SuccessResponse:
     """Add a comment to an application. Any authority or the applicant can comment."""
+    # Restriction for OBJECTION_COMMENT: Only NODAL_OFFICER and COMMISSIONER can call this type
+    if comment_request.comment_type == CommentType.OBJECTION_COMMENT:
+        if user.role not in (
+            UserRole.NODAL_OFFICER,
+            UserRole.COMMISSIONER,
+            UserRole.SUPERADMIN,
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="Only NODAL_OFFICER or COMMISSIONER can add objection comments",
+            )
+
     # Verify the user is either an authority or the application owner
     if user.role == UserRole.CITIZEN:
         # Citizen can only comment on their own application

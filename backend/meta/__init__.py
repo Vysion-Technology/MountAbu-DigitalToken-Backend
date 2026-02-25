@@ -77,6 +77,7 @@ class CommentType(str, PyEnum):
     GENERAL = "GENERAL"
     DEPT_REVIEW = "DEPT_REVIEW"  # Department review comment (JEN/ATP/LAND/LEGAL)
     OBJECTION_RESPONSE = "OBJECTION_RESPONSE"  # Citizen response to objection
+    OBJECTION_COMMENT = "OBJECTION_COMMENT"  # Nodal/Commissioner objection comment
     INSPECTION_REMARK = "INSPECTION_REMARK"  # JEN inspection remarks
 
 
