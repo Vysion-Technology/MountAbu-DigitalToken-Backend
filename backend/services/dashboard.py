@@ -9,7 +9,9 @@ from backend.schemas.response.dashboard import (
     MaterialAvailableQuantity,
     MaterialUsageSummary,
     PhaseTokenUsage,
+    ReportsAnalyticsResponse,
 )
+from typing import Optional
 from backend.services.base import BaseService
 
 
@@ -57,8 +59,32 @@ class DashboardService(BaseService):
             phase_token_usage=[PhaseTokenUsage(**p) for p in phase_usage],
         )
 
+    async def get_reports_analytics(
+        self,
+        days: int = 7,
+        ward_id: Optional[int] = None,
+        department_id: Optional[int] = None,
+    ) -> ReportsAnalyticsResponse:
+        from datetime import datetime, timedelta
+
+        now = datetime.now()
+        since = now - timedelta(days=days)
+        prev_end = since
+        prev_start = prev_end - timedelta(days=days)
+
+        data = await self.dao.get_reports_analytics(
+            since, prev_start, prev_end, ward_id, department_id
+        )
+        return ReportsAnalyticsResponse(
+            kpis=data["kpis"],
+            application_status_breakdown=data["application_status_breakdown"],
+            complaints_by_category=data["complaints_by_category"],
+            ward_activity=data["ward_activity"],
+        )
+
 
 # ── Dependency injection ──────────────────────────────────────────────────────
+
 
 async def get_dashboard_service(
     dao: DashboardDAO = Depends(get_dashboard_dao),

@@ -7,7 +7,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from backend.middlewares.auth import get_current_user
 from backend.schemas.base.auth import UserDetails
 from backend.meta import UserRole
-from backend.schemas.response.dashboard import CitizenDashboardResponse
+from backend.schemas.response.dashboard import (
+    CitizenDashboardResponse,
+    ReportsAnalyticsResponse,
+)
 from backend.schemas.response.authority_dashboard import AuthorityDashboardResponse
 from backend.services.dashboard import DashboardService, get_dashboard_service
 from backend.services.authority_dashboard import (
@@ -84,6 +87,33 @@ async def get_authority_dashboard(
     return await service.get_dashboard(
         role=current_user.role,
         user_id=current_user.user_id,
+        days=days,
+        ward_id=ward_id,
+        department_id=department_id,
+    )
+
+
+# ── Reports & Analytics ───────────────────────────────────────────────────────
+
+
+@router.get("/dashboard/reports", response_model=ReportsAnalyticsResponse)
+async def get_reports_analytics(
+    days: int = Query(7, ge=1, le=365, description="Period in days for KPI comparison"),
+    department_id: Optional[int] = Query(None, description="Filter by department"),
+    ward_id: Optional[int] = Query(None, description="Filter by ward"),
+    current_user: UserDetails = Depends(get_current_user),
+    service: DashboardService = Depends(get_dashboard_service),
+):
+    """
+    Return purely analytical aggregated reports for authority users.
+    """
+    if current_user.role not in AUTHORITY_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only authority users can access reports",
+        )
+
+    return await service.get_reports_analytics(
         days=days,
         ward_id=ward_id,
         department_id=department_id,

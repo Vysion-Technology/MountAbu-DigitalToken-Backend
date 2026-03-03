@@ -3,24 +3,36 @@
 from typing import List
 from pydantic import BaseModel, ConfigDict, Field
 
+from backend.schemas.response.authority_dashboard import (
+    KpiCard,
+    StatusCount,
+    CategoryCount,
+    WardActivity,
+)
+
 
 # ── Overview cards (matches the 5 top cards in the UI) ────────────────────────
+
 
 class CitizenOverviewStats(BaseModel):
     """Top-level overview cards shown at the top of the citizen dashboard."""
 
     total_applications: int = Field(0, description="Citizen's total applications")
     active_applications: int = Field(
-        0, description="Applications still pending approval (not rejected/token-generated)"
+        0,
+        description="Applications still pending approval (not rejected/token-generated)",
     )
     tokens_issued: int = Field(
         0, description="Count of phases + renovation tokens issued for citizen's apps"
     )
     total_complaints: int = Field(0, description="Citizen's total complaints")
-    closed_complaints: int = Field(0, description="Citizen's resolved/closed complaints")
+    closed_complaints: int = Field(
+        0, description="Citizen's resolved/closed complaints"
+    )
 
 
 # ── Material analytics ────────────────────────────────────────────────────────
+
 
 class MaterialUsageSummary(BaseModel):
     """Permitted vs. used quantities per material for the citizen's applications."""
@@ -28,7 +40,9 @@ class MaterialUsageSummary(BaseModel):
     material_id: int
     material_name: str
     unit: str
-    permitted_quantity: int = Field(0, description="Total permitted across phase-materials")
+    permitted_quantity: int = Field(
+        0, description="Total permitted across phase-materials"
+    )
     used_quantity: int = Field(0, description="Total brought in via naka entries")
     usage_percent: float = Field(0.0, description="used / permitted * 100")
 
@@ -44,6 +58,7 @@ class MaterialAvailableQuantity(BaseModel):
 
 # ── Phase-wise token usage ───────────────────────────────────────────────────
 
+
 class PhaseTokenUsage(BaseModel):
     """Count of citizen's phases grouped by phase status."""
 
@@ -53,6 +68,7 @@ class PhaseTokenUsage(BaseModel):
 
 # ── Top-level citizen dashboard response ──────────────────────────────────────
 
+
 class CitizenDashboardResponse(BaseModel):
     """Full citizen dashboard payload matching the UI design."""
 
@@ -60,5 +76,19 @@ class CitizenDashboardResponse(BaseModel):
     material_usage: List[MaterialUsageSummary]
     available_quantity: List[MaterialAvailableQuantity]
     phase_token_usage: List[PhaseTokenUsage]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ── Reports & Analytics Response ──────────────────────────────────────────────
+
+
+class ReportsAnalyticsResponse(BaseModel):
+    """Payload for the Reports & Analytics dashboard view."""
+
+    kpis: List[KpiCard] = []
+    application_status_breakdown: List[StatusCount] = []
+    complaints_by_category: List[CategoryCount] = []
+    ward_activity: List[WardActivity] = []
 
     model_config = ConfigDict(from_attributes=True)
