@@ -33,7 +33,6 @@ class ApplicationCreate(BaseModel):
         ..., description="Is property on agriculture land?"
     )
     property_usage: PropertyUsageType = Field(..., description="Property Usage Type")
-    department_id: int = Field(..., description="Selected Department ID")
     ward_id: int = Field(..., description="Ward/Zone ID")
 
     type: ApplicationType = Field(..., description="Application Type")
