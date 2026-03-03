@@ -1,8 +1,11 @@
 from datetime import datetime
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from sqlalchemy import Boolean, Integer, String, DateTime, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+if TYPE_CHECKING:
+    from backend.dbmodels.user import User
 
 from backend.database import Base
 
@@ -66,6 +69,9 @@ class ComplaintCategory(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String, index=True)
     description: Mapped[str] = mapped_column(String, nullable=True)
+    department_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("departments.id"), nullable=True
+    )
     status: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime, default=datetime.now, nullable=True
@@ -75,3 +81,4 @@ class ComplaintCategory(Base):
     )
 
     created_by: Mapped["User"] = relationship("User")
+    department = relationship("Department")

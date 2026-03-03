@@ -53,6 +53,7 @@ class ComplaintCategoryResponse(BaseModel):
     name: str
     description: Optional[str]
     status: bool
+    department_id: Optional[int] = None
     created_at: Optional[datetime] = None
     created_by: Optional[UserSummary] = None
 

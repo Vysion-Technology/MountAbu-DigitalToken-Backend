@@ -50,12 +50,14 @@ class ComplaintCategoryCreate(BaseModel):
     name: str = Field(..., description="Name of the Category")
     description: Optional[str] = Field(None, description="Description")
     status: bool = Field(True, description="Active Status")
+    department_id: Optional[int] = Field(None, description="Mapped Department ID")
 
 
 class ComplaintCategoryUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     status: Optional[bool] = None
+    department_id: Optional[int] = None
 
 
 class MaterialCreate(BaseModel):
