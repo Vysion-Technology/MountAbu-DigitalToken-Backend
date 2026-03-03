@@ -20,9 +20,6 @@ class Complaint(Base):
 
     # Classification
     ward_id: Mapped[int] = mapped_column(ForeignKey("wards.id"), nullable=True)
-    department_id: Mapped[int] = mapped_column(
-        ForeignKey("departments.id"), nullable=True
-    )
     category_id: Mapped[int] = mapped_column(
         ForeignKey("complaint_categories.id"), nullable=True
     )
@@ -33,7 +30,9 @@ class Complaint(Base):
     from backend.meta import ComplaintStatus
 
     status: Mapped[ComplaintStatus] = mapped_column(
-        Enum(ComplaintStatus, name='complaintstatus'), default=ComplaintStatus.PENDING, index=True
+        Enum(ComplaintStatus, name="complaintstatus"),
+        default=ComplaintStatus.PENDING,
+        index=True,
     )  # Complaint status as enum
 
     # Applicant Info (Redundant if user_id linked, but keep for explicit capture)
@@ -56,7 +55,6 @@ class Complaint(Base):
     # Relationships
     user: Mapped["User"] = relationship("User", backref="complaints")
     ward: Mapped["Ward"] = relationship("Ward")
-    department: Mapped["Department"] = relationship("Department")
     category: Mapped["ComplaintCategory"] = relationship("ComplaintCategory")
 
     media: Mapped[list["ComplaintMedia"]] = relationship(

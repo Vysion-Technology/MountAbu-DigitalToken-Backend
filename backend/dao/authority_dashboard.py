@@ -98,7 +98,9 @@ class AuthorityDashboardDAO(BaseDAO):
             if ward_id:
                 stmt = stmt.where(Complaint.ward_id == ward_id)
             if department_id:
-                stmt = stmt.where(Complaint.department_id == department_id)
+                stmt = stmt.join(
+                    ComplaintCategory, Complaint.category_id == ComplaintCategory.id
+                ).where(ComplaintCategory.department_id == department_id)
             if start:
                 stmt = stmt.where(Complaint.created_at >= start)
             if end:
@@ -228,7 +230,7 @@ class AuthorityDashboardDAO(BaseDAO):
         if ward_id:
             stmt = stmt.where(Complaint.ward_id == ward_id)
         if department_id:
-            stmt = stmt.where(Complaint.department_id == department_id)
+            stmt = stmt.where(ComplaintCategory.department_id == department_id)
         rows = (await self.session.execute(stmt)).all()
         return [
             {"category_id": r[0], "category_name": r[1], "count": r[2]}
@@ -272,7 +274,9 @@ class AuthorityDashboardDAO(BaseDAO):
             func.count(Complaint.id).label("complaints"),
         ).group_by(Complaint.ward_id)
         if department_id:
-            comp_sq = comp_sq.where(Complaint.department_id == department_id)
+            comp_sq = comp_sq.join(
+                ComplaintCategory, Complaint.category_id == ComplaintCategory.id
+            ).where(ComplaintCategory.department_id == department_id)
         comp_sq = comp_sq.subquery()
 
         stmt = (

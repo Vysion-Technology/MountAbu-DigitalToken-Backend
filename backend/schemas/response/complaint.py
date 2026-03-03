@@ -95,7 +95,6 @@ class ComplaintResponse(BaseModel):
     status: ComplaintStatus
 
     ward_id: Optional[int]
-    department_id: Optional[int]
     category_id: Optional[int]
 
     applicant_name: str

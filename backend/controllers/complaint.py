@@ -107,13 +107,17 @@ async def get_all_complaints(
         base_where.append(Complaint.status == status_filter)
     if ward_id is not None:
         base_where.append(Complaint.ward_id == ward_id)
-    if department_id is not None:
-        base_where.append(Complaint.department_id == department_id)
     if category_id is not None:
         base_where.append(Complaint.category_id == category_id)
 
     # Count total
     count_stmt = select(sa_func.count(Complaint.id))
+    if department_id is not None:
+        from backend.dbmodels.master import ComplaintCategory
+
+        count_stmt = count_stmt.join(
+            ComplaintCategory, Complaint.category_id == ComplaintCategory.id
+        ).where(ComplaintCategory.department_id == department_id)
     for condition in base_where:
         count_stmt = count_stmt.where(condition)
     total = (await db.execute(count_stmt)).scalar() or 0
@@ -126,6 +130,12 @@ async def get_all_complaints(
         .offset(offset)
         .limit(limit)
     )
+    if department_id is not None:
+        from backend.dbmodels.master import ComplaintCategory
+
+        stmt = stmt.join(
+            ComplaintCategory, Complaint.category_id == ComplaintCategory.id
+        ).where(ComplaintCategory.department_id == department_id)
     for condition in base_where:
         stmt = stmt.where(condition)
 
@@ -151,7 +161,6 @@ async def create_complaint(
         title=request.title,
         description=request.description,
         ward_id=request.ward_id,
-        department_id=request.department_id,
         category_id=request.category_id,
         applicant_name=request.applicant_name,
         applicant_mobile=request.applicant_mobile,
