@@ -1,9 +1,10 @@
 from typing import Optional, Tuple, List
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.dao.contact_diary import ContactDiaryDAO, get_contact_diary_dao
 from backend.dbmodels.contact_diary import ContactDiary
-from backend.schemas.request.contact_diary import ContactDiaryCreate, ContactDiaryUpdate
+from backend.schemas.request.contact_diary import ContactDiaryCreate
 
 
 class ContactDiaryService:
@@ -39,7 +40,7 @@ class ContactDiaryService:
         )
 
     async def update(
-        self, session: AsyncSession, db_obj: ContactDiary, obj_in: ContactDiaryUpdate
+        self, session: AsyncSession, db_obj: ContactDiary, obj_in: BaseModel
     ) -> ContactDiary:
         return await self.dao.update(session, db_obj, obj_in)
 

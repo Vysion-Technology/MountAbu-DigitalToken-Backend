@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.database import get_db
 from backend.middlewares.auth import get_current_user
 from backend.schemas.base.auth import UserDetails
-from backend.schemas.request.city_profile import CityProfileCreate, CityProfileUpdate
+from backend.schemas.request.city_profile import CityProfileCreate, CityProfilePut
 from backend.schemas.response.city_profile import CityProfileResponse
 from backend.dao.city_profile import get_city_profile_dao, CityProfileDAO
 
@@ -24,21 +24,41 @@ async def create_city_profile(
 
 
 @router.get("/", response_model=CityProfileResponse)
-async def get_latest_city_profile(session: AsyncSession = Depends(get_db), dao: CityProfileDAO = Depends(get_city_profile_dao)):
+async def get_latest_city_profile(
+    session: AsyncSession = Depends(get_db),
+    dao: CityProfileDAO = Depends(get_city_profile_dao),
+):
     latest = await dao.get_latest_profile(session)
     if not latest:
         raise HTTPException(status_code=404, detail="City profile not found")
     return latest
 
 
-@router.put("/", response_model=CityProfileResponse)
-async def update_city_profile(
-    profile: CityProfileUpdate,
+@router.put("/{profile_id}", response_model=CityProfileResponse)
+async def put_city_profile(
+    profile_id: int,
+    profile: CityProfilePut,
     user: UserDetails = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
     dao: CityProfileDAO = Depends(get_city_profile_dao),
 ):
-    updated = await dao.update_profile(session, profile, user.user_id)
+    updated = await dao.put_profile(session, profile_id, profile, user.user_id)
+    if not updated:
+        raise HTTPException(status_code=404, detail="City profile not found")
+    return updated
+
+
+@router.patch("/{profile_id}", response_model=CityProfileResponse)
+async def patch_city_profile(
+    profile_id: int,
+    profile: CityProfileCreate,
+    user: UserDetails = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+    dao: CityProfileDAO = Depends(get_city_profile_dao),
+):
+    updated = await dao.patch_profile(session, profile_id, profile, user.user_id)
+    if not updated:
+        raise HTTPException(status_code=404, detail="City profile not found")
     return updated
 
 

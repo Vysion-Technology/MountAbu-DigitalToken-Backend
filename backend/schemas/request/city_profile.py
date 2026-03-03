@@ -21,5 +21,20 @@ class CityProfileCreate(BaseModel):
     birth_certificate_per_year: Optional[int] = Field(None)
 
 
-class CityProfileUpdate(CityProfileCreate):
-    pass
+class CityProfilePut(BaseModel):
+    area_sq_km: str
+    no_of_wards: int
+    ward_boundaries: str
+    population_estimate: int
+    rental_properties_of_corporation: int
+    number_of_slums: int
+    solid_waste_per_day: str
+    street_light_poles: int
+    employees_in_board: int
+
+    households_residential: int
+    households_shops_offices: int
+    households_open_plots: int
+
+    birth_registration_per_year: int
+    birth_certificate_per_year: int
