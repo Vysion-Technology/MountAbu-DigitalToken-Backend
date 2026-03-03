@@ -59,8 +59,37 @@ class ApplicationMaterialResponse(BaseModel):
     id: int
     material_id: int
     quantity: int
+    material_name: Optional[str] = None
+    unit: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def extract_material_info(cls, data):
+        """Extract material name and unit from the nested material relationship."""
+        if hasattr(data, "material") and data.material:
+            if hasattr(data, "__dict__"):
+                return {
+                    "id": getattr(data, "id"),
+                    "material_id": getattr(data, "material_id"),
+                    "quantity": getattr(data, "quantity"),
+                    "material_name": getattr(data.material, "name", None),
+                    "unit": getattr(data.material, "unit", None),
+                }
+            elif isinstance(data, dict):
+                mat = data.get("material") or {}
+                data["material_name"] = (
+                    mat.get("name")
+                    if isinstance(mat, dict)
+                    else getattr(mat, "name", None)
+                )
+                data["unit"] = (
+                    mat.get("unit")
+                    if isinstance(mat, dict)
+                    else getattr(mat, "unit", None)
+                )
+        return data
 
 
 class CommentResponse(BaseModel):
@@ -97,6 +126,7 @@ class CommentResponse(BaseModel):
 
 class PhaseMaterialResponse(BaseModel):
     """Response schema for phase-level materials."""
+
     id: int
     application_id: int
     phase: int
@@ -108,6 +138,7 @@ class PhaseMaterialResponse(BaseModel):
 
 class PhaseResponse(BaseModel):
     """Response schema for application phases."""
+
     id: int
     application_id: int
     phase: int
@@ -124,6 +155,7 @@ class PhaseResponse(BaseModel):
     def compute_transport_code(cls, data):
         """Generate the HMAC transport code from application_id + phase."""
         from backend.core.transport_code import encode_transport_code
+
         if hasattr(data, "application_id") and hasattr(data, "phase"):
             app_id = data.application_id
             phase = data.phase
@@ -153,6 +185,7 @@ class PhaseResponse(BaseModel):
 
 class TokenMaterialResponse(BaseModel):
     """Per-material summary within a token (phase)."""
+
     material_id: int
     material_name: Optional[str] = None
     unit: Optional[str] = None
@@ -169,6 +202,7 @@ class TokenResponse(BaseModel):
     Only the 5 columns shown in the listing screen + transport_code
     (the unique token identifier used in URLs).
     """
+
     transport_code: str
     token_number: str
     application_number: str
@@ -181,6 +215,7 @@ class TokenResponse(BaseModel):
 
 class VehicleEntryResponse(BaseModel):
     """A single vehicle / naka entry shown under the Vehicle Entries tab."""
+
     id: int
     vehicle_number: Optional[str] = None
     material_name: Optional[str] = None
@@ -196,8 +231,9 @@ class VehicleEntryResponse(BaseModel):
 
 class TokenAuthorityInfo(BaseModel):
     """Authority / system information shown on the token detail page."""
-    issued_by: Optional[str] = None          # e.g. "Nodal Officer (Ward 3)"
-    issued_on: Optional[datetime] = None     # activated_at
+
+    issued_by: Optional[str] = None  # e.g. "Nodal Officer (Ward 3)"
+    issued_on: Optional[datetime] = None  # activated_at
     token_generated_from: Optional[str] = None  # e.g. "Approved Renovation Application"
 
     model_config = ConfigDict(from_attributes=True)
@@ -212,11 +248,12 @@ class TokenDetailResponse(BaseModel):
     - Vehicle Entries tab
     - Material Summary tab
     """
+
     # Identity
     transport_code: str
     token_number: str
     status: ApplicationPhaseStatus
-    valid_from: Optional[datetime] = None     # activated_at
+    valid_from: Optional[datetime] = None  # activated_at
     valid_till: Optional[datetime] = None
 
     # Application info
@@ -242,6 +279,7 @@ class TokenDetailResponse(BaseModel):
 
 class NakaEntryResponse(BaseModel):
     """Response for a Naka checkpoint entry."""
+
     id: int
     application_id: int
     phase: int
@@ -260,11 +298,30 @@ class NakaEntryResponse(BaseModel):
     @classmethod
     def compute_access_url(cls, data):
         from backend.services.storage import generate_signed_file_url
-        path = getattr(data, "media_path", None) if hasattr(data, "media_path") else (data.get("media_path") if isinstance(data, dict) else None)
+
+        path = (
+            getattr(data, "media_path", None)
+            if hasattr(data, "media_path")
+            else (data.get("media_path") if isinstance(data, dict) else None)
+        )
         if path:
             url = generate_signed_file_url(path)
             if hasattr(data, "__dict__") and not isinstance(data, dict):
-                d = {k: getattr(data, k) for k in ["id", "application_id", "phase", "material_id", "quantity_brought", "entry_by", "entry_at", "vehicle_number", "remarks", "media_path"]}
+                d = {
+                    k: getattr(data, k)
+                    for k in [
+                        "id",
+                        "application_id",
+                        "phase",
+                        "material_id",
+                        "quantity_brought",
+                        "entry_by",
+                        "entry_at",
+                        "vehicle_number",
+                        "remarks",
+                        "media_path",
+                    ]
+                }
                 d["access_url"] = url
                 return d
             elif isinstance(data, dict):
@@ -274,6 +331,7 @@ class NakaEntryResponse(BaseModel):
 
 class InspectionReportResponse(BaseModel):
     """Response for an inspection report."""
+
     id: int
     application_id: int
     inspected_by: int
@@ -289,6 +347,7 @@ class InspectionReportResponse(BaseModel):
 
 class ActionLogResponse(BaseModel):
     """Response for an action log entry."""
+
     id: int
     application_id: int
     action: WorkflowAction
@@ -339,4 +398,3 @@ class ApplicationResponse(BaseModel):
     tokens: List[TokenResponse] = []
 
     model_config = ConfigDict(extra="ignore", from_attributes=True)
-

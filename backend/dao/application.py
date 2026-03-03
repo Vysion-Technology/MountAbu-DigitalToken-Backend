@@ -45,7 +45,7 @@ from backend.core.workflow import validate_transition, RENOVATION_DEPT_ROLES
 # ── Eager-loading options reused across queries ──────────────────────────
 _APPLICATION_LOAD_OPTIONS = [
     selectinload(Application.documents),
-    selectinload(Application.materials),
+    selectinload(Application.materials).selectinload(ApplicationMaterial.material),
     selectinload(Application.comments).selectinload(ApplicationComment.commenter),
     selectinload(Application.approvals).selectinload(ApplicationApproval.approver),
     selectinload(Application.phases),
