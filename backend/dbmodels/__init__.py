@@ -14,6 +14,7 @@ from .city_profile import CityProfile
 from .download import Download
 from .notice import Notice
 from .audit_log import AuditLog
+from .contact_diary import ContactDiary
 
 
 __all__ = [
@@ -48,4 +49,6 @@ __all__ = [
     "Leader",
     # Audit Logs
     "AuditLog",
+    # Contact Diary
+    "ContactDiary",
 ]

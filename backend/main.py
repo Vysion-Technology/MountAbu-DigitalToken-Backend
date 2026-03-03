@@ -20,6 +20,7 @@ from backend.controllers.naka import router as naka_router
 from backend.controllers.dashboard import router as dashboard_router
 from backend.controllers.user_management import router as user_management_router
 from backend.controllers.audit import router as audit_router
+from backend.controllers.contact_diary import router as contact_diary_router
 
 
 @asynccontextmanager
@@ -56,6 +57,9 @@ app.include_router(dashboard_router, prefix="/api", tags=["Dashboard"])
 app.include_router(city_profile_router, prefix="/api", tags=["City Profile"])
 app.include_router(user_management_router, prefix="/api", tags=["User Management"])
 app.include_router(audit_router, prefix="/api", tags=["Audit Log"])
+app.include_router(
+    contact_diary_router, prefix="/api/contact-diary", tags=["Contact Diary"]
+)
 
 
 @app.get("/health")
