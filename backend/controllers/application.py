@@ -20,6 +20,7 @@ from backend.schemas.request.application import (
     ApplicationMaterialRequirements,
     WorkflowActionRequest,
     InspectionReportCreate,
+    PhaseMaterialEntry,
 )
 from backend.schemas.response.application import (
     ApplicationResponse,
@@ -143,9 +144,7 @@ async def create_application(
             "APPLICATION",
             AuditAction.CREATED,
             user_id,
-            new_state=response.model_dump()
-            if hasattr(response, "model_dump")
-            else None,
+            new_state=response.model_dump(mode="json") if hasattr(response, "model_dump") else None,
         )
         await db.commit()
         return response
@@ -327,7 +326,7 @@ async def submit_application(
         "APPLICATION",
         AuditAction.CHANGED,
         user.user_id,
-        previous_state=prev_app.model_dump() if prev_app else None,
+        previous_state=prev_app.model_dump(mode="json") if prev_app else None,
         new_state={"status": "SUBMITTED"},
     )
     await db.commit()
@@ -363,7 +362,7 @@ async def withdraw_application(
         "APPLICATION",
         AuditAction.CHANGED,
         user.user_id,
-        previous_state=prev_app.model_dump() if prev_app else None,
+        previous_state=prev_app.model_dump(mode="json") if prev_app else None,
         new_state={"status": "WITHDRAWN"},
     )
     await db.commit()
@@ -399,8 +398,48 @@ async def workflow_action(
         "APPLICATION",
         AuditAction.CHANGED,
         user.user_id,
-        previous_state=prev_app.model_dump() if prev_app else None,
+        previous_state=prev_app.model_dump(mode="json") if prev_app else None,
         new_state={"action": request.action, "remarks": request.remarks},
+    )
+    await db.commit()
+    return response
+
+
+@router.put(
+    "/applications/{application_id}/phase-materials", response_model=SuccessResponse
+)
+async def update_phase_materials(
+    application_id: int,
+    phase_materials: List[PhaseMaterialEntry],
+    application_service: ApplicationService = Depends(get_application_service),
+    db: AsyncSession = Depends(get_db),
+    user: UserDetails = Depends(get_current_user),
+) -> SuccessResponse:
+    """JEN or SUPERADMIN updates phase materials for an application."""
+    if user.role not in (UserRole.JEN, UserRole.SUPERADMIN):
+        raise HTTPException(
+            status_code=403,
+            detail="Only JEN or SUPERADMIN can update phase materials",
+        )
+
+    # Pre-fetch for audit
+    prev_app = await application_service.get_application(application_id, user)
+
+    response = await application_service.update_phase_materials(
+        application_id=application_id,
+        phase_materials=phase_materials,
+    )
+
+    await audit_service.log(
+        db,
+        "APPLICATION",
+        AuditAction.CHANGED,
+        user.user_id,
+        previous_state=prev_app.model_dump(mode="json") if prev_app else None,
+        new_state={
+            "action": "UPDATE_PHASE_MATERIALS",
+            "phase_materials": [pm.model_dump(mode="json") for pm in phase_materials],
+        },
     )
     await db.commit()
     return response
@@ -432,7 +471,7 @@ async def create_inspection(
         "INSPECTION_REPORT",
         AuditAction.CREATED,
         user.user_id,
-        new_state=report.model_dump(),
+        new_state=report.model_dump(mode="json"),
     )
     await db.commit()
     return response
@@ -607,15 +646,17 @@ async def list_tokens(
         UserRole.CITIZEN,
         UserRole.SUPERADMIN,
         UserRole.NODAL_OFFICER,
-        UserRole.COMMISSIONER,
     ):
         raise HTTPException(
             status_code=403,
             detail="Only citizens and admins can list tokens",
         )
-    # Citizens see their own tokens; admins could extend this with a user_id param
-    return await application_service.get_citizen_tokens(
-        user_id=user.user_id,
+
+    # Filter by user_id only for citizens
+    filter_user_id = user.user_id if user.role == UserRole.CITIZEN else None
+
+    return await application_service.get_tokens(
+        user_id=filter_user_id,
         status_filter=status,
         search=search,
         offset=offset,

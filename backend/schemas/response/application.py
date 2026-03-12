@@ -132,8 +132,39 @@ class PhaseMaterialResponse(BaseModel):
     phase: int
     material_id: int
     quantity: int
+    material_name: Optional[str] = None
+    unit: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def extract_material_info(cls, data):
+        """Extract material name and unit from the nested material relationship."""
+        if hasattr(data, "material") and data.material:
+            if hasattr(data, "__dict__"):
+                return {
+                    "id": getattr(data, "id"),
+                    "application_id": getattr(data, "application_id"),
+                    "phase": getattr(data, "phase"),
+                    "material_id": getattr(data, "material_id"),
+                    "quantity": getattr(data, "quantity"),
+                    "material_name": getattr(data.material, "name", None),
+                    "unit": getattr(data.material, "unit", None),
+                }
+            elif isinstance(data, dict):
+                mat = data.get("material") or {}
+                data["material_name"] = (
+                    mat.get("name")
+                    if isinstance(mat, dict)
+                    else getattr(mat, "name", None)
+                )
+                data["unit"] = (
+                    mat.get("unit")
+                    if isinstance(mat, dict)
+                    else getattr(mat, "unit", None)
+                )
+        return data
 
 
 class PhaseResponse(BaseModel):
@@ -394,6 +425,7 @@ class ApplicationResponse(BaseModel):
     num_stages: Optional[int]
     documents: List[ApplicationDocumentResponse] = []
     materials: List[ApplicationMaterialResponse] = []
+    phase_materials: List[PhaseMaterialResponse] = []
     comments: List[CommentResponse] = []
     tokens: List[TokenResponse] = []
 

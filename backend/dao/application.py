@@ -49,7 +49,7 @@ _APPLICATION_LOAD_OPTIONS = [
     selectinload(Application.comments).selectinload(ApplicationComment.commenter),
     selectinload(Application.approvals).selectinload(ApplicationApproval.approver),
     selectinload(Application.phases),
-    selectinload(Application.phase_materials),
+    selectinload(Application.phase_materials).selectinload(ApplicationPhaseMaterial.material),
     selectinload(Application.inspections),
     selectinload(Application.vehicle_entries).selectinload(VehicleEntry.materials),
     selectinload(Application.action_logs),
@@ -648,6 +648,43 @@ class ApplicationDAO(BaseDAO):
         return SuccessResponse(
             message=f"Application {action.value.lower()}d successfully"
         )
+
+    async def update_phase_materials(
+        self, application_id: int, phase_materials: list
+    ) -> SuccessResponse:
+        """Update or add phase materials for an application.
+
+        Used by JEN to add/update materials if they were forgotten during inspection.
+        """
+        application = await self.session.get(Application, application_id)
+        if not application:
+            raise HTTPException(status_code=404, detail="Application not found")
+
+        # Check for existing materials to avoid duplicates
+        existing_stmt = select(ApplicationPhaseMaterial).where(
+            ApplicationPhaseMaterial.application_id == application_id
+        )
+        existing_result = await self.session.execute(existing_stmt)
+        existing_materials = {(pm.phase, pm.material_id): pm for pm in existing_result.scalars().all()}
+
+        for pm_data in phase_materials:
+            key = (pm_data.phase, pm_data.material_id)
+            if key in existing_materials:
+                # Update quantity
+                existing_materials[key].quantity = pm_data.quantity
+            else:
+                # Insert new
+                self.session.add(
+                    ApplicationPhaseMaterial(
+                        application_id=application_id,
+                        phase=pm_data.phase,
+                        material_id=pm_data.material_id,
+                        quantity=pm_data.quantity,
+                    )
+                )
+
+        await self.session.commit()
+        return SuccessResponse(message="Phase materials updated successfully")
 
     # ── JEN inspection ────────────────────────────────────────────────────
     async def create_inspection_report(
@@ -1254,27 +1291,29 @@ class ApplicationDAO(BaseDAO):
             "vehicle_entries": vehicle_entries,
         }
 
-    async def get_citizen_tokens(
+    async def get_tokens(
         self,
-        user_id: int,
+        user_id: Optional[int] = None,
         status_filter: Optional[str] = None,
         search: Optional[str] = None,
         offset: int = 0,
         limit: int = 10,
     ) -> list[dict]:
-        """Get all tokens (phases) for applications owned by a citizen.
+        """Get all tokens (phases) with optional user_id filtering.
 
         Supports filtering by phase status and searching by token/application number.
         """
-        # Fetch phases for the user's applications
+        # Fetch phases
         stmt = (
             select(ApprovedApplicationPhase)
             .join(
                 Application, ApprovedApplicationPhase.application_id == Application.id
             )
-            .where(Application.user_id == user_id)
             .order_by(ApprovedApplicationPhase.id.desc())
         )
+        if user_id is not None:
+            stmt = stmt.where(Application.user_id == user_id)
+
         if status_filter:
             try:
                 phase_status = ApplicationPhaseStatus(status_filter)
@@ -1282,6 +1321,7 @@ class ApplicationDAO(BaseDAO):
             except ValueError:
                 pass  # ignore invalid status filter
 
+        # Load all (Search happens in memory due to complex generated fields in build_token_list_dicts)
         result = await self.session.execute(stmt)
         phases = list(result.scalars().all())
 

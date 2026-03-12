@@ -40,7 +40,7 @@ async def create_download(
         "DOWNLOAD",
         AuditAction.CREATED,
         current_user.user_id,
-        new_state=response.model_dump() if hasattr(response, "model_dump") else None,
+        new_state=response.model_dump(mode="json") if hasattr(response, "model_dump") else None,
     )
     await db.commit()
     return response
@@ -80,7 +80,7 @@ async def update_download(
         "DOWNLOAD",
         AuditAction.CHANGED,
         current_user.user_id,
-        new_state=response.model_dump() if hasattr(response, "model_dump") else None,
+        new_state=response.model_dump(mode="json") if hasattr(response, "model_dump") else None,
     )
     await db.commit()
     return response

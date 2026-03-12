@@ -192,7 +192,7 @@ async def create_complaint(
         "COMPLAINT",
         AuditAction.CREATED,
         user_id,
-        new_state=response.model_dump() if hasattr(response, "model_dump") else None,
+        new_state=response.model_dump(mode="json") if hasattr(response, "model_dump") else None,
     )
     await db.commit()
     return response

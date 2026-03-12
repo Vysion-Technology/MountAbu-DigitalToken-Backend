@@ -174,6 +174,12 @@ class ApplicationService(BaseService):
             phase_materials=request.phase_materials,
         )
 
+    async def update_phase_materials(
+        self, application_id: int, phase_materials: list
+    ) -> SuccessResponse:
+        """Update phase-wise materials for an application (used by JEN)."""
+        return await self.dao.update_phase_materials(application_id, phase_materials)
+
     # ── JEN inspection ────────────────────────────────────────────────────
     async def create_inspection_report(
         self,
@@ -237,16 +243,16 @@ class ApplicationService(BaseService):
         return await self.dao.complete_phase(application_id, phase, user_id)
 
     # ── Token queries ─────────────────────────────────────────────────────
-    async def get_citizen_tokens(
+    async def get_tokens(
         self,
-        user_id: int,
+        user_id: Optional[int] = None,
         status_filter: Optional[str] = None,
         search: Optional[str] = None,
         offset: int = 0,
         limit: int = 10,
     ) -> list[TokenResponse]:
-        """Get all tokens for a citizen with optional filters."""
-        token_dicts = await self.dao.get_citizen_tokens(
+        """Get all tokens with optional filters."""
+        token_dicts = await self.dao.get_tokens(
             user_id=user_id,
             status_filter=status_filter,
             search=search,
