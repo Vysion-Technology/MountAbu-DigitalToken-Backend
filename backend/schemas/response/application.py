@@ -366,14 +366,48 @@ class InspectionReportResponse(BaseModel):
     id: int
     application_id: int
     inspected_by: int
+    inspector_name: Optional[str] = None
     inspected_at: datetime
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     remarks: str
     media_paths: Optional[list] = None
+    access_urls: Optional[List[str]] = None
     recommended_phases: Optional[int] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def process_inspection_data(cls, data):
+        """Extract inspector name and generate signed URLs for media paths."""
+        from backend.services.storage import generate_signed_file_url
+
+        # Handle inspector name
+        if hasattr(data, "inspector") and data.inspector:
+            inspector_name = data.inspector.name
+        else:
+            inspector_name = None
+
+        # Handle media access URLs
+        paths = getattr(data, "media_paths", []) or []
+        urls = [generate_signed_file_url(p) for p in paths if p]
+
+        if hasattr(data, "__dict__"):
+            return {
+                "id": data.id,
+                "application_id": data.application_id,
+                "inspected_by": data.inspected_by,
+                "inspector_name": inspector_name,
+                "inspected_at": data.inspected_at,
+                "latitude": data.latitude,
+                "longitude": data.longitude,
+                "remarks": data.remarks,
+                "media_paths": paths,
+                "access_urls": urls,
+                "recommended_phases": data.recommended_phases,
+            }
+        return data
 
 
 class ActionLogResponse(BaseModel):
@@ -427,6 +461,7 @@ class ApplicationResponse(BaseModel):
     materials: List[ApplicationMaterialResponse] = []
     phase_materials: List[PhaseMaterialResponse] = []
     comments: List[CommentResponse] = []
+    inspections: List[InspectionReportResponse] = []
     tokens: List[TokenResponse] = []
 
     model_config = ConfigDict(extra="ignore", from_attributes=True)
