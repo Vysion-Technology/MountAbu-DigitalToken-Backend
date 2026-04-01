@@ -741,8 +741,7 @@ class ApplicationDAO(BaseDAO):
         application_id: int,
         phase: int,
         user_id: int,
-        material_id: int,
-        quantity_brought: int,
+        materials: list[dict],
         vehicle_number: Optional[str] = None,
         remarks: Optional[str] = None,
         media_path: Optional[str] = None,
@@ -773,46 +772,50 @@ class ApplicationDAO(BaseDAO):
                 detail=f"Phase {phase} is '{phase_record.status.value}', must be ACTIVE for naka entry",
             )
 
-        # Validate quantity against phase material limit
-        pm_stmt = select(ApplicationPhaseMaterial).where(
-            ApplicationPhaseMaterial.application_id == application_id,
-            ApplicationPhaseMaterial.phase == phase,
-            ApplicationPhaseMaterial.material_id == material_id,
-        )
-        pm_result = await self.session.execute(pm_stmt)
-        phase_mat = pm_result.scalar_one_or_none()
-        if not phase_mat:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Material {material_id} is not allocated for phase {phase}",
-            )
+        # Validate each material against phase allocation and quantity limits
+        for mat in materials:
+            mid = mat["material_id"]
+            qty = mat["quantity_brought"]
 
-        # Sum existing naka entries for this material in this phase
-        used_stmt = (
-            select(func.coalesce(func.sum(VehicleMaterial.quantity), 0))
-            .select_from(VehicleEntry)
-            .join(VehicleMaterial)
-            .where(
-                VehicleEntry.application_id == application_id,
-                VehicleEntry.phase == phase,
-                VehicleMaterial.material_id == material_id,
+            pm_stmt = select(ApplicationPhaseMaterial).where(
+                ApplicationPhaseMaterial.application_id == application_id,
+                ApplicationPhaseMaterial.phase == phase,
+                ApplicationPhaseMaterial.material_id == mid,
             )
-        )
-        used_result = await self.session.execute(used_stmt)
-        already_brought: int = used_result.scalar() or 0
+            pm_result = await self.session.execute(pm_stmt)
+            phase_mat = pm_result.scalar_one_or_none()
+            if not phase_mat:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Material {mid} is not allocated for phase {phase}",
+                )
 
-        if already_brought + quantity_brought > phase_mat.quantity:
-            remaining: int = phase_mat.quantity - already_brought
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"Quantity exceeds limit. Phase {phase} allows {phase_mat.quantity} "
-                    f"of material {material_id}, already brought {already_brought}, "
-                    f"remaining {remaining}. Requested: {quantity_brought}."
-                ),
+            # Sum existing naka entries for this material in this phase
+            used_stmt = (
+                select(func.coalesce(func.sum(VehicleMaterial.quantity), 0))
+                .select_from(VehicleEntry)
+                .join(VehicleMaterial)
+                .where(
+                    VehicleEntry.application_id == application_id,
+                    VehicleEntry.phase == phase,
+                    VehicleMaterial.material_id == mid,
+                )
             )
+            used_result = await self.session.execute(used_stmt)
+            already_brought: int = used_result.scalar() or 0
 
-        # Create Vehicle Entry
+            if already_brought + qty > phase_mat.quantity:
+                remaining: int = phase_mat.quantity - already_brought
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Quantity exceeds limit. Phase {phase} allows {phase_mat.quantity} "
+                        f"of material {mid}, already brought {already_brought}, "
+                        f"remaining {remaining}. Requested: {qty}."
+                    ),
+                )
+
+        # Create 1 vehicle entry
         vehicle_entry = VehicleEntry(
             application_id=application_id,
             phase=phase,
@@ -825,13 +828,14 @@ class ApplicationDAO(BaseDAO):
         self.session.add(vehicle_entry)
         await self.session.flush()  # Get ID
 
-        # Create Vehicle Material
-        vehicle_material = VehicleMaterial(
-            vehicle_entry_id=vehicle_entry.id,
-            material_id=material_id,
-            quantity=float(quantity_brought),
-        )
-        self.session.add(vehicle_material)
+        # Create N vehicle materials
+        for mat in materials:
+            vm = VehicleMaterial(
+                vehicle_entry_id=vehicle_entry.id,
+                material_id=mat["material_id"],
+                quantity=float(mat["quantity_brought"]),
+            )
+            self.session.add(vm)
 
         await self.session.commit()
         return SuccessResponse(message="Naka entry recorded successfully")

@@ -100,11 +100,19 @@ class InspectionReportCreate(BaseModel):
     )
 
 
-class NakaEntryCreate(BaseModel):
-    """Naka incharge logs materials brought at checkpoint."""
+class NakaMaterialItem(BaseModel):
+    """Single material + quantity in a naka entry."""
 
     material_id: int = Field(..., description="Material ID")
     quantity_brought: int = Field(..., ge=1, description="Quantity brought")
+
+
+class NakaEntryCreate(BaseModel):
+    """Naka incharge logs materials brought at checkpoint."""
+
+    materials: List[NakaMaterialItem] = Field(
+        ..., min_length=1, description="Materials brought"
+    )
     vehicle_number: Optional[str] = Field(None, description="Vehicle number")
     remarks: Optional[str] = Field(None, description="Remarks")
     media_path: Optional[str] = Field(None, description="Photo/media path")
