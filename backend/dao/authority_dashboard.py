@@ -17,6 +17,7 @@ from backend.dbmodels.application import (
     InspectionReport,
     Material,
     VehicleEntry as NakaEntry,
+    VehicleMaterial,
 )
 from backend.dbmodels.complaint import Complaint
 from backend.dbmodels.master import ComplaintCategory, Ward
@@ -497,8 +498,13 @@ class AuthorityDashboardDAO(BaseDAO):
     ) -> list[dict]:
         """Recent vehicle entries by this naka user."""
         stmt = (
-            select(NakaEntry, Material.name.label("material_name"))
-            .join(Material, NakaEntry.material_id == Material.id)
+            select(
+                NakaEntry,
+                Material.name.label("material_name"),
+                VehicleMaterial.quantity.label("quantity_brought"),
+            )
+            .join(VehicleMaterial, VehicleMaterial.vehicle_entry_id == NakaEntry.id)
+            .join(Material, VehicleMaterial.material_id == Material.id)
             .where(NakaEntry.entry_by == user_id)
             .order_by(NakaEntry.entry_at.desc())
             .limit(limit)
@@ -510,7 +516,7 @@ class AuthorityDashboardDAO(BaseDAO):
                 "application_id": r[0].application_id,
                 "vehicle_number": r[0].vehicle_number,
                 "material_name": r[1],
-                "quantity_brought": r[0].quantity_brought,
+                "quantity_brought": r[2],
                 "entry_at": r[0].entry_at.isoformat() if r[0].entry_at else None,
             }
             for r in rows
@@ -655,10 +661,10 @@ class AuthorityDashboardDAO(BaseDAO):
 
         used_sq = (
             select(
-                NakaEntry.material_id,
-                func.coalesce(func.sum(NakaEntry.quantity_brought), 0).label("used"),
+                VehicleMaterial.material_id,
+                func.coalesce(func.sum(VehicleMaterial.quantity), 0).label("used"),
             )
-            .group_by(NakaEntry.material_id)
+            .group_by(VehicleMaterial.material_id)
             .subquery()
         )
 
@@ -714,6 +720,83 @@ class AuthorityDashboardDAO(BaseDAO):
             }
             for r in rows
         ]
+
+    async def nodal_vehicle_entry_list(self, limit: int = 50) -> list[dict]:
+        """All recent vehicle entries across all nakas (for nodal officer)."""
+        # Subquery: total consumed per (application_id, phase, material_id)
+        consumed_sq = (
+            select(
+                NakaEntry.application_id,
+                NakaEntry.phase,
+                VehicleMaterial.material_id,
+                func.coalesce(func.sum(VehicleMaterial.quantity), 0).label("total_used"),
+            )
+            .join(VehicleMaterial, VehicleMaterial.vehicle_entry_id == NakaEntry.id)
+            .group_by(NakaEntry.application_id, NakaEntry.phase, VehicleMaterial.material_id)
+            .subquery()
+        )
+
+        stmt = (
+            select(
+                ApprovedApplicationPhase.id.label("phase_id"),
+                ApprovedApplicationPhase.activated_at,
+                NakaEntry.vehicle_number,
+                User.name.label("naka_incharge"),
+                Material.name.label("material_type"),
+                VehicleMaterial.quantity.label("quantity_entered"),
+                NakaEntry.entry_at,
+                NakaEntry.media_path,
+                func.coalesce(ApplicationPhaseMaterial.quantity, 0).label("approved_qty"),
+                func.coalesce(consumed_sq.c.total_used, 0).label("used_qty"),
+            )
+            .join(VehicleMaterial, VehicleMaterial.vehicle_entry_id == NakaEntry.id)
+            .join(Material, VehicleMaterial.material_id == Material.id)
+            .join(User, NakaEntry.entry_by == User.id)
+            .join(
+                ApprovedApplicationPhase,
+                and_(
+                    ApprovedApplicationPhase.application_id == NakaEntry.application_id,
+                    ApprovedApplicationPhase.phase == NakaEntry.phase,
+                ),
+            )
+            .outerjoin(
+                ApplicationPhaseMaterial,
+                and_(
+                    ApplicationPhaseMaterial.application_id == NakaEntry.application_id,
+                    ApplicationPhaseMaterial.phase == NakaEntry.phase,
+                    ApplicationPhaseMaterial.material_id == VehicleMaterial.material_id,
+                ),
+            )
+            .outerjoin(
+                consumed_sq,
+                and_(
+                    consumed_sq.c.application_id == NakaEntry.application_id,
+                    consumed_sq.c.phase == NakaEntry.phase,
+                    consumed_sq.c.material_id == VehicleMaterial.material_id,
+                ),
+            )
+            .order_by(NakaEntry.entry_at.desc())
+            .limit(limit)
+        )
+        rows = (await self.session.execute(stmt)).all()
+
+        results = []
+        for r in rows:
+            year = r.activated_at.year if r.activated_at else datetime.now().year
+            token_number = f"TKN-{year}-{r.phase_id:03d}"
+            remaining = (r.approved_qty or 0) - (r.used_qty or 0)
+            results.append({
+                "token_number": token_number,
+                "vehicle_number": r.vehicle_number,
+                "naka_incharge": r.naka_incharge,
+                "material_type": r.material_type,
+                "quantity_entered": r.quantity_entered,
+                "entry_at": r.entry_at.isoformat() if r.entry_at else None,
+                "ai_recognition": None,
+                "remaining_quantity": max(remaining, 0),
+                "media_path": r.media_path,
+            })
+        return results
 
 
 # ── Dependency injection ──────────────────────────────────────────────────────

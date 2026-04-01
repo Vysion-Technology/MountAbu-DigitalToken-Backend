@@ -20,6 +20,7 @@ from backend.schemas.response.authority_dashboard import (
     KpiCard,
     MaterialBar,
     NakaEntryRow,
+    NodalVehicleEntryRow,
     StatusCount,
     TokenUtilizationRow,
     WardActivity,
@@ -129,6 +130,7 @@ class AuthorityDashboardService(BaseService):
         tstatus = await self.dao.nodal_token_status()
         mat = await self.dao.nodal_material_approved_vs_used()
         tlist = await self.dao.nodal_token_utilization_list()
+        entries = await self.dao.nodal_vehicle_entry_list()
 
         return AuthorityDashboardResponse(
             role=UserRole.NODAL_OFFICER.value,
@@ -136,6 +138,7 @@ class AuthorityDashboardService(BaseService):
             token_status=[StatusCount(**s) for s in tstatus],
             material_approved_vs_used=[MaterialBar(**m) for m in mat],
             token_utilization_list=[TokenUtilizationRow(**t) for t in tlist],
+            vehicle_entry_list=[NodalVehicleEntryRow(**e) for e in entries],
         )
 
 
