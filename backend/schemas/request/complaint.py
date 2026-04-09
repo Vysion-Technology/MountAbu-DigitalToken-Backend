@@ -44,3 +44,10 @@ class ComplaintMediaAddRequest(BaseModel):
     media_keys: List[str] = Field(
         ..., min_length=1, description="List of media keys to add"
     )
+
+
+class ComplaintResolveRequest(BaseModel):
+    remarks: Optional[str] = Field(None, description="Resolution remarks")
+    media_keys: List[str] = Field(
+        default_factory=list, description="Proof/evidence media keys"
+    )

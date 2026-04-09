@@ -76,6 +76,9 @@ class Application(Base):
         Enum(ApplicationType), index=True, default=ApplicationType.NEW
     )
     num_stages: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, default=datetime.now, nullable=True
+    )
 
     documents: Mapped[list["ApplicationDocument"]] = relationship(
         "ApplicationDocument", back_populates="application"

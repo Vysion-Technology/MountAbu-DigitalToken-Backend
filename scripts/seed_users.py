@@ -102,6 +102,22 @@ def main():
         safe_post(f"Material '{mat_name}'", "/api/master/materials",
                   {"name": mat_name, "unit": mat_unit})
 
+    # 5. Complaint categories
+    print("\n=== Creating Complaint Categories ===")
+    complaint_categories = [
+        ("Street Light Repair", "Complaints related to street light maintenance and repair"),
+        ("Potholes & Road Repair", "Complaints related to potholes and road damage"),
+        ("Garbage Not Picked Up", "Complaints about garbage collection issues"),
+        ("Stray Animal Menace", "Complaints regarding stray animal problems"),
+        ("Illegal Construction", "Complaints about unauthorized construction activities"),
+        ("Encroachment on Public Land", "Complaints about encroachment on public property"),
+        ("Drainage Blockage", "Complaints related to blocked or clogged drainage"),
+        ("Water Supply Issue", "Complaints about water supply disruptions or quality"),
+    ]
+    for cat_name, cat_desc in complaint_categories:
+        safe_post(f"Category '{cat_name}'", "/api/master/complaint-categories",
+                  {"name": cat_name, "description": cat_desc, "status": True})
+
     print("\n=== Seed Complete ===")
     print("Citizen login: mobile=9999999999, OTP=123456")
     print("Authority logins use username/password (see SEED_USERS in this script)")
