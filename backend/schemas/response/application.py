@@ -457,6 +457,7 @@ class ApplicationResponse(BaseModel):
     status: ApplicationStatus
     type: ApplicationType
     num_stages: Optional[int]
+    created_at: Optional[datetime] = None
     documents: List[ApplicationDocumentResponse] = []
     materials: List[ApplicationMaterialResponse] = []
     phase_materials: List[PhaseMaterialResponse] = []

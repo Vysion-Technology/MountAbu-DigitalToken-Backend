@@ -11,6 +11,7 @@ from backend.schemas.request.complaint import (
     ComplaintCreateRequest,
     CommentCreateRequest,
     ComplaintMediaAddRequest,
+    ComplaintResolveRequest,
 )
 from backend.schemas.response.complaint import ComplaintResponse, ComplaintListResponse
 from backend.middlewares.auth import get_current_user, get_current_user_id
@@ -318,4 +319,59 @@ async def withdraw_complaint(
     await db.commit()
     await db.refresh(complaint)
 
+    return await get_complaint_or_404(db, id)
+
+
+@router.post("/complaints/{id}/resolve", response_model=ComplaintResponse)
+async def resolve_complaint(
+    id: int,
+    request: ComplaintResolveRequest,
+    user: UserDetails = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Resolve a complaint. Only JEN role can resolve."""
+    if user.role != UserRole.JEN:
+        raise HTTPException(
+            status_code=403,
+            detail="Only JEN can resolve complaints",
+        )
+
+    complaint = await get_complaint_or_404(db, id)
+
+    if complaint.status not in (ComplaintStatus.PENDING, ComplaintStatus.IN_PROGRESS):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot resolve complaint in '{complaint.status.value}' status. Only PENDING or IN_PROGRESS complaints can be resolved.",
+        )
+
+    complaint.status = ComplaintStatus.RESOLVED
+
+    # Add resolution remarks as a comment
+    if request.remarks:
+        comment = ComplaintComment(
+            complaint_id=id,
+            comment=request.remarks,
+            comment_by=user.user_id,
+        )
+        db.add(comment)
+
+    # Add proof/evidence media
+    for key in request.media_keys:
+        media = ComplaintMedia(
+            complaint_id=id,
+            media_path=key,
+            media_type="unknown",
+            uploaded_by=user.user_id,
+            is_initial=False,
+        )
+        db.add(media)
+
+    await audit_service.log(
+        db,
+        "COMPLAINT",
+        AuditAction.CHANGED,
+        user.user_id,
+        new_state={"status": "RESOLVED", "id": id},
+    )
+    await db.commit()
     return await get_complaint_or_404(db, id)
