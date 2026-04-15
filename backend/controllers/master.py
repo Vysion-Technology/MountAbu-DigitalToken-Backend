@@ -1,5 +1,5 @@
 from backend.schemas.base.auth import UserDetails
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -84,16 +84,46 @@ async def update_ward(
     return updated
 
 
+from backend.dbmodels.user import User
+from backend.meta import UserRole
+
+
 # Departments
+async def _validate_jen_id(session: AsyncSession, jen_id: Optional[int]):
+    """Ensure the user exists and has the JEN role."""
+    if jen_id is None:
+        return
+    stmt = select(User).where(User.id == jen_id)
+    result = await session.execute(stmt)
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=400, detail=f"User with ID {jen_id} not found")
+    if user.role != UserRole.JEN:
+        raise HTTPException(
+            status_code=400,
+            detail=f"User with ID {jen_id} is not a JEN (Role: {user.role})",
+        )
+
+
 @router.post("/departments", response_model=DepartmentResponse)
 async def create_department(
     dept: DepartmentCreate,
     current_user: UserDetails = Depends(get_admin_or_nodal),
     session: AsyncSession = Depends(get_db),
 ):
-    return await dao.create_department(
+    await _validate_jen_id(session, dept.jen_id)
+    response = await dao.create_department(
         session, dept, created_by_id=current_user.user_id
     )
+    await audit_service.log(
+        session,
+        "DEPARTMENT",
+        AuditAction.CREATED,
+        current_user.user_id,
+        new_state=response.model_dump() if hasattr(response, "model_dump") else None,
+    )
+    await session.commit()
+    return response
 
 
 @router.get("/departments", response_model=List[DepartmentResponse])
@@ -108,9 +138,19 @@ async def update_department(
     current_user: UserDetails = Depends(get_admin_or_nodal),
     session: AsyncSession = Depends(get_db),
 ):
+    await _validate_jen_id(session, dept.jen_id)
     updated = await dao.update_department(session, dept_id, dept)
     if not updated:
         raise HTTPException(status_code=404, detail="Department not found")
+
+    await audit_service.log(
+        session,
+        "DEPARTMENT",
+        AuditAction.CHANGED,
+        current_user.user_id,
+        new_state=updated.model_dump() if hasattr(updated, "model_dump") else None,
+    )
+    await session.commit()
     return updated
 
 

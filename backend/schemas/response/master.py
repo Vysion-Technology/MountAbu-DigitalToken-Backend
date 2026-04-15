@@ -30,6 +30,8 @@ class DepartmentResponse(BaseModel):
     code: str
     type: str
     status: bool
+    jen_id: Optional[int] = None
+    jen: Optional[UserSummary] = None
     created_at: Optional[datetime] = None
     created_by: Optional[UserSummary] = None
 

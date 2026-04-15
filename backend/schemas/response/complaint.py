@@ -85,6 +85,9 @@ class CommentResponse(BaseModel):
         return data
 
 
+from backend.schemas.response.master import UserSummary
+
+
 class ComplaintResponse(BaseModel):
     id: int
     user_id: Optional[int]
@@ -103,6 +106,8 @@ class ComplaintResponse(BaseModel):
     latitude: Optional[float]
     longitude: Optional[float]
     location_address: Optional[str]
+    assigned_to_id: Optional[int] = None
+    assigned_to: Optional[UserSummary] = None
 
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

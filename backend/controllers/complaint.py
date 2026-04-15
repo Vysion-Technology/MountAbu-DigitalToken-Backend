@@ -157,6 +157,21 @@ async def create_complaint(
     db: AsyncSession = Depends(get_db),
 ):
     # Create Complaint
+    # 1. Look up the department for this category
+    from backend.dbmodels.master import ComplaintCategory, Department
+
+    stmt = (
+        select(ComplaintCategory)
+        .where(ComplaintCategory.id == request.category_id)
+        .options(selectinload(ComplaintCategory.department))
+    )
+    res = await db.execute(stmt)
+    category_obj = res.scalar_one_or_none()
+
+    assigned_to_id = None
+    if category_obj and category_obj.department:
+        assigned_to_id = category_obj.department.jen_id
+
     new_complaint = Complaint(
         user_id=user_id,
         title=request.title,
@@ -168,6 +183,7 @@ async def create_complaint(
         latitude=request.latitude,
         longitude=request.longitude,
         location_address=request.location_address,
+        assigned_to_id=assigned_to_id,
     )
     db.add(new_complaint)
     await db.flush()  # Generate ID
