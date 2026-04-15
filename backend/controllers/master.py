@@ -3,6 +3,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func as sa_func
 
 from backend.database import get_db
 from backend.dao.master import MasterDataDAO
@@ -31,6 +32,7 @@ from backend.schemas.response.master import (
     RoleResponse,
     ComplaintCategoryResponse,
     MaterialResponse,
+    UserSummary,
 )
 
 router = APIRouter(prefix="/master", tags=["Master Data"])
@@ -229,3 +231,15 @@ async def create_material(
 @router.get("/materials", response_model=List[MaterialResponse])
 async def list_materials(session: AsyncSession = Depends(get_db)):
     return await dao.list_materials(session)
+
+
+# Users / Officials
+@router.get("/jens", response_model=List[UserSummary])
+async def list_jens(
+    current_user: UserDetails = Depends(get_superadmin),
+    session: AsyncSession = Depends(get_db),
+):
+    """List all users with the JEN role. Only accessible by superadmin."""
+    stmt = select(User).where(User.role == UserRole.JEN).order_by(User.name)
+    result = await session.execute(stmt)
+    return result.scalars().all()
