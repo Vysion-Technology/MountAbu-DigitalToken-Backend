@@ -187,20 +187,23 @@ class ApplicationDAO(BaseDAO):
 
         # Validate that all material IDs exist
         if material_requirements:
-            material_ids = [m.material_id for m in material_requirements]
+            material_ids = [
+                m.material_id for m in material_requirements if m.material_id is not None
+            ]
 
-            # Query existing materials
-            stmt = select(Material.id).where(Material.id.in_(material_ids))
-            result = await self.session.execute(stmt)
-            existing_ids = set(result.scalars().all())
+            if material_ids:
+                # Query existing materials
+                stmt = select(Material.id).where(Material.id.in_(material_ids))
+                result = await self.session.execute(stmt)
+                existing_ids = set(result.scalars().all())
 
-            # Check for invalid material IDs
-            invalid_ids = [mid for mid in material_ids if mid not in existing_ids]
-            if invalid_ids:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Invalid material IDs: {invalid_ids}. These materials do not exist.",
-                )
+                # Check for invalid material IDs
+                invalid_ids = [mid for mid in material_ids if mid not in existing_ids]
+                if invalid_ids:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid material IDs: {invalid_ids}. These materials do not exist.",
+                    )
 
         # Create the application
         result = await self.session.execute(
@@ -215,6 +218,8 @@ class ApplicationDAO(BaseDAO):
                     insert(ApplicationMaterial).values(
                         application_id=new_application_id,
                         material_id=material.material_id,
+                        custom_name=material.custom_name,
+                        custom_unit=material.custom_unit,
                         quantity=material.material_qty,
                     )
                 )
@@ -428,20 +433,23 @@ class ApplicationDAO(BaseDAO):
         self, application_id: int, material_requirements: list
     ) -> SuccessResponse:
         """Add materials to an existing application."""
-        material_ids = [m.material_id for m in material_requirements]
+        material_ids = [
+            m.material_id for m in material_requirements if m.material_id is not None
+        ]
 
-        # Query existing materials
-        stmt = select(Material.id).where(Material.id.in_(material_ids))
-        result = await self.session.execute(stmt)
-        existing_ids = set(result.scalars().all())
+        if material_ids:
+            # Query existing materials
+            stmt = select(Material.id).where(Material.id.in_(material_ids))
+            result = await self.session.execute(stmt)
+            existing_ids = set(result.scalars().all())
 
-        # Check for invalid material IDs
-        invalid_ids = [mid for mid in material_ids if mid not in existing_ids]
-        if invalid_ids:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid material IDs: {invalid_ids}. These materials do not exist.",
-            )
+            # Check for invalid material IDs
+            invalid_ids = [mid for mid in material_ids if mid not in existing_ids]
+            if invalid_ids:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid material IDs: {invalid_ids}. These materials do not exist.",
+                )
 
         # Insert material requirements into ApplicationMaterial table
         for material in material_requirements:
@@ -449,11 +457,13 @@ class ApplicationDAO(BaseDAO):
                 insert(ApplicationMaterial).values(
                     application_id=application_id,
                     material_id=material.material_id,
+                    custom_name=material.custom_name,
+                    custom_unit=material.custom_unit,
                     quantity=material.material_qty,
                 )
             )
-
         await self.session.commit()
+
         return SuccessResponse(message=None)
 
     async def submit_application(
@@ -599,12 +609,15 @@ class ApplicationDAO(BaseDAO):
                     ApplicationPhaseMaterial.application_id == application_id,
                 )
                 existing_pm_result = await self.session.execute(existing_pm_stmt)
+                existing_pm_rows = existing_pm_result.scalars().all()
+                
+                # Composite key: (phase, material_id, custom_name)
                 existing_keys = {
-                    (pm.phase, pm.material_id)
-                    for pm in existing_pm_result.scalars().all()
+                    (pm.phase, pm.material_id, pm.custom_name)
+                    for pm in existing_pm_rows
                 }
                 for pm in phase_materials:
-                    key = (pm.phase, pm.material_id)
+                    key = (pm.phase, pm.material_id, pm.custom_name)
                     if key in existing_keys:
                         continue  # already created by JEN inspection
                     self.session.add(
@@ -612,6 +625,8 @@ class ApplicationDAO(BaseDAO):
                             application_id=application_id,
                             phase=pm.phase,
                             material_id=pm.material_id,
+                            custom_name=pm.custom_name,
+                            custom_unit=pm.custom_unit,
                             quantity=pm.quantity,
                         )
                     )
@@ -664,10 +679,13 @@ class ApplicationDAO(BaseDAO):
             ApplicationPhaseMaterial.application_id == application_id
         )
         existing_result = await self.session.execute(existing_stmt)
-        existing_materials = {(pm.phase, pm.material_id): pm for pm in existing_result.scalars().all()}
+        existing_materials = {
+            (pm.phase, pm.material_id, pm.custom_name): pm
+            for pm in existing_result.scalars().all()
+        }
 
         for pm_data in phase_materials:
-            key = (pm_data.phase, pm_data.material_id)
+            key = (pm_data.phase, pm_data.material_id, pm_data.custom_name)
             if key in existing_materials:
                 # Update quantity
                 existing_materials[key].quantity = pm_data.quantity
@@ -678,6 +696,8 @@ class ApplicationDAO(BaseDAO):
                         application_id=application_id,
                         phase=pm_data.phase,
                         material_id=pm_data.material_id,
+                        custom_name=pm_data.custom_name,
+                        custom_unit=pm_data.custom_unit,
                         quantity=pm_data.quantity,
                     )
                 )
@@ -722,15 +742,33 @@ class ApplicationDAO(BaseDAO):
 
         # If JEN also provides phase material recommendations, save them
         if phase_materials:
+            # Upsert logic: check existing materials for this application
+            existing_stmt = select(ApplicationPhaseMaterial).where(
+                ApplicationPhaseMaterial.application_id == application_id
+            )
+            existing_result = await self.session.execute(existing_stmt)
+            existing_materials = {
+                (pm.phase, pm.material_id, pm.custom_name): pm
+                for pm in existing_result.scalars().all()
+            }
+
             for pm in phase_materials:
-                self.session.add(
-                    ApplicationPhaseMaterial(
-                        application_id=application_id,
-                        phase=pm.phase,
-                        material_id=pm.material_id,
-                        quantity=pm.quantity,
+                key = (pm.phase, pm.material_id, pm.custom_name)
+                if key in existing_materials:
+                    # Update quantity
+                    existing_materials[key].quantity = pm.quantity
+                else:
+                    # Insert new
+                    self.session.add(
+                        ApplicationPhaseMaterial(
+                            application_id=application_id,
+                            phase=pm.phase,
+                            material_id=pm.material_id,
+                            custom_name=pm.custom_name,
+                            custom_unit=pm.custom_unit,
+                            quantity=pm.quantity,
+                        )
                     )
-                )
 
         await self.session.commit()
         return SuccessResponse(message="Inspection report created successfully")
@@ -774,20 +812,24 @@ class ApplicationDAO(BaseDAO):
 
         # Validate each material against phase allocation and quantity limits
         for mat in materials:
-            mid = mat["material_id"]
+            mid = mat.get("material_id")
+            cname = mat.get("custom_name")
+            cunit = mat.get("custom_unit")
             qty = mat["quantity_brought"]
 
             pm_stmt = select(ApplicationPhaseMaterial).where(
                 ApplicationPhaseMaterial.application_id == application_id,
                 ApplicationPhaseMaterial.phase == phase,
                 ApplicationPhaseMaterial.material_id == mid,
+                ApplicationPhaseMaterial.custom_name == cname,
             )
             pm_result = await self.session.execute(pm_stmt)
             phase_mat = pm_result.scalar_one_or_none()
             if not phase_mat:
+                label = f"Material {mid}" if mid else f"Custom Material '{cname}'"
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Material {mid} is not allocated for phase {phase}",
+                    detail=f"{label} is not allocated for phase {phase}",
                 )
 
             # Sum existing naka entries for this material in this phase
@@ -799,18 +841,20 @@ class ApplicationDAO(BaseDAO):
                     VehicleEntry.application_id == application_id,
                     VehicleEntry.phase == phase,
                     VehicleMaterial.material_id == mid,
+                    VehicleMaterial.custom_name == cname,
                 )
             )
             used_result = await self.session.execute(used_stmt)
-            already_brought: int = used_result.scalar() or 0
+            already_brought = used_result.scalar() or 0
 
             if already_brought + qty > phase_mat.quantity:
-                remaining: int = phase_mat.quantity - already_brought
+                remaining = phase_mat.quantity - already_brought
+                label = mid if mid else cname
                 raise HTTPException(
                     status_code=400,
                     detail=(
                         f"Quantity exceeds limit. Phase {phase} allows {phase_mat.quantity} "
-                        f"of material {mid}, already brought {already_brought}, "
+                        f"of material {label}, already brought {already_brought}, "
                         f"remaining {remaining}. Requested: {qty}."
                     ),
                 )
@@ -832,7 +876,9 @@ class ApplicationDAO(BaseDAO):
         for mat in materials:
             vm = VehicleMaterial(
                 vehicle_entry_id=vehicle_entry.id,
-                material_id=mat["material_id"],
+                material_id=mat.get("material_id"),
+                custom_name=mat.get("custom_name"),
+                custom_unit=mat.get("custom_unit"),
                 quantity=float(mat["quantity_brought"]),
             )
             self.session.add(vm)
@@ -877,10 +923,10 @@ class ApplicationDAO(BaseDAO):
         if not phase_record:
             raise HTTPException(status_code=404, detail="Phase not found")
 
-        # Get phase materials with material details
+        # Get phase materials with material details (outer join for custom)
         pm_stmt = (
             select(ApplicationPhaseMaterial, Material)
-            .join(Material, ApplicationPhaseMaterial.material_id == Material.id)
+            .outerjoin(Material, ApplicationPhaseMaterial.material_id == Material.id)
             .where(
                 ApplicationPhaseMaterial.application_id == application_id,
                 ApplicationPhaseMaterial.phase == phase,
@@ -893,6 +939,7 @@ class ApplicationDAO(BaseDAO):
         brought_stmt = (
             select(
                 VehicleMaterial.material_id,
+                VehicleMaterial.custom_name,
                 func.coalesce(func.sum(VehicleMaterial.quantity), 0).label(
                     "total_brought"
                 ),
@@ -903,19 +950,30 @@ class ApplicationDAO(BaseDAO):
                 VehicleEntry.application_id == application_id,
                 VehicleEntry.phase == phase,
             )
-            .group_by(VehicleMaterial.material_id)
+            .group_by(VehicleMaterial.material_id, VehicleMaterial.custom_name)
         )
         brought_result = await self.session.execute(brought_stmt)
-        brought_map = {row.material_id: row.total_brought for row in brought_result}
+        # Map using (material_id, custom_name) as key
+        brought_map = {
+            (row.material_id, row.custom_name): row.total_brought
+            for row in brought_result
+        }
 
         materials = []
         for pm, mat in phase_materials:
-            brought = brought_map.get(mat.id, 0)
+            key = (pm.material_id, pm.custom_name)
+            brought = brought_map.get(key, 0)
+            
+            m_id = pm.material_id
+            m_name = mat.name if mat else pm.custom_name
+            m_unit = mat.unit if mat else pm.custom_unit
+            
             materials.append(
                 {
-                    "material_id": mat.id,
-                    "material_name": mat.name,
-                    "unit": mat.unit,
+                    "material_id": m_id,
+                    "custom_name": pm.custom_name,
+                    "material_name": m_name,
+                    "unit": m_unit,
                     "allowed_qty": pm.quantity,
                     "brought_qty": brought,
                     "remaining_qty": pm.quantity - brought,
@@ -1188,7 +1246,7 @@ class ApplicationDAO(BaseDAO):
         # ── Phase materials with consumed quantities ──────────────────
         pm_stmt = (
             select(ApplicationPhaseMaterial, Material)
-            .join(Material, ApplicationPhaseMaterial.material_id == Material.id)
+            .outerjoin(Material, ApplicationPhaseMaterial.material_id == Material.id)
             .where(
                 ApplicationPhaseMaterial.application_id == application_id,
                 ApplicationPhaseMaterial.phase == phase,
@@ -1200,6 +1258,7 @@ class ApplicationDAO(BaseDAO):
         brought_stmt = (
             select(
                 VehicleMaterial.material_id,
+                VehicleMaterial.custom_name,
                 func.coalesce(func.sum(VehicleMaterial.quantity), 0).label(
                     "total_brought"
                 ),
@@ -1210,24 +1269,36 @@ class ApplicationDAO(BaseDAO):
                 VehicleEntry.application_id == application_id,
                 VehicleEntry.phase == phase,
             )
-            .group_by(VehicleMaterial.material_id)
+            .group_by(VehicleMaterial.material_id, VehicleMaterial.custom_name)
         )
         brought_result = await self.session.execute(brought_stmt)
-        brought_map = {row.material_id: row.total_brought for row in brought_result}
+        # Map using (material_id, custom_name) as key
+        brought_map = {
+            (row.material_id, row.custom_name): row.total_brought
+            for row in brought_result
+        }
 
         materials_list = []
         total_approved = 0
         total_remaining = 0
         for pm, mat in phase_materials:
-            brought = brought_map.get(mat.id, 0)
+            key = (pm.material_id, pm.custom_name)
+            brought = brought_map.get(key, 0)
             remaining = pm.quantity - brought
             total_approved += pm.quantity
             total_remaining += remaining
+
+            m_id = pm.material_id
+            m_name = mat.name if mat else pm.custom_name
+            m_unit = mat.unit if mat else pm.custom_unit
+
             materials_list.append(
                 {
-                    "material_id": mat.id,
-                    "material_name": mat.name,
-                    "unit": mat.unit,
+                    "material_id": m_id,
+                    "custom_name": pm.custom_name,
+                    "custom_unit": pm.custom_unit,
+                    "material_name": m_name,
+                    "unit": m_unit,
                     "approved_quantity": pm.quantity,
                     "consumed_quantity": brought,
                     "remaining_quantity": remaining,
@@ -1245,7 +1316,7 @@ class ApplicationDAO(BaseDAO):
             select(VehicleEntry, Material, VehicleMaterial)
             .select_from(VehicleEntry)
             .join(VehicleMaterial)
-            .join(Material, VehicleMaterial.material_id == Material.id)
+            .outerjoin(Material, VehicleMaterial.material_id == Material.id)
             .where(
                 VehicleEntry.application_id == application_id,
                 VehicleEntry.phase == phase,
@@ -1258,12 +1329,18 @@ class ApplicationDAO(BaseDAO):
             access_url = None
             if entry.media_path:
                 access_url = generate_signed_file_url(entry.media_path)
+
+            m_name = mat.name if mat else vmat.custom_name
+            m_unit = mat.unit if mat else vmat.custom_unit
+
             vehicle_entries.append(
                 {
                     "id": entry.id,
                     "vehicle_number": entry.vehicle_number,
-                    "material_name": mat.name,
-                    "material_unit": mat.unit,
+                    "material_id": vmat.material_id,
+                    "custom_name": vmat.custom_name,
+                    "material_name": m_name,
+                    "material_unit": m_unit,
                     "quantity_entered": vmat.quantity,
                     "entry_at": entry.entry_at,
                     "remarks": entry.remarks,

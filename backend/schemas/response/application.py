@@ -57,7 +57,9 @@ class ApplicationMaterialResponse(BaseModel):
     """Response schema for application materials."""
 
     id: int
-    material_id: int
+    material_id: Optional[int] = None
+    custom_name: Optional[str] = None
+    custom_unit: Optional[str] = None
     quantity: int
     material_name: Optional[str] = None
     unit: Optional[str] = None
@@ -68,27 +70,24 @@ class ApplicationMaterialResponse(BaseModel):
     @classmethod
     def extract_material_info(cls, data):
         """Extract material name and unit from the nested material relationship."""
+        # Handle master material
         if hasattr(data, "material") and data.material:
-            if hasattr(data, "__dict__"):
-                return {
-                    "id": getattr(data, "id"),
-                    "material_id": getattr(data, "material_id"),
-                    "quantity": getattr(data, "quantity"),
-                    "material_name": getattr(data.material, "name", None),
-                    "unit": getattr(data.material, "unit", None),
-                }
-            elif isinstance(data, dict):
-                mat = data.get("material") or {}
-                data["material_name"] = (
-                    mat.get("name")
-                    if isinstance(mat, dict)
-                    else getattr(mat, "name", None)
-                )
-                data["unit"] = (
-                    mat.get("unit")
-                    if isinstance(mat, dict)
-                    else getattr(mat, "unit", None)
-                )
+            m_name = getattr(data.material, "name", None)
+            m_unit = getattr(data.material, "unit", None)
+        else:
+            m_name = getattr(data, "custom_name", None)
+            m_unit = getattr(data, "custom_unit", None)
+
+        if hasattr(data, "__dict__"):
+            return {
+                "id": getattr(data, "id"),
+                "material_id": getattr(data, "material_id", None),
+                "custom_name": getattr(data, "custom_name", None),
+                "custom_unit": getattr(data, "custom_unit", None),
+                "quantity": getattr(data, "quantity"),
+                "material_name": m_name,
+                "unit": m_unit,
+            }
         return data
 
 
@@ -130,7 +129,9 @@ class PhaseMaterialResponse(BaseModel):
     id: int
     application_id: int
     phase: int
-    material_id: int
+    material_id: Optional[int] = None
+    custom_name: Optional[str] = None
+    custom_unit: Optional[str] = None
     quantity: int
     material_name: Optional[str] = None
     unit: Optional[str] = None
@@ -142,28 +143,24 @@ class PhaseMaterialResponse(BaseModel):
     def extract_material_info(cls, data):
         """Extract material name and unit from the nested material relationship."""
         if hasattr(data, "material") and data.material:
-            if hasattr(data, "__dict__"):
-                return {
-                    "id": getattr(data, "id"),
-                    "application_id": getattr(data, "application_id"),
-                    "phase": getattr(data, "phase"),
-                    "material_id": getattr(data, "material_id"),
-                    "quantity": getattr(data, "quantity"),
-                    "material_name": getattr(data.material, "name", None),
-                    "unit": getattr(data.material, "unit", None),
-                }
-            elif isinstance(data, dict):
-                mat = data.get("material") or {}
-                data["material_name"] = (
-                    mat.get("name")
-                    if isinstance(mat, dict)
-                    else getattr(mat, "name", None)
-                )
-                data["unit"] = (
-                    mat.get("unit")
-                    if isinstance(mat, dict)
-                    else getattr(mat, "unit", None)
-                )
+            m_name = getattr(data.material, "name", None)
+            m_unit = getattr(data.material, "unit", None)
+        else:
+            m_name = getattr(data, "custom_name", None)
+            m_unit = getattr(data, "custom_unit", None)
+
+        if hasattr(data, "__dict__"):
+            return {
+                "id": getattr(data, "id"),
+                "application_id": getattr(data, "application_id"),
+                "phase": getattr(data, "phase"),
+                "material_id": getattr(data, "material_id", None),
+                "custom_name": getattr(data, "custom_name", None),
+                "custom_unit": getattr(data, "custom_unit", None),
+                "quantity": getattr(data, "quantity"),
+                "material_name": m_name,
+                "unit": m_unit,
+            }
         return data
 
 
@@ -217,12 +214,14 @@ class PhaseResponse(BaseModel):
 class TokenMaterialResponse(BaseModel):
     """Per-material summary within a token (phase)."""
 
-    material_id: int
+    material_id: Optional[int] = None
+    custom_name: Optional[str] = None
+    custom_unit: Optional[str] = None
     material_name: Optional[str] = None
     unit: Optional[str] = None
-    approved_quantity: int
-    consumed_quantity: int
-    remaining_quantity: int
+    approved_quantity: float
+    consumed_quantity: float
+    remaining_quantity: float
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -249,9 +248,12 @@ class VehicleEntryResponse(BaseModel):
 
     id: int
     vehicle_number: Optional[str] = None
+    material_id: Optional[int] = None
+    custom_name: Optional[str] = None
+    custom_unit: Optional[str] = None
     material_name: Optional[str] = None
     material_unit: Optional[str] = None
-    quantity_entered: int
+    quantity_entered: float
     entry_at: datetime
     remarks: Optional[str] = None
     media_path: Optional[str] = None
@@ -314,8 +316,10 @@ class NakaEntryResponse(BaseModel):
     id: int
     application_id: int
     phase: int
-    material_id: int
-    quantity_brought: int
+    material_id: Optional[int] = None
+    custom_name: Optional[str] = None
+    custom_unit: Optional[str] = None
+    quantity_brought: float
     entry_by: int
     entry_at: datetime
     vehicle_number: Optional[str] = None
@@ -345,6 +349,8 @@ class NakaEntryResponse(BaseModel):
                         "application_id",
                         "phase",
                         "material_id",
+                        "custom_name",
+                        "custom_unit",
                         "quantity_brought",
                         "entry_by",
                         "entry_at",

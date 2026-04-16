@@ -10,7 +10,9 @@ class ApplicationMaterialCreate(BaseModel):
 
 
 class ApplicationMaterialRequirements(BaseModel):
-    material_id: int = Field(..., description="Material ID")
+    material_id: Optional[int] = Field(None, description="Material ID")
+    custom_name: Optional[str] = Field(None, description="Custom Material Name")
+    custom_unit: Optional[str] = Field(None, description="Custom Material Unit")
     material_qty: int = Field(..., description="Material Quantity")
 
 
@@ -53,7 +55,9 @@ class CommentRequest(BaseModel):
 
 
 class MaterialRequest(BaseModel):
-    material_id: int = Field(..., description="Material ID")
+    material_id: Optional[int] = Field(None, description="Material ID")
+    custom_name: Optional[str] = Field(None, description="Custom Material Name")
+    custom_unit: Optional[str] = Field(None, description="Custom Material Unit")
     material_qty: int = Field(..., description="Material Quantity")
 
 
@@ -61,7 +65,9 @@ class PhaseMaterialEntry(BaseModel):
     """Material allocation for a specific phase during token generation."""
 
     phase: int = Field(..., ge=1, description="Phase number")
-    material_id: int = Field(..., description="Material ID")
+    material_id: Optional[int] = Field(None, description="Material ID")
+    custom_name: Optional[str] = Field(None, description="Custom Material Name")
+    custom_unit: Optional[str] = Field(None, description="Custom Material Unit")
     quantity: int = Field(..., ge=1, description="Permitted quantity for this phase")
 
 
@@ -103,8 +109,10 @@ class InspectionReportCreate(BaseModel):
 class NakaMaterialItem(BaseModel):
     """Single material + quantity in a naka entry."""
 
-    material_id: int = Field(..., description="Material ID")
-    quantity_brought: int = Field(..., ge=1, description="Quantity brought")
+    material_id: Optional[int] = Field(None, description="Material ID")
+    custom_name: Optional[str] = Field(None, description="Custom Material Name")
+    custom_unit: Optional[str] = Field(None, description="Custom Material Unit")
+    quantity_brought: float = Field(..., ge=0.01, description="Quantity brought")
 
 
 class NakaEntryCreate(BaseModel):

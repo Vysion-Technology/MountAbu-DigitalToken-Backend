@@ -116,16 +116,19 @@ class ApplicationMaterial(Base):
         ForeignKey("applications.id"),
         index=True,
     )
-    material_id: Mapped[int] = mapped_column(
-        ForeignKey("materials.id"),  # Added foreign key constraint
+    material_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("materials.id"),  # Made optional
         index=True,
+        nullable=True,
     )
+    custom_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    custom_unit: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     quantity: Mapped[int] = mapped_column(Integer, index=True)
 
     application: Mapped["Application"] = relationship(
         "Application", back_populates="materials"
     )
-    material: Mapped["Material"] = relationship("Material")
+    material: Mapped[Optional["Material"]] = relationship("Material")
 
 
 class ApplicationComment(Base):
@@ -214,13 +217,17 @@ class ApplicationPhaseMaterial(Base):
         index=True,
     )
     phase: Mapped[int] = mapped_column(Integer, index=True)
-    material_id: Mapped[int] = mapped_column(ForeignKey("materials.id"), index=True)
+    material_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("materials.id"), index=True, nullable=True
+    )
+    custom_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    custom_unit: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     quantity: Mapped[int] = mapped_column(Integer, index=True)
 
     application: Mapped["Application"] = relationship(
         "Application", back_populates="phase_materials"
     )
-    material: Mapped["Material"] = relationship("Material")
+    material: Mapped[Optional["Material"]] = relationship("Material")
     phase_record: Mapped["ApprovedApplicationPhase"] = relationship(
         "ApprovedApplicationPhase",
         back_populates="phase_materials",
@@ -317,13 +324,17 @@ class VehicleMaterial(Base):
     vehicle_entry_id: Mapped[int] = mapped_column(
         ForeignKey("vehicle_entries.id"), index=True
     )
-    material_id: Mapped[int] = mapped_column(ForeignKey("materials.id"), index=True)
+    material_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("materials.id"), index=True, nullable=True
+    )
+    custom_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    custom_unit: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     quantity: Mapped[float] = mapped_column(Float)
 
     vehicle_entry: Mapped["VehicleEntry"] = relationship(
         "VehicleEntry", back_populates="materials"
     )
-    material: Mapped["Material"] = relationship("Material")
+    material: Mapped[Optional["Material"]] = relationship("Material")
 
 
 class InspectionReport(Base):
