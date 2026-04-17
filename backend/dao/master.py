@@ -1,6 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 from typing import List, Optional, Type, TypeVar
 
 from backend.database import Base
@@ -97,22 +97,51 @@ class MasterDataDAO:
         data = dept.model_dump()
         if created_by_id:
             data["created_by_id"] = created_by_id
-        return await self._create(session, Department, data)
+        
+        # Create
+        obj = Department(**data)
+        session.add(obj)
+        await session.flush()
+        
+        # Re-fetch with relationships
+        stmt = (
+            select(Department)
+            .where(Department.id == obj.id)
+            .options(selectinload(Department.jen), selectinload(Department.created_by))
+        )
+        result = await session.execute(stmt)
+        return result.scalar_one()
 
     async def get_department(
         self, session: AsyncSession, dept_id: int
     ) -> Optional[Department]:
-        return await self._get(session, Department, dept_id)
+        stmt = (
+            select(Department)
+            .where(Department.id == dept_id)
+            .options(selectinload(Department.jen), selectinload(Department.created_by))
+        )
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
 
     async def update_department(
         self, session: AsyncSession, dept_id: int, dept: DepartmentUpdate
     ) -> Optional[Department]:
-        return await self._update(
-            session, Department, dept_id, dept.model_dump(exclude_unset=True)
-        )
+        data = dept.model_dump(exclude_unset=True)
+        if data:
+            stmt = update(Department).where(Department.id == dept_id).values(**data)
+            await session.execute(stmt)
+            await session.flush()
+            
+        return await self.get_department(session, dept_id)
 
     async def list_departments(self, session: AsyncSession) -> List[Department]:
-        return await self._list(session, Department)
+        stmt = (
+            select(Department)
+            .options(selectinload(Department.jen), selectinload(Department.created_by))
+            .order_by(Department.id)
+        )
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
 
     # Role Operations
     async def create_role(
