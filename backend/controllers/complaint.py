@@ -27,7 +27,11 @@ async def get_complaint_or_404(db: AsyncSession, complaint_id: int):
     stmt = (
         select(Complaint)
         .where(Complaint.id == complaint_id)
-        .options(selectinload(Complaint.media), selectinload(Complaint.comments))
+        .options(
+            selectinload(Complaint.media),
+            selectinload(Complaint.comments),
+            selectinload(Complaint.assigned_to),
+        )
     )
     result = await db.execute(stmt)
     complaint = result.scalars().first()
@@ -63,7 +67,11 @@ async def get_my_complaints(
     stmt = (
         select(Complaint)
         .where(Complaint.user_id == user_id)
-        .options(selectinload(Complaint.media), selectinload(Complaint.comments))
+        .options(
+            selectinload(Complaint.media),
+            selectinload(Complaint.comments),
+            selectinload(Complaint.assigned_to),
+        )
         .order_by(Complaint.created_at.desc())
         .offset(offset)
         .limit(limit)
@@ -126,7 +134,11 @@ async def get_all_complaints(
     # Fetch items
     stmt = (
         select(Complaint)
-        .options(selectinload(Complaint.media), selectinload(Complaint.comments))
+        .options(
+            selectinload(Complaint.media),
+            selectinload(Complaint.comments),
+            selectinload(Complaint.assigned_to),
+        )
         .order_by(Complaint.created_at.desc())
         .offset(offset)
         .limit(limit)
