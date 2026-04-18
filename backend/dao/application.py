@@ -50,7 +50,7 @@ _APPLICATION_LOAD_OPTIONS = [
     selectinload(Application.phases),
     selectinload(Application.phase_materials).selectinload(ApplicationPhaseMaterial.material),
     selectinload(Application.inspections).selectinload(InspectionReport.inspector),
-    selectinload(Application.vehicle_entries).selectinload(VehicleEntry.materials),
+    selectinload(Application.vehicle_entries).selectinload(VehicleEntry.materials).selectinload(VehicleMaterial.material),
     selectinload(Application.action_logs),
 ]
 
