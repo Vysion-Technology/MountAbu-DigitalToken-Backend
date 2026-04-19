@@ -554,12 +554,32 @@ class ApplicationDAO(BaseDAO):
                 selectinload(Application.materials),
                 selectinload(Application.phases),
                 selectinload(Application.phase_materials),
+                selectinload(Application.comments).selectinload(ApplicationComment.commenter),
             )
         )
         result = await self.session.execute(stmt)
         application = result.scalar_one_or_none()
         if not application:
             raise HTTPException(status_code=404, detail="Application not found")
+
+        # ── RENOVATION flow validation: check department comments ────────────────
+        if (
+            application.type == ApplicationType.RENOVATION
+            and application.status == ApplicationStatus.FORWARDED
+            and action == WorkflowAction.APPROVE
+        ):
+            dept_review_roles = {
+                c.commenter.role
+                for c in application.comments
+                if c.comment_type == CommentType.DEPT_REVIEW
+            }
+            missing_depts = RENOVATION_DEPT_ROLES - dept_review_roles
+            if missing_depts:
+                missing_names = [r.value for r in sorted(list(missing_depts))]
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Cannot approve: missing department reviews from: {', '.join(missing_names)}",
+                )
 
         # Validate via state machine (raises ValueError on failure)
         try:
@@ -578,8 +598,8 @@ class ApplicationDAO(BaseDAO):
                     status_code=400,
                     detail="num_stages is required for GENERATE_TOKENS and must be >= 1",
                 )
-            # Require JEN inspection for NEW flow
-            if application.type == ApplicationType.NEW and not application.inspections:
+            # Require JEN inspection for NEW and RENOVATION flow
+            if application.type in (ApplicationType.NEW, ApplicationType.RENOVATION) and not application.inspections:
                 raise HTTPException(
                     status_code=400,
                     detail="JEN inspection must be completed before generating tokens",
