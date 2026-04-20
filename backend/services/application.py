@@ -218,6 +218,27 @@ class ApplicationService(BaseService):
             media_path=entry.media_path,
         )
 
+    async def upload_dumping_photo(
+        self, application_id: int, entry_id: int, document: UploadFile, user_id: int
+    ) -> DocumentUploadResponse:
+        """Upload and save dumping photo for a vehicle entry."""
+        storage = get_storage_service()
+        if not storage:
+            raise Exception("Storage service unavailable")
+
+        file_path = f"applications/{application_id}/vehicle-entries/{entry_id}/dumping-photos/{document.filename}"
+        path = await storage.upload_file(document, file_path)
+
+        await self.dao.add_dumping_photo(
+            application_id=application_id,
+            entry_id=entry_id,
+            photo_path=path,
+            user_id=user_id,
+        )
+        return DocumentUploadResponse(
+            message="Dumping photo uploaded successfully", path=path
+        )
+
     async def get_naka_entries(self, application_id: int) -> list:
         """Get all naka entries for an application."""
         from backend.schemas.response.application import NakaEntryResponse

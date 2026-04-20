@@ -17,6 +17,7 @@ from backend.dbmodels.application import (
     InspectionReport,
     VehicleEntry,
     VehicleMaterial,
+    VehicleEntryDumpingPhoto,
 )
 from backend.dao.base import BaseDAO
 from backend.meta import ApplicationStatus, CommentType, WorkflowAction
@@ -908,6 +909,75 @@ class ApplicationDAO(BaseDAO):
 
         await self.session.commit()
         return SuccessResponse(message="Naka entry recorded successfully")
+
+    async def add_dumping_photo(
+        self, application_id: int, entry_id: int, photo_path: str, user_id: int
+    ) -> SuccessResponse:
+        """Add a dumping photo to a vehicle entry with a limit of 5 photos."""
+        # 1. Verify application ownership (CITIZEN must own it, or be SUPERADMIN)
+        app_stmt = (
+            select(Application)
+            .where(Application.id == application_id)
+            .options(selectinload(Application.documents))
+        )
+        app_result = await self.session.execute(app_stmt)
+        application = app_result.scalar_one_or_none()
+
+        if not application:
+            raise HTTPException(status_code=404, detail="Application not found")
+
+        # Get user details for role check
+        from backend.dbmodels.user import User
+
+        user_stmt = select(User).where(User.id == user_id)
+        user_res = await self.session.execute(user_stmt)
+        user = user_res.scalar_one_or_none()
+
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        if user.role != UserRole.SUPERADMIN and application.user_id != user_id:
+            raise HTTPException(
+                status_code=403,
+                detail="You can only upload photos for your own applications",
+            )
+
+        # 2. Verify VehicleEntry exists and belongs to this application
+        entry_stmt = select(VehicleEntry).where(
+            VehicleEntry.id == entry_id, VehicleEntry.application_id == application_id
+        )
+        entry_result = await self.session.execute(entry_stmt)
+        entry = entry_result.scalar_one_or_none()
+
+        if not entry:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Vehicle entry {entry_id} not found for application {application_id}",
+            )
+
+        # 3. Check existing photo count (Limit 5)
+        count_stmt = select(func.count(VehicleEntryDumpingPhoto.id)).where(
+            VehicleEntryDumpingPhoto.vehicle_entry_id == entry_id
+        )
+        count_result = await self.session.execute(count_stmt)
+        photo_count = count_result.scalar() or 0
+
+        if photo_count >= 5:
+            raise HTTPException(
+                status_code=400,
+                detail="Maximum of 5 dumping photos allowed per vehicle entry",
+            )
+
+        # 4. Save the record
+        self.session.add(
+            VehicleEntryDumpingPhoto(
+                vehicle_entry_id=entry_id,
+                photo_path=photo_path,
+                uploaded_at=datetime.now(),
+            )
+        )
+        await self.session.commit()
+        return SuccessResponse(message="Dumping photo uploaded successfully")
 
     async def get_naka_entries(self, application_id: int) -> list[VehicleEntry]:
         """Get all naka entries for an application."""

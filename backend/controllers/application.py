@@ -231,6 +231,31 @@ async def upload_document(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post(
+    "/applications/{application_id}/vehicle-entries/{entry_id}/dumping-photo",
+    response_model=DocumentUploadResponse,
+)
+async def upload_dumping_photo(
+    application_id: int,
+    entry_id: int,
+    document: UploadFile,
+    application_service: ApplicationService = Depends(get_application_service),
+    user_id: int = Depends(get_current_user_id),
+) -> DocumentUploadResponse:
+    """Upload a dumping photo for a vehicle entry."""
+    try:
+        return await application_service.upload_dumping_photo(
+            application_id, entry_id, document, user_id
+        )
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        import traceback
+
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/applications/{application_id}/materials", response_model=SuccessResponse)
 async def add_materials(
     application_id: int,

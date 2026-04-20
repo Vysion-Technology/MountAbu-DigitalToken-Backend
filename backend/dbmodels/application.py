@@ -270,6 +270,7 @@ __all__ = [
     "ApplicationPhaseMaterial",
     "VehicleEntry",
     "VehicleMaterial",
+    "VehicleEntryDumpingPhoto",
     "InspectionReport",
     "ApplicationActionLog",
 ]
@@ -315,6 +316,12 @@ class VehicleEntry(Base):
         "VehicleMaterial", back_populates="vehicle_entry", cascade="all, delete-orphan"
     )
 
+    dumping_photos: Mapped[list["VehicleEntryDumpingPhoto"]] = relationship(
+        "VehicleEntryDumpingPhoto",
+        back_populates="vehicle_entry",
+        cascade="all, delete-orphan",
+    )
+
 
 class VehicleMaterial(Base):
     """Materials within a single vehicle entry."""
@@ -335,6 +342,24 @@ class VehicleMaterial(Base):
         "VehicleEntry", back_populates="materials"
     )
     material: Mapped[Optional["Material"]] = relationship("Material")
+
+
+class VehicleEntryDumpingPhoto(Base):
+    """Dumping photos uploaded by citizen for a vehicle entry."""
+
+    __tablename__ = "vehicle_entry_dumping_photos"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    vehicle_entry_id: Mapped[int] = mapped_column(
+        ForeignKey("vehicle_entries.id"), index=True
+    )
+    photo_path: Mapped[str] = mapped_column(String, nullable=False)
+    uploaded_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.now, index=True
+    )
+
+    vehicle_entry: Mapped["VehicleEntry"] = relationship(
+        "VehicleEntry", back_populates="dumping_photos"
+    )
 
 
 class InspectionReport(Base):
