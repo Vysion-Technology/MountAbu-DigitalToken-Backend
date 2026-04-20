@@ -28,6 +28,7 @@ from backend.schemas.response.application import (
     PhaseResponse,
     TokenResponse,
     TokenDetailResponse,
+    AuthorityVehicleEntryResponse,
 )
 from backend.schemas.response.meta import SuccessResponse, DocumentUploadResponse
 from backend.services.application import get_application_service, ApplicationService
@@ -153,6 +154,27 @@ async def create_application(
 
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get(
+    "/authority/vehicle-entries",
+    response_model=List[AuthorityVehicleEntryResponse],
+)
+async def get_all_vehicle_entries(
+    application_service: ApplicationService = Depends(get_application_service),
+    user: UserDetails = Depends(get_current_user),
+) -> List[AuthorityVehicleEntryResponse]:
+    """Get all vehicle entries for authority view."""
+    if user.role not in [
+        UserRole.SUPERADMIN,
+        UserRole.NODAL_OFFICER,
+        UserRole.NAKA_INCHARGE,
+    ]:
+        raise HTTPException(
+            status_code=403,
+            detail="You are not permitted to view the vehicle entries list.",
+        )
+    return await application_service.get_all_vehicle_entries(user.role)
 
 
 @router.get("/applications", response_model=List[ApplicationResponse])

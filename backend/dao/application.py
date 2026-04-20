@@ -990,6 +990,57 @@ class ApplicationDAO(BaseDAO):
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
+    async def get_all_vehicle_entries(self) -> list[dict]:
+        """Get all vehicle entries for authority view, flattened by material."""
+        from backend.dbmodels.user import User
+        from backend.dbmodels.application import Token, Material
+
+        # Query all VehicleMaterial rows with their entry, application, user, and material details
+        # Also check for dumping photos existence
+        stmt = (
+            select(
+                VehicleMaterial,
+                VehicleEntry,
+                Application,
+                User,
+                Material,
+                Token,
+                exists().where(VehicleEntryDumpingPhoto.vehicle_entry_id == VehicleEntry.id).label("has_dumping_photos")
+            )
+            .join(VehicleEntry, VehicleMaterial.vehicle_entry_id == VehicleEntry.id)
+            .join(Application, VehicleEntry.application_id == Application.id)
+            .join(User, VehicleEntry.entry_by == User.id)
+            .outerjoin(Material, VehicleMaterial.material_id == Material.id)
+            .outerjoin(Token, and_(
+                Token.application_id == VehicleEntry.application_id,
+                Token.phase_number == VehicleEntry.phase
+            ))
+            .order_by(VehicleEntry.entry_at.desc())
+        )
+
+        result = await self.session.execute(stmt)
+        rows = result.all()
+
+        flattened = []
+        for vm, ve, app, incharge, m_catalog, token, has_photos in rows:
+            # Use custom name if catalog material is not linked
+            m_name = m_catalog.name if m_catalog else (vm.custom_name or "Unknown")
+            
+            flattened.append({
+                "id": vm.id,
+                "vehicle_entry_id": ve.id,
+                "application_id": ve.application_id,
+                "token_number": token.token_number if token else f"APP-{app.id}-P{ve.phase}",
+                "vehicle_number": ve.vehicle_number,
+                "material_name": m_name,
+                "material_quantity": vm.quantity,
+                "entry_at": ve.entry_at,
+                "naka_incharge_name": incharge.name,
+                "has_dumping_photos": has_photos
+            })
+            
+        return flattened
+
     async def get_phase_material_summary(self, application_id: int, phase: int) -> dict:
         """Get material summary for a phase at the naka checkpoint.
 

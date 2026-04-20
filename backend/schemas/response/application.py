@@ -472,3 +472,20 @@ class ApplicationResponse(BaseModel):
     tokens: List[TokenResponse] = []
 
     model_config = ConfigDict(extra="ignore", from_attributes=True)
+
+
+class AuthorityVehicleEntryResponse(BaseModel):
+    """Flattened response for authority view of vehicle entries."""
+
+    id: int  # VehicleMaterial.id
+    vehicle_entry_id: int
+    application_id: int
+    token_number: Optional[str] = None  # Hidden for NAKA_INCHARGE
+    vehicle_number: str
+    material_name: str
+    material_quantity: float
+    entry_at: datetime
+    naka_incharge_name: str
+    has_dumping_photos: bool
+
+    model_config = ConfigDict(from_attributes=True)
