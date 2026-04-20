@@ -27,6 +27,8 @@ from backend.schemas.response.application import (
     PhaseResponse,
     TokenResponse,
     TokenDetailResponse,
+    AuthorityVehicleEntryResponse,
+    NakaEntryResponse,
 )
 from backend.schemas.response.meta import SuccessResponse, DocumentUploadResponse
 from backend.services.base import BaseService
@@ -241,7 +243,6 @@ class ApplicationService(BaseService):
 
     async def get_naka_entries(self, application_id: int) -> list:
         """Get all naka entries for an application."""
-        from backend.schemas.response.application import NakaEntryResponse
 
         entries = await self.dao.get_naka_entries(application_id)
         return [NakaEntryResponse.model_validate(e) for e in entries]
