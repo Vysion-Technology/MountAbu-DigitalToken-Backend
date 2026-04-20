@@ -5,7 +5,7 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func
 from typing import Optional
-from sqlalchemy import insert, select, update
+from sqlalchemy import insert, select, update, exists, and_
 from sqlalchemy.orm import selectinload
 from datetime import datetime, timedelta
 
