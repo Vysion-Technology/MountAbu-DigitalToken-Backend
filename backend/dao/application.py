@@ -993,7 +993,7 @@ class ApplicationDAO(BaseDAO):
     async def get_all_vehicle_entries(self) -> list[dict]:
         """Get all vehicle entries for authority view, flattened by material."""
         from backend.dbmodels.user import User
-        from backend.dbmodels.application import Token, Material
+        from backend.dbmodels.application import ApprovedApplicationPhase, Material
 
         # Query all VehicleMaterial rows with their entry, application, user, and material details
         # Also check for dumping photos existence
@@ -1004,16 +1004,16 @@ class ApplicationDAO(BaseDAO):
                 Application,
                 User,
                 Material,
-                Token,
+                ApprovedApplicationPhase,
                 exists().where(VehicleEntryDumpingPhoto.vehicle_entry_id == VehicleEntry.id).label("has_dumping_photos")
             )
             .join(VehicleEntry, VehicleMaterial.vehicle_entry_id == VehicleEntry.id)
             .join(Application, VehicleEntry.application_id == Application.id)
             .join(User, VehicleEntry.entry_by == User.id)
             .outerjoin(Material, VehicleMaterial.material_id == Material.id)
-            .outerjoin(Token, and_(
-                Token.application_id == VehicleEntry.application_id,
-                Token.phase_number == VehicleEntry.phase
+            .outerjoin(ApprovedApplicationPhase, and_(
+                ApprovedApplicationPhase.application_id == VehicleEntry.application_id,
+                ApprovedApplicationPhase.phase == VehicleEntry.phase
             ))
             .order_by(VehicleEntry.entry_at.desc())
         )
@@ -1022,15 +1022,26 @@ class ApplicationDAO(BaseDAO):
         rows = result.all()
 
         flattened = []
-        for vm, ve, app, incharge, m_catalog, token, has_photos in rows:
+        for vm, ve, app, incharge, m_catalog, phase_rec, has_photos in rows:
             # Use custom name if catalog material is not linked
             m_name = m_catalog.name if m_catalog else (vm.custom_name or "Unknown")
             
+            # Generate token_number like the system does
+            if phase_rec:
+                year = (
+                    phase_rec.activated_at.year
+                    if phase_rec.activated_at
+                    else datetime.now().year
+                )
+                token_number = f"TKN-{year}-{phase_rec.id:03d}"
+            else:
+                token_number = f"APP-{app.id}-P{ve.phase}"
+
             flattened.append({
                 "id": vm.id,
                 "vehicle_entry_id": ve.id,
                 "application_id": ve.application_id,
-                "token_number": token.token_number if token else f"APP-{app.id}-P{ve.phase}",
+                "token_number": token_number,
                 "vehicle_number": ve.vehicle_number,
                 "material_name": m_name,
                 "material_quantity": vm.quantity,
