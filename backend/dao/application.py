@@ -568,11 +568,14 @@ class ApplicationDAO(BaseDAO):
             and application.status == ApplicationStatus.FORWARDED
             and action == WorkflowAction.APPROVE
         ):
+            # A department review is any comment from a required role, 
+            # ideally of type DEPT_REVIEW but we accept GENERAL too for robustness.
             dept_review_roles = {
                 c.commenter.role
                 for c in application.comments
-                if c.comment_type == CommentType.DEPT_REVIEW
+                if c.commenter.role in RENOVATION_DEPT_ROLES
             }
+            
             missing_depts = RENOVATION_DEPT_ROLES - dept_review_roles
             if missing_depts:
                 missing_names = [r.value for r in sorted(list(missing_depts))]
