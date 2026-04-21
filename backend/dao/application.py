@@ -806,7 +806,7 @@ class ApplicationDAO(BaseDAO):
         materials: list[dict],
         vehicle_number: Optional[str] = None,
         remarks: Optional[str] = None,
-        media_path: Optional[str] = None,
+        media: Optional[dict] = None,
     ) -> SuccessResponse:
         """Log a material checkpoint entry at Naka."""
         # Verify application status
@@ -891,7 +891,7 @@ class ApplicationDAO(BaseDAO):
             entry_at=datetime.now(),
             vehicle_number=vehicle_number or "UNKNOWN",
             remarks=remarks,
-            media_path=media_path,
+            media=media,
         )
         self.session.add(vehicle_entry)
         await self.session.flush()  # Get ID
@@ -1047,7 +1047,8 @@ class ApplicationDAO(BaseDAO):
                 "material_quantity": vm.quantity,
                 "entry_at": ve.entry_at,
                 "naka_incharge_name": incharge.name,
-                "has_dumping_photos": has_photos
+                "has_dumping_photos": has_photos,
+                "media": ve.media
             })
             
         return flattened
@@ -1481,9 +1482,17 @@ class ApplicationDAO(BaseDAO):
         naka_result = await self.session.execute(naka_stmt)
         vehicle_entries = []
         for entry, mat, vmat in naka_result.all():
-            access_url = None
-            if entry.media_path:
-                access_url = generate_signed_file_url(entry.media_path)
+            access_urls = {}
+            if entry.media:
+                plate = entry.media.get("vehicle_plate")
+                if plate:
+                    access_urls["vehicle_plate"] = generate_signed_file_url(plate)
+
+                proofs = entry.media.get("entry_proofs", [])
+                if proofs:
+                    access_urls["entry_proofs"] = [
+                        generate_signed_file_url(p) for p in proofs if p
+                    ]
 
             m_name = mat.name if mat else vmat.custom_name
             m_unit = mat.unit if mat else vmat.custom_unit
@@ -1499,8 +1508,8 @@ class ApplicationDAO(BaseDAO):
                     "quantity_entered": vmat.quantity,
                     "entry_at": entry.entry_at,
                     "remarks": entry.remarks,
-                    "media_path": entry.media_path,
-                    "access_url": access_url,
+                    "media": entry.media,
+                    "access_urls": access_urls,
                 }
             )
 

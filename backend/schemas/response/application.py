@@ -256,8 +256,8 @@ class VehicleEntryResponse(BaseModel):
     quantity_entered: float
     entry_at: datetime
     remarks: Optional[str] = None
-    media_path: Optional[str] = None
-    access_url: Optional[str] = None
+    media: Optional[dict] = None
+    access_urls: Optional[dict] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -324,45 +324,65 @@ class NakaEntryResponse(BaseModel):
     entry_at: datetime
     vehicle_number: Optional[str] = None
     remarks: Optional[str] = None
-    media_path: Optional[str] = None
-    access_url: Optional[str] = None
+    media: Optional[dict] = None
+    access_urls: Optional[dict] = None
 
     model_config = ConfigDict(from_attributes=True)
 
     @model_validator(mode="before")
     @classmethod
-    def compute_access_url(cls, data):
+    def compute_access_urls(cls, data):
         from backend.services.storage import generate_signed_file_url
 
-        path = (
-            getattr(data, "media_path", None)
-            if hasattr(data, "media_path")
-            else (data.get("media_path") if isinstance(data, dict) else None)
+        # Handle both ORM objects and dicts
+        media = (
+            getattr(data, "media", None)
+            if hasattr(data, "media")
+            else (data.get("media") if isinstance(data, dict) else None)
         )
-        if path:
-            url = generate_signed_file_url(path)
-            if hasattr(data, "__dict__") and not isinstance(data, dict):
-                d = {
-                    k: getattr(data, k)
-                    for k in [
-                        "id",
-                        "application_id",
-                        "phase",
-                        "material_id",
-                        "custom_name",
-                        "custom_unit",
-                        "quantity_brought",
-                        "entry_by",
-                        "entry_at",
-                        "vehicle_number",
-                        "remarks",
-                        "media_path",
-                    ]
-                }
-                d["access_url"] = url
-                return d
-            elif isinstance(data, dict):
-                data["access_url"] = url
+
+        if not media or not isinstance(media, dict):
+            return data
+
+        access_urls = {}
+
+        # 1. Vehicle Plate
+        plate_path = media.get("vehicle_plate")
+        if plate_path:
+            access_urls["vehicle_plate"] = generate_signed_file_url(plate_path)
+
+        # 2. Entry Proofs (List)
+        proof_paths = media.get("entry_proofs", [])
+        if proof_paths and isinstance(proof_paths, list):
+            access_urls["entry_proofs"] = [
+                generate_signed_file_url(p) for p in proof_paths if p
+            ]
+
+        # Update data
+        if hasattr(data, "media") and not isinstance(data, dict):
+            # It's an ORM object, return a dict with access_urls
+            d = {
+                k: getattr(data, k)
+                for k in [
+                    "id",
+                    "application_id",
+                    "phase",
+                    "material_id",
+                    "custom_name",
+                    "custom_unit",
+                    "quantity_brought",
+                    "entry_by",
+                    "entry_at",
+                    "vehicle_number",
+                    "remarks",
+                    "media",
+                ]
+            }
+            d["access_urls"] = access_urls
+            return d
+        elif isinstance(data, dict):
+            data["access_urls"] = access_urls
+
         return data
 
 
@@ -487,5 +507,29 @@ class AuthorityVehicleEntryResponse(BaseModel):
     entry_at: datetime
     naka_incharge_name: str
     has_dumping_photos: bool
+    media: Optional[dict] = None
+    access_urls: Optional[dict] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def compute_access_urls(cls, data):
+        from backend.services.storage import generate_signed_file_url
+
+        media = data.get("media") if isinstance(data, dict) else getattr(data, "media", None)
+        if not media or not isinstance(media, dict):
+            return data
+
+        access_urls = {}
+        plate = media.get("vehicle_plate")
+        if plate:
+            access_urls["vehicle_plate"] = generate_signed_file_url(plate)
+
+        proofs = media.get("entry_proofs", [])
+        if proofs and isinstance(proofs, list):
+            access_urls["entry_proofs"] = [generate_signed_file_url(p) for p in proofs if p]
+
+        if isinstance(data, dict):
+            data["access_urls"] = access_urls
+        return data

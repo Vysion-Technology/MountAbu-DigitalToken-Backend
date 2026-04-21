@@ -123,7 +123,8 @@ class NakaEntryCreate(BaseModel):
     )
     vehicle_number: Optional[str] = Field(None, description="Vehicle number")
     remarks: Optional[str] = Field(None, description="Remarks")
-    media_path: Optional[str] = Field(None, description="Photo/media path")
+    vehicle_plate_image: Optional[str] = Field(None, description="Vehicle number plate image path")
+    entry_proof_images: List[str] = Field(default_factory=list, description="Entry proof image paths")
 
 
 # Resolve forward reference

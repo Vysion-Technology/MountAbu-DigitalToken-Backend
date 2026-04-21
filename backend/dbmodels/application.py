@@ -297,7 +297,7 @@ class VehicleEntry(Base):
     )
 
     remarks: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    media_path: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    media: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
     application: Mapped["Application"] = relationship(
         "Application", back_populates="vehicle_entries"

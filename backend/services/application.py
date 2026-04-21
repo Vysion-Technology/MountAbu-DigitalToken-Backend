@@ -210,6 +210,10 @@ class ApplicationService(BaseService):
         user_id: int,
     ) -> SuccessResponse:
         """Log a naka checkpoint entry."""
+        media = {
+            "vehicle_plate": entry.vehicle_plate_image,
+            "entry_proofs": entry.entry_proof_images,
+        }
         return await self.dao.create_naka_entry(
             application_id=application_id,
             phase=phase,
@@ -217,7 +221,7 @@ class ApplicationService(BaseService):
             materials=[m.model_dump() for m in entry.materials],
             vehicle_number=entry.vehicle_number,
             remarks=entry.remarks,
-            media_path=entry.media_path,
+            media=media,
         )
 
     async def upload_dumping_photo(
