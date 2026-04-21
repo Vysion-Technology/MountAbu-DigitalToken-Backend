@@ -1004,8 +1004,8 @@ class ApplicationDAO(BaseDAO):
             Material,
             ApplicationApproval,
             ApplicationPhaseMaterial,
-            TOKEN_VALIDITY_DAYS,
         )
+        from backend.schemas.response.application import TOKEN_VALIDITY_DAYS
         from backend.services.storage import generate_signed_file_url
 
         # 1. Fetch main vehicle entry with its relations
