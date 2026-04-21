@@ -122,6 +122,9 @@ class NakaEntryCreate(BaseModel):
         ..., min_length=1, description="Materials brought"
     )
     vehicle_number: Optional[str] = Field(None, description="Vehicle number")
+    vehicle_type: Optional[str] = Field(None, description="Vehicle type")
+    latitude: Optional[float] = Field(None, description="GPS Latitude")
+    longitude: Optional[float] = Field(None, description="GPS Longitude")
     remarks: Optional[str] = Field(None, description="Remarks")
     vehicle_plate_image: Optional[str] = Field(None, description="Vehicle number plate image path")
     entry_proof_images: List[str] = Field(default_factory=list, description="Entry proof image paths")

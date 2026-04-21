@@ -288,6 +288,9 @@ class VehicleEntry(Base):
 
     # Vehicle Details
     vehicle_number: Mapped[str] = mapped_column(String, index=True)
+    vehicle_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     driver_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     driver_mobile: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 

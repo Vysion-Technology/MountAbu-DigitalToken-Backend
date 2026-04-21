@@ -29,6 +29,7 @@ from backend.schemas.response.application import (
     TokenDetailResponse,
     AuthorityVehicleEntryResponse,
     NakaEntryResponse,
+    VehicleEntryDetailResponse,
 )
 from backend.schemas.response.meta import SuccessResponse, DocumentUploadResponse
 from backend.services.base import BaseService
@@ -220,6 +221,9 @@ class ApplicationService(BaseService):
             user_id=user_id,
             materials=[m.model_dump() for m in entry.materials],
             vehicle_number=entry.vehicle_number,
+            vehicle_type=entry.vehicle_type,
+            latitude=entry.latitude,
+            longitude=entry.longitude,
             remarks=entry.remarks,
             media=media,
         )
@@ -250,6 +254,32 @@ class ApplicationService(BaseService):
 
         entries = await self.dao.get_naka_entries(application_id)
         return [NakaEntryResponse.model_validate(e) for e in entries]
+
+    async def get_vehicle_entry_detail(
+        self, entry_id: int, user: UserDetails
+    ) -> VehicleEntryDetailResponse:
+        """Get full details for a single vehicle entry with auth check."""
+        entry_data = await self.dao.get_vehicle_entry_detail(entry_id)
+
+        # Authorization Check
+        allowed_authority_roles = [
+            UserRole.SUPERADMIN,
+            UserRole.NODAL_OFFICER,
+            UserRole.NAKA_INCHARGE,
+        ]
+
+        if user.role not in allowed_authority_roles:
+            # Must be CITIZEN and own the application
+            if (
+                user.role != UserRole.CITIZEN
+                or entry_data["application_user_id"] != user.user_id
+            ):
+                raise HTTPException(
+                    status_code=403,
+                    detail="You are not permitted to view this vehicle entry.",
+                )
+
+        return VehicleEntryDetailResponse.model_validate(entry_data)
 
     async def get_all_vehicle_entries(self, user_role: UserRole) -> list[AuthorityVehicleEntryResponse]:
         """Get all vehicle entries for authority view, with role-based token_number hiding."""

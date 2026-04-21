@@ -533,3 +533,56 @@ class AuthorityVehicleEntryResponse(BaseModel):
         if isinstance(data, dict):
             data["access_urls"] = access_urls
         return data
+
+
+class DumpingPhotoResponse(BaseModel):
+    """Response for a dumping photo."""
+
+    id: int
+    photo_path: str
+    uploaded_at: datetime
+    access_url: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def compute_access_url(cls, data):
+        from backend.services.storage import generate_signed_file_url
+
+        path = getattr(data, "photo_path", None) or data.get("photo_path")
+        if path:
+            if isinstance(data, dict):
+                data["access_url"] = generate_signed_file_url(path)
+            else:
+                # Return a dict for Pydantic to validate
+                return {
+                    "id": data.id,
+                    "photo_path": data.photo_path,
+                    "uploaded_at": data.uploaded_at,
+                    "access_url": generate_signed_file_url(path),
+                }
+        return data
+
+
+class VehicleEntryDetailResponse(BaseModel):
+    """Detailed response for a single vehicle entry."""
+
+    id: int
+    token_number: str
+    issued_by: Optional[str] = None
+    application_number: str
+    token_validity: Optional[datetime] = None
+    vehicle_number: str
+    vehicle_type: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    entry_at: datetime
+    naka_incharge_name: str
+
+    material_entry_details: List[TokenMaterialResponse] = []
+    vehicle_image: Optional[str] = None  # Signed URL
+    entry_proof: List[str] = []  # List of signed URLs
+    dumping_photos: List[DumpingPhotoResponse] = []
+
+    model_config = ConfigDict(from_attributes=True)

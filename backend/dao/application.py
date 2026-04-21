@@ -805,6 +805,9 @@ class ApplicationDAO(BaseDAO):
         user_id: int,
         materials: list[dict],
         vehicle_number: Optional[str] = None,
+        vehicle_type: Optional[str] = None,
+        latitude: Optional[float] = None,
+        longitude: Optional[float] = None,
         remarks: Optional[str] = None,
         media: Optional[dict] = None,
     ) -> SuccessResponse:
@@ -890,6 +893,9 @@ class ApplicationDAO(BaseDAO):
             entry_by=user_id,
             entry_at=datetime.now(),
             vehicle_number=vehicle_number or "UNKNOWN",
+            vehicle_type=vehicle_type,
+            latitude=latitude,
+            longitude=longitude,
             remarks=remarks,
             media=media,
         )
@@ -989,6 +995,131 @@ class ApplicationDAO(BaseDAO):
         )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
+
+    async def get_vehicle_entry_detail(self, entry_id: int) -> dict:
+        """Get full details for a single vehicle entry."""
+        from backend.dbmodels.user import User
+        from backend.dbmodels.application import (
+            ApprovedApplicationPhase,
+            Material,
+            ApplicationApproval,
+            ApplicationPhaseMaterial,
+            TOKEN_VALIDITY_DAYS,
+        )
+        from backend.services.storage import generate_signed_file_url
+
+        # 1. Fetch main vehicle entry with its relations
+        stmt = (
+            select(VehicleEntry, Application, User, ApprovedApplicationPhase)
+            .join(Application, VehicleEntry.application_id == Application.id)
+            .join(User, VehicleEntry.entry_by == User.id)
+            .outerjoin(
+                ApprovedApplicationPhase,
+                and_(
+                    ApprovedApplicationPhase.application_id == VehicleEntry.application_id,
+                    ApprovedApplicationPhase.phase == VehicleEntry.phase,
+                ),
+            )
+            .where(VehicleEntry.id == entry_id)
+            .options(
+                selectinload(VehicleEntry.materials).selectinload(
+                    VehicleMaterial.material
+                ),
+                selectinload(VehicleEntry.dumping_photos),
+            )
+        )
+        result = await self.session.execute(stmt)
+        row = result.first()
+        if not row:
+            raise HTTPException(status_code=404, detail="Vehicle entry not found")
+
+        ve, app, incharge, phase_rec = row
+
+        # 2. Get "issued_by" (The Nodal officer who approved the most recent GENERATE_TOKENS action)
+        issued_by = "Authority"
+        issued_stmt = (
+            select(User.name)
+            .join(ApplicationApproval, User.id == ApplicationApproval.approved_by)
+            .where(
+                ApplicationApproval.application_id == ve.application_id,
+                ApplicationApproval.action == WorkflowAction.GENERATE_TOKENS,
+            )
+            .order_by(ApplicationApproval.approved_at.desc())
+            .limit(1)
+        )
+        issued_result = await self.session.execute(issued_stmt)
+        issued_name = issued_result.scalar()
+        if issued_name:
+            issued_by = issued_name
+
+        # 3. Compute derived fields
+        year = (
+            phase_rec.activated_at.year
+            if (phase_rec and phase_rec.activated_at)
+            else datetime.now().year
+        )
+        token_number = (
+            f"TKN-{year}-{phase_rec.id:03d}" if phase_rec else f"APP-{app.id}-P{ve.phase}"
+        )
+        app_number = f"APP-{year}-{app.id:05d}"
+        valid_till = None
+        if phase_rec and phase_rec.activated_at:
+            valid_till = phase_rec.activated_at + timedelta(days=TOKEN_VALIDITY_DAYS)
+
+        # 4. Material entry details (flattened list for schema)
+        material_details = []
+        for vm in ve.materials:
+            m_name = vm.material.name if vm.material else (vm.custom_name or "Unknown")
+            material_details.append(
+                {
+                    "material_name": m_name,
+                    "approved_quantity": 0,  # Not strictly requested to be precise here
+                    "consumed_quantity": vm.quantity,
+                    "remaining_quantity": 0,
+                }
+            )
+
+        # 5. Media signed URLs
+        vehicle_image = None
+        entry_proof = []
+        if ve.media:
+            plate = ve.media.get("vehicle_plate")
+            if plate:
+                vehicle_image = generate_signed_file_url(plate)
+            proofs = ve.media.get("entry_proofs", [])
+            if proofs and isinstance(proofs, list):
+                entry_proof = [generate_signed_file_url(p) for p in proofs if p]
+
+        # 6. Dumping photos
+        dumping_photos = []
+        for dp in ve.dumping_photos:
+            dumping_photos.append(
+                {
+                    "id": dp.id,
+                    "photo_path": dp.photo_path,
+                    "uploaded_at": dp.uploaded_at,
+                    "access_url": generate_signed_file_url(dp.photo_path),
+                }
+            )
+
+        return {
+            "id": ve.id,
+            "token_number": token_number,
+            "issued_by": issued_by,
+            "application_number": app_number,
+            "token_validity": valid_till,
+            "vehicle_number": ve.vehicle_number,
+            "vehicle_type": ve.vehicle_type,
+            "latitude": ve.latitude,
+            "longitude": ve.longitude,
+            "entry_at": ve.entry_at,
+            "naka_incharge_name": incharge.name,
+            "material_entry_details": material_details,
+            "vehicle_image": vehicle_image,
+            "entry_proof": entry_proof,
+            "dumping_photos": dumping_photos,
+            "application_user_id": app.user_id,  # For authorization check
+        }
 
     async def get_all_vehicle_entries(self) -> list[dict]:
         """Get all vehicle entries for authority view, flattened by material."""

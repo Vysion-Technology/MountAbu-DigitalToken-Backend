@@ -29,6 +29,7 @@ from backend.schemas.response.application import (
     TokenResponse,
     TokenDetailResponse,
     AuthorityVehicleEntryResponse,
+    VehicleEntryDetailResponse,
 )
 from backend.schemas.response.meta import SuccessResponse, DocumentUploadResponse
 from backend.services.application import get_application_service, ApplicationService
@@ -154,6 +155,18 @@ async def create_application(
 
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get(
+    "/vehicle-entries/{entry_id}", response_model=VehicleEntryDetailResponse
+)
+async def get_vehicle_entry_detail(
+    entry_id: int,
+    application_service: ApplicationService = Depends(get_application_service),
+    user: UserDetails = Depends(get_current_user),
+) -> VehicleEntryDetailResponse:
+    """Get full details of a specific vehicle entry."""
+    return await application_service.get_vehicle_entry_detail(entry_id, user)
 
 
 @router.get(
