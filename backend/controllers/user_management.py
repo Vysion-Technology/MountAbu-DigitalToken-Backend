@@ -30,7 +30,7 @@ class UserResponse(BaseModel):
     mobile: str
     role: UserRole
     username: Optional[str] = None
-    created_at: Optional[str] = None  # Add if available in model, otherwise ignore
+    is_active: bool
 
     class Config:
         from_attributes = True

@@ -77,6 +77,7 @@ class MeResponse(BaseModel):
     mobile: str
     role: str
     username: Optional[str] = None
+    is_active: bool
 
 
 # --- Routes ---
@@ -243,6 +244,7 @@ async def get_me(
         "mobile": user.mobile,
         "role": user.role.value,
         "username": user.username,
+        "is_active": user.is_active,
     }
 
 
