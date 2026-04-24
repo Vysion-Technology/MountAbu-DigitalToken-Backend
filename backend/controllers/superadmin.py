@@ -25,6 +25,16 @@ class CreateUserRequest(BaseModel):
     username: Optional[str] = Field(None, description="Optional username for the user")
 
 
+class UpdateUserRequest(BaseModel):
+    """Request schema for updating user details."""
+
+    user_id: int = Field(..., description="ID of the user to update")
+    name: Optional[str] = Field(None, description="Updated full name")
+    mobile: Optional[str] = Field(None, description="Updated mobile number")
+    username: Optional[str] = Field(None, description="Updated username")
+    is_active: Optional[bool] = Field(None, description="Status of the user (active or not)")
+
+
 class ChangePasswordRequest(BaseModel):
     """Request schema for changing a user's password."""
 
@@ -110,3 +120,49 @@ async def change_password(
         raise HTTPException(status_code=404, detail="User not found")
 
     return MessageResponse(message="Password updated successfully")
+
+
+@router.post("/update-user", response_model=MessageResponse)
+async def update_user(
+    request: UpdateUserRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: UserDetails = Depends(get_superadmin),
+) -> MessageResponse:
+    """
+    Superadmin can update user details like name, mobile, username, or status.
+    """
+    # 1. Check if user exists
+    user = await user_service.get_user_by_id(db, request.user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # 2. If mobile is being updated, check for uniqueness
+    if request.mobile and request.mobile != user.mobile:
+        existing = await user_service.get_user_by_mobile(db, request.mobile)
+        if existing:
+            raise HTTPException(
+                status_code=400, detail="User with this mobile already exists"
+            )
+
+    # 3. If username is being updated, check for uniqueness
+    if request.username and request.username != user.username:
+        existing_username = await user_service.get_user_by_username(
+            db, request.username
+        )
+        if existing_username:
+            raise HTTPException(
+                status_code=400, detail="User with this username already exists"
+            )
+
+    # 4. Perform update
+    await user_service.update_user(
+        db,
+        user_id=request.user_id,
+        name=request.name,
+        mobile=request.mobile,
+        username=request.username,
+        is_active=request.is_active,
+    )
+    await db.commit()
+
+    return MessageResponse(message="User details updated successfully")

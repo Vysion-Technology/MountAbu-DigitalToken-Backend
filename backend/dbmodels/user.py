@@ -29,3 +29,4 @@ class User(Base):
     mobile: Mapped[str] = mapped_column(String(10), index=True)
     username: Mapped[Optional[str]] = mapped_column(String, index=True)
     password: Mapped[Optional[str]] = mapped_column(String, index=True)
+    is_active: Mapped[bool] = mapped_column(default=True)

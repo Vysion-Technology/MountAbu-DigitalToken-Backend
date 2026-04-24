@@ -130,6 +130,8 @@ async def login_with_otp(request: LoginRequest, db: AsyncSession = Depends(get_d
         await db.commit()
         await db.refresh(user)
         is_new_user = True
+    elif not user.is_active:
+        raise HTTPException(status_code=403, detail="User account is inactive")
 
     # 3. Generate Tokens (access + refresh)
     access_token, refresh_token = create_tokens(user.id, user.role.value)
@@ -152,6 +154,9 @@ async def login_with_password(
     user = await user_service.get_user_by_username(db, request.username)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="User account is inactive")
 
     if not user.password:
         raise HTTPException(

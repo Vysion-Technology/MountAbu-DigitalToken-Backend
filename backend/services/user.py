@@ -35,6 +35,31 @@ class UserService:
         # Let's simple return user.
         return user
 
+    async def update_user(
+        self,
+        session: AsyncSession,
+        user_id: int,
+        name: Optional[str] = None,
+        mobile: Optional[str] = None,
+        username: Optional[str] = None,
+        is_active: Optional[bool] = None,
+    ) -> Optional[User]:
+        user = await self.user_dao.get_by_id(session, user_id)
+        if not user:
+            return None
+
+        if name is not None:
+            user.name = name
+        if mobile is not None:
+            user.mobile = mobile
+        if username is not None:
+            user.username = username
+        if is_active is not None:
+            user.is_active = is_active
+
+        session.add(user)
+        return user
+
     async def get_user_by_mobile(
         self, session: AsyncSession, mobile: str
     ) -> Optional[User]:
