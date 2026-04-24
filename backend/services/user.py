@@ -60,6 +60,23 @@ class UserService:
         session.add(user)
         return user
 
+    async def delete_user(self, session: AsyncSession, user_id: int) -> bool:
+        """Soft delete a user by setting is_active to False."""
+        user = await self.user_dao.get_by_id(session, user_id)
+        if user:
+            user.is_active = False
+            session.add(user)
+            return True
+        return False
+
+    async def hard_delete_user(self, session: AsyncSession, user_id: int) -> bool:
+        """Hard delete a user from the database."""
+        user = await self.user_dao.get_by_id(session, user_id)
+        if user:
+            await session.delete(user)
+            return True
+        return False
+
     async def get_user_by_mobile(
         self, session: AsyncSession, mobile: str
     ) -> Optional[User]:

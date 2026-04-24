@@ -166,3 +166,34 @@ async def update_user(
     await db.commit()
 
     return MessageResponse(message="User details updated successfully")
+
+
+@router.delete("/users/{user_id}", response_model=MessageResponse)
+async def delete_user(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: UserDetails = Depends(get_superadmin),
+) -> MessageResponse:
+    """
+    Superadmin can hard-delete a user.
+    Note: This will fail if the user has associated records (applications, etc.)
+    due to foreign key constraints.
+    """
+    try:
+        success = await user_service.hard_delete_user(db, user_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        await db.commit()
+    except Exception as e:
+        await db.rollback()
+        # Check if it's a foreign key constraint error (simplified check)
+        error_msg = str(e)
+        if "foreign key" in error_msg.lower() or "violates" in error_msg.lower():
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot delete user: Associated records exist (applications, complaints, etc.). Deactivate the user instead.",
+            )
+        raise HTTPException(status_code=500, detail=f"Database error: {error_msg}")
+
+    return MessageResponse(message="User deleted successfully")
