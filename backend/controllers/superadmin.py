@@ -28,7 +28,6 @@ class CreateUserRequest(BaseModel):
 class UpdateUserRequest(BaseModel):
     """Request schema for updating user details."""
 
-    user_id: int = Field(..., description="ID of the user to update")
     name: Optional[str] = Field(None, description="Updated full name")
     mobile: Optional[str] = Field(None, description="Updated mobile number")
     username: Optional[str] = Field(None, description="Updated username")
@@ -122,8 +121,9 @@ async def change_password(
     return MessageResponse(message="Password updated successfully")
 
 
-@router.post("/update-user", response_model=MessageResponse)
+@router.put("/users/{user_id}", response_model=MessageResponse)
 async def update_user(
+    user_id: int,
     request: UpdateUserRequest,
     db: AsyncSession = Depends(get_db),
     current_user: UserDetails = Depends(get_superadmin),
@@ -132,7 +132,7 @@ async def update_user(
     Superadmin can update user details like name, mobile, username, or status.
     """
     # 1. Check if user exists
-    user = await user_service.get_user_by_id(db, request.user_id)
+    user = await user_service.get_user_by_id(db, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
@@ -157,7 +157,7 @@ async def update_user(
     # 4. Perform update
     await user_service.update_user(
         db,
-        user_id=request.user_id,
+        user_id=user_id,
         name=request.name,
         mobile=request.mobile,
         username=request.username,
