@@ -694,29 +694,77 @@ class AuthorityDashboardDAO(BaseDAO):
         ]
 
     async def nodal_token_utilization_list(self, limit: int = 20) -> list[dict]:
-        """Token utilization table rows."""
+        """Token utilization table rows with material summary."""
+        # Subquery for consumed quantity per application and phase
+        consumed_sq = (
+            select(
+                NakaEntry.application_id,
+                NakaEntry.phase,
+                func.sum(VehicleMaterial.quantity).label("total_used"),
+            )
+            .join(VehicleMaterial, VehicleMaterial.vehicle_entry_id == NakaEntry.id)
+            .group_by(NakaEntry.application_id, NakaEntry.phase)
+            .subquery()
+        )
+
+        # Subquery for approved materials summary per application and phase
+        material_summary_sq = (
+            select(
+                ApplicationPhaseMaterial.application_id,
+                ApplicationPhaseMaterial.phase,
+                func.string_agg(Material.name, ", ").label("materials"),
+                func.sum(ApplicationPhaseMaterial.quantity).label("total_approved"),
+            )
+            .join(Material, ApplicationPhaseMaterial.material_id == Material.id)
+            .group_by(
+                ApplicationPhaseMaterial.application_id, ApplicationPhaseMaterial.phase
+            )
+            .subquery()
+        )
+
         stmt = (
             select(
                 Application.id.label("application_id"),
                 Application.applicant_name,
                 ApprovedApplicationPhase.phase,
                 ApprovedApplicationPhase.status.label("phase_status"),
+                material_summary_sq.c.materials,
+                material_summary_sq.c.total_approved,
+                func.coalesce(consumed_sq.c.total_used, 0).label("total_used"),
             )
             .join(
                 ApprovedApplicationPhase,
                 ApprovedApplicationPhase.application_id == Application.id,
             )
+            .outerjoin(
+                material_summary_sq,
+                and_(
+                    material_summary_sq.c.application_id == Application.id,
+                    material_summary_sq.c.phase == ApprovedApplicationPhase.phase,
+                ),
+            )
+            .outerjoin(
+                consumed_sq,
+                and_(
+                    consumed_sq.c.application_id == Application.id,
+                    consumed_sq.c.phase == ApprovedApplicationPhase.phase,
+                ),
+            )
             .where(Application.status == ApplicationStatus.TOKEN_GENERATED)
             .order_by(Application.id.desc(), ApprovedApplicationPhase.phase)
             .limit(limit)
         )
+
         rows = (await self.session.execute(stmt)).all()
         return [
             {
                 "application_id": r[0],
                 "applicant_name": r[1],
                 "phase": r[2],
-                "phase_status": r[3].value,
+                "phase_status": r[3].value if hasattr(r[3], "value") else r[3],
+                "material_name": r[4] or "N/A",
+                "permitted_quantity": r[5] or 0,
+                "used_quantity": r[6] or 0,
             }
             for r in rows
         ]
@@ -732,7 +780,9 @@ class AuthorityDashboardDAO(BaseDAO):
                 func.coalesce(func.sum(VehicleMaterial.quantity), 0).label("total_used"),
             )
             .join(VehicleMaterial, VehicleMaterial.vehicle_entry_id == NakaEntry.id)
-            .group_by(NakaEntry.application_id, NakaEntry.phase, VehicleMaterial.material_id)
+            .group_by(
+                NakaEntry.application_id, NakaEntry.phase, VehicleMaterial.material_id
+            )
             .subquery()
         )
 
@@ -745,8 +795,10 @@ class AuthorityDashboardDAO(BaseDAO):
                 Material.name.label("material_type"),
                 VehicleMaterial.quantity.label("quantity_entered"),
                 NakaEntry.entry_at,
-                NakaEntry.media_path,
-                func.coalesce(ApplicationPhaseMaterial.quantity, 0).label("approved_qty"),
+                NakaEntry.media,
+                func.coalesce(ApplicationPhaseMaterial.quantity, 0).label(
+                    "approved_qty"
+                ),
                 func.coalesce(consumed_sq.c.total_used, 0).label("used_qty"),
             )
             .join(VehicleMaterial, VehicleMaterial.vehicle_entry_id == NakaEntry.id)
@@ -785,17 +837,28 @@ class AuthorityDashboardDAO(BaseDAO):
             year = r.activated_at.year if r.activated_at else datetime.now().year
             token_number = f"TKN-{year}-{r.phase_id:03d}"
             remaining = (r.approved_qty or 0) - (r.used_qty or 0)
-            results.append({
-                "token_number": token_number,
-                "vehicle_number": r.vehicle_number,
-                "naka_incharge": r.naka_incharge,
-                "material_type": r.material_type,
-                "quantity_entered": r.quantity_entered,
-                "entry_at": r.entry_at.isoformat() if r.entry_at else None,
-                "ai_recognition": None,
-                "remaining_quantity": max(remaining, 0),
-                "media_path": r.media_path,
-            })
+
+            # Handle media which is JSON/dict in model but media_path (str) in schema
+            media_path = None
+            if r.media and isinstance(r.media, dict):
+                # Assuming 'path' or similar key in media JSON
+                media_path = r.media.get("path") or r.media.get("url") or str(r.media)
+            elif isinstance(r.media, str):
+                media_path = r.media
+
+            results.append(
+                {
+                    "token_number": token_number,
+                    "vehicle_number": r.vehicle_number,
+                    "naka_incharge": r.naka_incharge,
+                    "material_type": r.material_type,
+                    "quantity_entered": r.quantity_entered,
+                    "entry_at": r.entry_at.isoformat() if r.entry_at else None,
+                    "ai_recognition": None,
+                    "remaining_quantity": max(remaining, 0),
+                    "media_path": media_path,
+                }
+            )
         return results
 
 
