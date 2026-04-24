@@ -98,9 +98,10 @@ async def get_audit_viewer(
         UserRole.ADMIN,
         UserRole.SUPERADMIN,
         UserRole.NODAL_OFFICER,
+        UserRole.COMMISSIONER,
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only Admin, Superadmin, or Nodal Officers can view audit logs",
+            detail="Only Admin, Superadmin, Nodal Officers, or Commissioner can view audit logs",
         )
     return current_user
