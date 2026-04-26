@@ -1,7 +1,19 @@
 from typing import Optional, List
 
-from backend.meta import ApplicationType, CommentType, PropertyUsageType, WorkflowAction
+from backend.meta import (
+    ApplicationType,
+    CommentType,
+    PropertyUsageType,
+    WorkflowAction,
+    ApplicationPhaseStatus,
+)
 from pydantic import BaseModel, Field
+
+
+class PhaseStatusUpdateRequest(BaseModel):
+    """Request schema for updating a phase's status (Hold/Terminate/Activate)."""
+
+    status: ApplicationPhaseStatus = Field(..., description="Target status for the phase")
 
 
 class ApplicationMaterialCreate(BaseModel):

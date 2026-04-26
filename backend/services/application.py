@@ -12,6 +12,7 @@ from backend.meta import (
     ApplicationFlags,
     CommentType,
     UserRole,
+    ApplicationPhaseStatus,
 )
 from backend.schemas.base.auth import UserDetails
 from backend.schemas.request.application import (
@@ -21,6 +22,7 @@ from backend.schemas.request.application import (
     InspectionReportCreate,
     NakaEntryCreate,
     WorkflowActionRequest,
+    PhaseStatusUpdateRequest,
 )
 from backend.schemas.response.application import (
     ApplicationResponse,
@@ -309,6 +311,18 @@ class ApplicationService(BaseService):
     ) -> SuccessResponse:
         """Mark a phase as completed."""
         return await self.dao.complete_phase(application_id, phase, user_id)
+
+    async def update_phase_status(
+        self,
+        application_id: int,
+        phase: int,
+        request: PhaseStatusUpdateRequest,
+        user_id: int,
+    ) -> SuccessResponse:
+        """Manually update a phase's status."""
+        return await self.dao.update_phase_status(
+            application_id, phase, request.status, user_id
+        )
 
     # ── Token queries ─────────────────────────────────────────────────────
     async def get_tokens(

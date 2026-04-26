@@ -1333,6 +1333,51 @@ class ApplicationDAO(BaseDAO):
         await self.session.commit()
         return SuccessResponse(message=f"Phase {phase_num} completed successfully")
 
+    async def update_phase_status(
+        self,
+        application_id: int,
+        phase_num: int,
+        status: ApplicationPhaseStatus,
+        user_id: int,
+    ) -> SuccessResponse:
+        """Manually update a phase's status (HOLD/TERMINATE/ACTIVATE)."""
+        stmt = select(ApprovedApplicationPhase).where(
+            ApprovedApplicationPhase.application_id == application_id,
+            ApprovedApplicationPhase.phase == phase_num,
+        )
+        result = await self.session.execute(stmt)
+        phase_record = result.scalar_one_or_none()
+        if not phase_record:
+            raise HTTPException(status_code=404, detail=f"Phase {phase_num} not found")
+
+        old_status = phase_record.status
+        phase_record.status = status
+
+        if status == ApplicationPhaseStatus.ACTIVE and old_status != ApplicationPhaseStatus.ACTIVE:
+            if not phase_record.activated_at:
+                phase_record.activated_at = datetime.now()
+
+        if status == ApplicationPhaseStatus.COMPLETED and old_status != ApplicationPhaseStatus.COMPLETED:
+            if not phase_record.completed_at:
+                phase_record.completed_at = datetime.now()
+
+        # Audit log using a generic changed action
+        self.session.add(
+            ApplicationActionLog(
+                application_id=application_id,
+                action=WorkflowAction.APPROVE, # Generic action for log
+                from_status=ApplicationStatus.TOKEN_GENERATED,
+                to_status=ApplicationStatus.TOKEN_GENERATED,
+                performed_by=user_id,
+                performed_at=datetime.now(),
+                remarks=f"Phase {phase_num} status changed from {old_status.value} to {status.value}",
+                phase=phase_num,
+            )
+        )
+
+        await self.session.commit()
+        return SuccessResponse(message=f"Phase {phase_num} status updated to {status.value}")
+
     # ── Comment (enhanced) ────────────────────────────────────────────────
     async def comment_on_application(
         self,

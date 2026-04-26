@@ -21,6 +21,7 @@ from backend.schemas.request.application import (
     WorkflowActionRequest,
     InspectionReportCreate,
     PhaseMaterialEntry,
+    PhaseStatusUpdateRequest,
 )
 from backend.schemas.response.application import (
     ApplicationResponse,
@@ -580,6 +581,47 @@ async def complete_phase(
             "application_id": application_id,
             "phase": phase,
             "action": "completed",
+        },
+    )
+    await db.commit()
+    return response
+
+
+@router.put(
+    "/applications/{application_id}/phases/{phase}/status",
+    response_model=SuccessResponse,
+)
+async def update_phase_status(
+    application_id: int,
+    phase: int,
+    request: PhaseStatusUpdateRequest,
+    application_service: ApplicationService = Depends(get_application_service),
+    db: AsyncSession = Depends(get_db),
+    user: UserDetails = Depends(get_current_user),
+) -> SuccessResponse:
+    """
+    Nodal Officer or Superadmin can manually change a token's status.
+    Used for: HOLD (WITHHELD), TERMINATE (TERMINATED), ACTIVATE (ACTIVE).
+    """
+    if user.role not in (UserRole.NODAL_OFFICER, UserRole.SUPERADMIN):
+        raise HTTPException(
+            status_code=403,
+            detail="Only NODAL_OFFICER or SUPERADMIN can manually update phase status",
+        )
+
+    response = await application_service.update_phase_status(
+        application_id, phase, request, user.user_id
+    )
+
+    await audit_service.log(
+        db,
+        "APPLICATION_PHASE",
+        AuditAction.CHANGED,
+        user.user_id,
+        new_state={
+            "application_id": application_id,
+            "phase": phase,
+            "target_status": request.status.value,
         },
     )
     await db.commit()
