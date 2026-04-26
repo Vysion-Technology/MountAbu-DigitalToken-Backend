@@ -493,6 +493,23 @@ class ApplicationResponse(BaseModel):
 
     model_config = ConfigDict(extra="ignore", from_attributes=True)
 
+    @model_validator(mode="before")
+    @classmethod
+    def extract_ward_name(cls, data):
+        """Extract ward name from relationship for ward_zone field."""
+        if hasattr(data, "ward_rel") and data.ward_rel:
+            ward_name = getattr(data.ward_rel, "name", None)
+            if hasattr(data, "__dict__"):
+                # It's an ORM object, we can't easily set attributes on it that aren't in the model
+                # but model_validate will pick it up if we return a dict or if it's already there.
+                # Since ward_zone is Optional[str] = None in schema, we return a dict.
+                d = {k: getattr(data, k, None) for k in data.__dict__.keys() if not k.startswith("_")}
+                d["ward_zone"] = ward_name
+                return d
+            elif isinstance(data, dict):
+                data["ward_zone"] = ward_name
+        return data
+
 
 class AuthorityVehicleEntryResponse(BaseModel):
     """Flattened response for authority view of vehicle entries."""

@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func
 from typing import Optional
 from sqlalchemy import insert, select, update, exists, and_
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, joinedload
 from datetime import datetime, timedelta
 
 
@@ -45,6 +45,8 @@ from backend.core.workflow import validate_transition, RENOVATION_DEPT_ROLES
 
 # ── Eager-loading options reused across queries ──────────────────────────
 _APPLICATION_LOAD_OPTIONS = [
+    joinedload(Application.ward_rel),
+    joinedload(Application.department_rel),
     selectinload(Application.documents),
     selectinload(Application.materials).selectinload(ApplicationMaterial.material),
     selectinload(Application.comments).selectinload(ApplicationComment.commenter),
