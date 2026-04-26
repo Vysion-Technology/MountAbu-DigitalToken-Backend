@@ -1498,6 +1498,7 @@ class ApplicationDAO(BaseDAO):
                     "transport_code": transport_code,
                     "token_number": token_number,
                     "application_number": application_number,
+                    "phase": phase_rec.phase,
                     "remaining_quantity_pct": remaining_pct,
                     "valid_till": valid_till,
                     "status": phase_rec.status,
@@ -1700,6 +1701,7 @@ class ApplicationDAO(BaseDAO):
         return {
             "transport_code": transport_code,
             "token_number": token_number,
+            "phase": phase_rec.phase,
             "status": phase_rec.status,
             "valid_from": phase_rec.activated_at,
             "valid_till": valid_till,

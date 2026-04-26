@@ -227,15 +227,12 @@ class TokenMaterialResponse(BaseModel):
 
 
 class TokenResponse(BaseModel):
-    """Lightweight token for the token-list table.
-
-    Only the 5 columns shown in the listing screen + transport_code
-    (the unique token identifier used in URLs).
-    """
+    """Lightweight token for the token-list table."""
 
     transport_code: str
     token_number: str
     application_number: str
+    phase: int
     remaining_quantity_pct: Optional[float] = None
     valid_till: Optional[datetime] = None
     status: ApplicationPhaseStatus
@@ -285,6 +282,7 @@ class TokenDetailResponse(BaseModel):
     # Identity
     transport_code: str
     token_number: str
+    phase: int
     status: ApplicationPhaseStatus
     valid_from: Optional[datetime] = None  # activated_at
     valid_till: Optional[datetime] = None
