@@ -1350,6 +1350,12 @@ class ApplicationDAO(BaseDAO):
         if not phase_record:
             raise HTTPException(status_code=404, detail=f"Phase {phase_num} not found")
 
+        if phase_record.status in (ApplicationPhaseStatus.TERMINATED, ApplicationPhaseStatus.COMPLETED):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Phase {phase_num} is {phase_record.status.value} and cannot be changed.",
+            )
+
         old_status = phase_record.status
         phase_record.status = status
 
