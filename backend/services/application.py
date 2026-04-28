@@ -13,6 +13,7 @@ from backend.meta import (
     CommentType,
     UserRole,
     ApplicationPhaseStatus,
+    PropertyUsageType,
 )
 from backend.schemas.base.auth import UserDetails
 from backend.schemas.request.application import (
@@ -75,10 +76,19 @@ class ApplicationService(BaseService):
         offset: int,
         limit: int,
         user_id: Optional[int] = None,
+        search: Optional[str] = None,
+        ward_id: Optional[int] = None,
+        property_usage: Optional[PropertyUsageType] = None,
     ) -> List[ApplicationResponse]:
-        """Get applications filtered by flag with pagination."""
+        """Get applications filtered by flag, search, and other criteria."""
         return await self.dao.get_applications(
-            flag=flag, offset=offset, limit=limit, user_id=user_id
+            flag=flag,
+            offset=offset,
+            limit=limit,
+            user_id=user_id,
+            search=search,
+            ward_id=ward_id,
+            property_usage=property_usage,
         )
 
     async def delete_application(self, application_id: int) -> SuccessResponse:

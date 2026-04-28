@@ -5,7 +5,7 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func
 from typing import Optional
-from sqlalchemy import insert, select, update, exists, and_
+from sqlalchemy import insert, select, update, exists, and_, or_
 from sqlalchemy.orm import selectinload, joinedload
 from datetime import datetime, timedelta
 
@@ -39,6 +39,7 @@ from backend.meta import (
     UserRole,
     ApplicationType,
     ApplicationPhaseStatus,
+    PropertyUsageType,
 )
 from backend.core.workflow import validate_transition, RENOVATION_DEPT_ROLES
 
@@ -272,14 +273,49 @@ class ApplicationDAO(BaseDAO):
         offset: int = 0,
         limit: int = 10,
         user_id: Optional[int] = None,
+        search: Optional[str] = None,
+        ward_id: Optional[int] = None,
+        property_usage: Optional[PropertyUsageType] = None,
     ) -> list[ApplicationResponse]:
-        """Get applications, optionally filtered by flag."""
+        """Get applications, optionally filtered by flag, search and extra criteria."""
         query = select(Application).options(*_APPLICATION_LOAD_OPTIONS)
+        
+        # ── Global filters ───────────────────────────────────────────────
         if user_id:
             query = query.where(Application.user_id == user_id)
+        if ward_id:
+            query = query.where(Application.ward_id == ward_id)
+        if property_usage:
+            query = query.where(Application.property_usage == property_usage)
+            
+        # ── Search logic ──────────────────────────────────────────────────
+        if search:
+            search_filters = []
+            
+            # 1. Applicant Name (Partial match)
+            search_filters.append(Application.applicant_name.ilike(f"%{search}%"))
+            
+            # 2. Mobile (Partial match)
+            search_filters.append(Application.mobile.ilike(f"%{search}%"))
+            
+            # 3. Application ID / Number
+            # If search is a plain number like '123'
+            if search.isdigit():
+                search_filters.append(Application.id == int(search))
+            # If search is 'APP-2026-00001'
+            elif search.upper().startswith("APP-"):
+                try:
+                    # Extract last part: APP-2026-00123 -> 123
+                    parts = search.split("-")
+                    app_id = int(parts[-1])
+                    search_filters.append(Application.id == app_id)
+                except (ValueError, IndexError):
+                    pass
+            
+            query = query.where(or_(*search_filters))
 
         if flag is None:
-            # No flag filter — return paginated results directly (citizen path)
+            # No flag filter — return paginated results directly
             applications = list(
                 await self.session.scalars(query.offset(offset).limit(limit))
             )
@@ -290,25 +326,23 @@ class ApplicationDAO(BaseDAO):
             apps_with_phases = [app for app in applications if app.phases]
             if apps_with_phases:
                 from backend.schemas.response.application import TokenResponse
+                from backend.core.transport_code import encode_transport_code
 
                 all_phases = [p for app in apps_with_phases for p in app.phases]
                 token_dicts = await self._build_token_list_dicts(all_phases)
-                # Group by application_id — get app_id from transport_code decode
-                # Since list dicts don't have app_id, use phase objects to map
-                # Build phase_id -> app_id mapping
-                # Build transport_code -> app_id from phases
-                from backend.core.transport_code import encode_transport_code
-
+                
                 tc_to_app: dict[str, int] = {}
                 for app in apps_with_phases:
                     for p in app.phases:
                         tc = encode_transport_code(p.application_id, p.phase)
                         tc_to_app[tc] = p.application_id
+                
                 tokens_by_app: dict[int, list] = {}
                 for td in token_dicts:
                     app_id = tc_to_app.get(td["transport_code"])
                     if app_id:
                         tokens_by_app.setdefault(app_id, []).append(td)
+                
                 for resp in responses:
                     if resp.id in tokens_by_app:
                         resp.tokens = [

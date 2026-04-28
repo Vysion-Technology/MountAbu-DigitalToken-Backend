@@ -6,6 +6,7 @@ from backend.meta import (
     ApplicationFlags,
     UserRole,
     CommentType,
+    PropertyUsageType,
 )
 
 from backend.middlewares.auth import get_current_user_id, get_current_user
@@ -198,13 +199,20 @@ async def get_applications(
     ),
     offset: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
+    search: Optional[str] = Query(
+        None, description="Search by applicant name, mobile, or application number"
+    ),
+    ward_id: Optional[int] = Query(None, description="Filter by ward/zone"),
+    property_usage: Optional[PropertyUsageType] = Query(
+        None, description="Filter by property usage"
+    ),
     citizen_user_id: Optional[int] = Query(
         None, description="Citizen user ID (required when flag=CITIZEN)"
     ),
     application_service: ApplicationService = Depends(get_application_service),
     user: UserDetails = Depends(get_current_user),
 ) -> List[ApplicationResponse]:
-    """Get applications filtered by flag."""
+    """Get applications filtered by flag, search, and other criteria."""
     if user.role == UserRole.NAKA_INCHARGE:
         raise HTTPException(
             status_code=403,
@@ -217,6 +225,13 @@ async def get_applications(
             status_code=400,
             detail=f"Your role ({user.role.value}) is not permitted to query flag {flag.value}",
         )
+
+    # Search and extra filters are ONLY for authority/admin roles
+    is_authority = user.role in _ADMIN_ROLES or user.role in [UserRole.JEN, UserRole.DEPT_ATP, UserRole.DEPT_LAND, UserRole.DEPT_LEGAL]
+    
+    current_search = search if is_authority else None
+    current_ward = ward_id if is_authority else None
+    current_usage = property_usage if is_authority else None
 
     # CITIZEN flag: citizen sees their own applications
     if flag == ApplicationFlags.CITIZEN:
@@ -237,11 +252,19 @@ async def get_applications(
             offset=offset,
             limit=limit,
             user_id=citizen_user_id,  # optionally scope to a specific citizen
+            search=current_search,
+            ward_id=current_ward,
+            property_usage=current_usage,
         )
 
     # Workflow flag: filter by computed flag
     return await application_service.get_applications(
-        flag=flag, offset=offset, limit=limit
+        flag=flag,
+        offset=offset,
+        limit=limit,
+        search=current_search,
+        ward_id=current_ward,
+        property_usage=current_usage,
     )
 
 
