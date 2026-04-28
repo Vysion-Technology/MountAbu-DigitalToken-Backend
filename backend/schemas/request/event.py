@@ -19,3 +19,4 @@ class EventUpdate(BaseModel):
     date: Optional[datetime] = Field(None)
     venue: Optional[str] = Field(None)
     status: Optional[TenderStatus] = Field(None)
+    image_path: Optional[str] = Field(None)

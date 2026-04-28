@@ -19,3 +19,4 @@ class LeaderUpdate(BaseModel):
     tenure_start: Optional[datetime] = Field(None)
     tenure_end: Optional[datetime] = Field(None)
     status: Optional[NoticeStatus] = Field(None)
+    image_path: Optional[str] = Field(None)

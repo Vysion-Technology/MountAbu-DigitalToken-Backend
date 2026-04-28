@@ -72,12 +72,27 @@ async def get_notice(
 @router.put("/notices/{notice_id}", response_model=NoticeResponse)
 async def update_notice(
     notice_id: int,
-    payload: NoticeUpdate,
+    title: str | None = Form(None),
+    notice_type: str | None = Form(None),
+    published_on: datetime | None = Form(None),
+    valid_till: datetime | None = Form(None),
+    status: NoticeStatus | None = Form(None),
+    visibility: Visibility | None = Form(None),
+    image: UploadFile | None = File(None),
+    document: UploadFile | None = File(None),
     db: AsyncSession = Depends(get_db),
     current_user: UserDetails = Depends(get_admin_or_nodal),
     service: NoticesService = Depends(get_notices_service),
 ):
-    response = await service.update_notice(db, notice_id, payload)
+    payload = NoticeUpdate(
+        title=title,
+        notice_type=notice_type,
+        published_on=published_on,
+        valid_till=valid_till,
+        status=status,
+        visibility=visibility,
+    )
+    response = await service.update_notice(db, notice_id, payload, image=image, document=document)
     await audit_service.log(
         db,
         "NOTICE",

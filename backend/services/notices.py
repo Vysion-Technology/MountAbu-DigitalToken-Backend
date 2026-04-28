@@ -16,14 +16,18 @@ class NoticesService:
 
     async def create_notice(self, session: AsyncSession, payload: NoticeCreate, created_by: Optional[int], image: Optional[UploadFile] = None, document: Optional[UploadFile] = None) -> NoticeResponse:
         image_path = None
-        if image and self.storage:
+        if image:
+            if not self.storage:
+                raise HTTPException(status_code=500, detail="Storage service unavailable")
             uid = uuid4()
             filename = (image.filename or "image").replace(" ", "_")
             object_key = f"notices/{uid}/images/{filename}"
             image_path = await self.storage.upload_file(image, object_key)
 
         document_path = None
-        if document and self.storage:
+        if document:
+            if not self.storage:
+                raise HTTPException(status_code=500, detail="Storage service unavailable")
             uid = uuid4()
             filename = (document.filename or "doc").replace(" ", "_")
             object_key = f"notices/{uid}/docs/{filename}"
@@ -99,7 +103,23 @@ class NoticesService:
             )
         return NoticesListResponse(notices=items, total=len(items))
 
-    async def update_notice(self, session: AsyncSession, notice_id: int, payload: NoticeUpdate) -> NoticeResponse:
+    async def update_notice(self, session: AsyncSession, notice_id: int, payload: NoticeUpdate, image: Optional[UploadFile] = None, document: Optional[UploadFile] = None) -> NoticeResponse:
+        if image:
+            if not self.storage:
+                raise HTTPException(status_code=500, detail="Storage service unavailable")
+            uid = uuid4()
+            filename = (image.filename or "image").replace(" ", "_")
+            object_key = f"notices/{uid}/images/{filename}"
+            payload.image_path = await self.storage.upload_file(image, object_key)
+
+        if document:
+            if not self.storage:
+                raise HTTPException(status_code=500, detail="Storage service unavailable")
+            uid = uuid4()
+            filename = (document.filename or "doc").replace(" ", "_")
+            object_key = f"notices/{uid}/docs/{filename}"
+            payload.document_path = await self.storage.upload_file(document, object_key)
+
         db_obj = await self.dao.update_notice(session, notice_id, payload)
         if not db_obj:
             raise HTTPException(status_code=404, detail="Notice not found")

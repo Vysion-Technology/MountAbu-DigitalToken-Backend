@@ -14,13 +14,15 @@ class TendersService:
         self.dao = dao
         self.storage = get_storage_service()
 
-    async def create_tender(self, session: AsyncSession, payload: TenderCreate, created_by: Optional[int], file: Optional[UploadFile] = None) -> TenderResponse:
+    async def create_tender(self, session: AsyncSession, payload: TenderCreate, created_by: Optional[int], document: Optional[UploadFile] = None) -> TenderResponse:
         document_path = None
-        if file and self.storage:
+        if document:
+            if not self.storage:
+                raise HTTPException(status_code=500, detail="Storage service unavailable")
             uid = uuid4()
-            filename = (file.filename or "file").replace(" ", "_")
+            filename = (document.filename or "file").replace(" ", "_")
             object_key = f"tenders/{uid}/{filename}"
-            document_path = await self.storage.upload_file(file, object_key)
+            document_path = await self.storage.upload_file(document, object_key)
 
         db_obj = await self.dao.create_tender(session, payload, created_by, document_path=document_path)
         
@@ -86,7 +88,15 @@ class TendersService:
             )
         return TendersListResponse(tenders=items, total=len(items))
 
-    async def update_tender(self, session: AsyncSession, tender_id: int, payload: TenderUpdate) -> TenderResponse:
+    async def update_tender(self, session: AsyncSession, tender_id: int, payload: TenderUpdate, document: Optional[UploadFile] = None) -> TenderResponse:
+        if document:
+            if not self.storage:
+                raise HTTPException(status_code=500, detail="Storage service unavailable")
+            uid = uuid4()
+            filename = (document.filename or "file").replace(" ", "_")
+            object_key = f"tenders/{uid}/{filename}"
+            payload.document_path = await self.storage.upload_file(document, object_key)
+
         db_obj = await self.dao.update_tender(session, tender_id, payload)
         if not db_obj:
             raise HTTPException(status_code=404, detail="Tender not found")

@@ -69,12 +69,24 @@ async def get_event(
 @router.put("/events/{event_id}", response_model=EventResponse)
 async def update_event(
     event_id: int,
-    payload: EventUpdate,
+    title: str | None = Form(None),
+    event_type: str | None = Form(None),
+    date: datetime | None = Form(None),
+    venue: str | None = Form(None),
+    status: TenderStatus | None = Form(None),
+    image: UploadFile | None = File(None),
     db: AsyncSession = Depends(get_db),
     current_user: UserDetails = Depends(get_admin_or_nodal),
     service: EventsService = Depends(get_events_service),
 ):
-    response = await service.update_event(db, event_id, payload)
+    payload = EventUpdate(
+        title=title,
+        event_type=event_type,
+        date=date,
+        venue=venue,
+        status=status,
+    )
+    response = await service.update_event(db, event_id, payload, image=image)
     await audit_service.log(
         db,
         "EVENT",

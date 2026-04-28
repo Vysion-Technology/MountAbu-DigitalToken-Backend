@@ -16,7 +16,9 @@ class EventsService:
 
     async def create_event(self, session: AsyncSession, payload: EventCreate, created_by: Optional[int], image: Optional[UploadFile] = None) -> EventResponse:
         image_path = None
-        if image and self.storage:
+        if image:
+            if not self.storage:
+                raise HTTPException(status_code=500, detail="Storage service unavailable")
             uid = uuid4()
             filename = (image.filename or "image").replace(" ", "_")
             object_key = f"events/{uid}/{filename}"
@@ -80,7 +82,15 @@ class EventsService:
             )
         return EventsListResponse(events=items, total=len(items))
 
-    async def update_event(self, session: AsyncSession, event_id: int, payload: EventUpdate) -> EventResponse:
+    async def update_event(self, session: AsyncSession, event_id: int, payload: EventUpdate, image: Optional[UploadFile] = None) -> EventResponse:
+        if image:
+            if not self.storage:
+                raise HTTPException(status_code=500, detail="Storage service unavailable")
+            uid = uuid4()
+            filename = (image.filename or "image").replace(" ", "_")
+            object_key = f"events/{uid}/{filename}"
+            payload.image_path = await self.storage.upload_file(image, object_key)
+
         db_obj = await self.dao.update_event(session, event_id, payload)
         if not db_obj:
             raise HTTPException(status_code=404, detail="Event not found")

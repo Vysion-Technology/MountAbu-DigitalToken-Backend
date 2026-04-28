@@ -16,7 +16,9 @@ class LeadersService:
 
     async def create_leader(self, session: AsyncSession, payload: LeaderCreate, created_by: Optional[int], image: Optional[UploadFile] = None) -> LeaderResponse:
         image_path = None
-        if image and self.storage:
+        if image:
+            if not self.storage:
+                raise HTTPException(status_code=500, detail="Storage service unavailable")
             uid = uuid4()
             filename = (image.filename or "image").replace(" ", "_")
             object_key = f"leaders/{uid}/{filename}"
@@ -80,7 +82,15 @@ class LeadersService:
             )
         return LeadersListResponse(leaders=items, total=len(items))
 
-    async def update_leader(self, session: AsyncSession, leader_id: int, payload: LeaderUpdate) -> LeaderResponse:
+    async def update_leader(self, session: AsyncSession, leader_id: int, payload: LeaderUpdate, image: Optional[UploadFile] = None) -> LeaderResponse:
+        if image:
+            if not self.storage:
+                raise HTTPException(status_code=500, detail="Storage service unavailable")
+            uid = uuid4()
+            filename = (image.filename or "image").replace(" ", "_")
+            object_key = f"leaders/{uid}/{filename}"
+            payload.image_path = await self.storage.upload_file(image, object_key)
+
         db_obj = await self.dao.update_leader(session, leader_id, payload)
         if not db_obj:
             raise HTTPException(status_code=404, detail="Leader not found")

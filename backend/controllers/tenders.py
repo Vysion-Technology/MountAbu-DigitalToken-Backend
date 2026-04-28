@@ -25,7 +25,7 @@ async def create_tender(
     published_on: datetime | None = Form(None),
     submission_deadline: datetime | None = Form(None),
     status: TenderStatus | None = Form(TenderStatus.ACTIVE),
-    file: UploadFile | None = File(None),
+    document: UploadFile | None = File(None),
     db: AsyncSession = Depends(get_db),
     current_user: UserDetails = Depends(get_admin_or_nodal),
     service: TendersService = Depends(get_tenders_service),
@@ -39,7 +39,7 @@ async def create_tender(
         submission_deadline=submission_deadline,
         status=status,
     )
-    response = await service.create_tender(db, payload, current_user.user_id, file=file)
+    response = await service.create_tender(db, payload, current_user.user_id, document=document)
     await audit_service.log(
         db,
         "TENDER",
@@ -73,12 +73,28 @@ async def get_tender(
 @router.put("/tenders/{tender_id}", response_model=TenderResponse)
 async def update_tender(
     tender_id: int,
-    payload: TenderUpdate,
+    title: str | None = Form(None),
+    tender_type: str | None = Form(None),
+    department_id: int | None = Form(None),
+    amount: float | None = Form(None),
+    published_on: datetime | None = Form(None),
+    submission_deadline: datetime | None = Form(None),
+    status: TenderStatus | None = Form(None),
+    document: UploadFile | None = File(None),
     db: AsyncSession = Depends(get_db),
     current_user: UserDetails = Depends(get_admin_or_nodal),
     service: TendersService = Depends(get_tenders_service),
 ):
-    response = await service.update_tender(db, tender_id, payload)
+    payload = TenderUpdate(
+        title=title,
+        tender_type=tender_type,
+        department_id=department_id,
+        amount=amount,
+        published_on=published_on,
+        submission_deadline=submission_deadline,
+        status=status,
+    )
+    response = await service.update_tender(db, tender_id, payload, document=document)
     await audit_service.log(
         db,
         "TENDER",

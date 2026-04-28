@@ -21,3 +21,5 @@ class NoticeUpdate(BaseModel):
     valid_till: Optional[datetime] = Field(None)
     status: Optional[NoticeStatus] = Field(None)
     visibility: Optional[Visibility] = Field(None)
+    image_path: Optional[str] = Field(None)
+    document_path: Optional[str] = Field(None)

@@ -69,12 +69,24 @@ async def get_leader(
 @router.put("/leaders/{leader_id}", response_model=LeaderResponse)
 async def update_leader(
     leader_id: int,
-    payload: LeaderUpdate,
+    name: str | None = Form(None),
+    designation: str | None = Form(None),
+    tenure_start: datetime | None = Form(None),
+    tenure_end: datetime | None = Form(None),
+    status: NoticeStatus | None = Form(None),
+    image: UploadFile | None = File(None),
     db: AsyncSession = Depends(get_db),
     current_user: UserDetails = Depends(get_admin_or_nodal),
     service: LeadersService = Depends(get_leaders_service),
 ):
-    response = await service.update_leader(db, leader_id, payload)
+    payload = LeaderUpdate(
+        name=name,
+        designation=designation,
+        tenure_start=tenure_start,
+        tenure_end=tenure_end,
+        status=status,
+    )
+    response = await service.update_leader(db, leader_id, payload, image=image)
     await audit_service.log(
         db,
         "LEADER",
