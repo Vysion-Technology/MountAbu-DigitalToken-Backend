@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.database import get_db
 from backend.middlewares.auth import get_admin_or_nodal
@@ -7,8 +7,10 @@ from backend.services.events import EventsService, get_events_service
 from backend.schemas.request.event import EventCreate, EventUpdate
 from backend.schemas.response.event import EventResponse, EventsListResponse
 from backend.schemas.response.meta import SuccessResponse
+from backend.meta import TenderStatus
 from backend.services.audit import AuditService
 from backend.meta.audit import AuditAction
+from datetime import datetime
 
 router = APIRouter()
 audit_service = AuditService()
@@ -16,12 +18,24 @@ audit_service = AuditService()
 
 @router.post("/events", response_model=EventResponse, status_code=201)
 async def create_event(
-    payload: EventCreate,
+    title: str = Form(...),
+    event_type: str | None = Form(None),
+    date: datetime | None = Form(None),
+    venue: str | None = Form(None),
+    status: TenderStatus | None = Form(TenderStatus.ACTIVE),
+    image: UploadFile | None = File(None),
     db: AsyncSession = Depends(get_db),
     current_user: UserDetails = Depends(get_admin_or_nodal),
     service: EventsService = Depends(get_events_service),
 ):
-    response = await service.create_event(db, payload, current_user.user_id)
+    payload = EventCreate(
+        title=title,
+        event_type=event_type,
+        date=date,
+        venue=venue,
+        status=status,
+    )
+    response = await service.create_event(db, payload, current_user.user_id, image=image)
     await audit_service.log(
         db,
         "EVENT",

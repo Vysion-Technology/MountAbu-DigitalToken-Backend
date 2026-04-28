@@ -7,9 +7,9 @@ from backend.schemas.request.leader import LeaderCreate, LeaderUpdate
 
 
 class LeadersDAO:
-    async def create_leader(self, session: AsyncSession, leader: LeaderCreate, created_by: Optional[int]) -> Leader:
+    async def create_leader(self, session: AsyncSession, leader: LeaderCreate, created_by: Optional[int], image_path: Optional[str] = None) -> Leader:
         data = leader.model_dump()
-        db_obj = Leader(**data, created_by=created_by)
+        db_obj = Leader(**data, created_by=created_by, image_path=image_path)
         session.add(db_obj)
         await session.commit()
         await session.refresh(db_obj)

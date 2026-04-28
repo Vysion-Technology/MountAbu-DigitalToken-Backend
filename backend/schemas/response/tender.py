@@ -14,6 +14,8 @@ class TenderResponse(BaseModel):
     published_on: Optional[datetime]
     submission_deadline: Optional[datetime]
     status: TenderStatus
+    document_path: Optional[str] = None
+    document_url: Optional[str] = None
     created_by: Optional[int]
     created_at: Optional[datetime] = None
 

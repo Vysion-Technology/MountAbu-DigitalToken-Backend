@@ -23,6 +23,9 @@ class Notice(Base):
     status: Mapped[NoticeStatus] = mapped_column(SAEnum(NoticeStatus, name='noticestatus'), default=NoticeStatus.ACTIVE, index=True)
     visibility: Mapped[Visibility] = mapped_column(SAEnum(Visibility, name='noticevisibility'), default=Visibility.PUBLIC, index=True)
 
+    image_path: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    document_path: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

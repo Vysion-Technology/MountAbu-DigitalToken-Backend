@@ -1,7 +1,9 @@
 from typing import Optional
-from fastapi import Depends, HTTPException
+from uuid import uuid4
+from fastapi import Depends, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.services.storage import get_storage_service
 from backend.dao.events import EventsDAO, get_events_dao
 from backend.schemas.request.event import EventCreate, EventUpdate
 from backend.schemas.response.event import EventResponse, EventsListResponse
@@ -10,9 +12,20 @@ from backend.schemas.response.event import EventResponse, EventsListResponse
 class EventsService:
     def __init__(self, dao: EventsDAO):
         self.dao = dao
+        self.storage = get_storage_service()
 
-    async def create_event(self, session: AsyncSession, payload: EventCreate, created_by: Optional[int]) -> EventResponse:
-        db_obj = await self.dao.create_event(session, payload, created_by)
+    async def create_event(self, session: AsyncSession, payload: EventCreate, created_by: Optional[int], image: Optional[UploadFile] = None) -> EventResponse:
+        image_path = None
+        if image and self.storage:
+            uid = uuid4()
+            filename = (image.filename or "image").replace(" ", "_")
+            object_key = f"events/{uid}/{filename}"
+            image_path = await self.storage.upload_file(image, object_key)
+
+        db_obj = await self.dao.create_event(session, payload, created_by, image_path=image_path)
+        
+        image_url = self.storage.get_file_url(db_obj.image_path) if db_obj.image_path and self.storage else None
+
         return EventResponse(
             id=db_obj.id,
             title=db_obj.title,
@@ -20,6 +33,8 @@ class EventsService:
             date=db_obj.date,
             venue=db_obj.venue,
             status=db_obj.status,
+            image_path=db_obj.image_path,
+            image_url=image_url,
             created_by=db_obj.created_by,
             created_at=db_obj.created_at,
         )
@@ -28,6 +43,9 @@ class EventsService:
         db_obj = await self.dao.get_event(session, event_id)
         if not db_obj:
             raise HTTPException(status_code=404, detail="Event not found")
+        
+        image_url = self.storage.get_file_url(db_obj.image_path) if db_obj.image_path and self.storage else None
+
         return EventResponse(
             id=db_obj.id,
             title=db_obj.title,
@@ -35,31 +53,40 @@ class EventsService:
             date=db_obj.date,
             venue=db_obj.venue,
             status=db_obj.status,
+            image_path=db_obj.image_path,
+            image_url=image_url,
             created_by=db_obj.created_by,
             created_at=db_obj.created_at,
         )
 
     async def list_events(self, session: AsyncSession, limit: int = 50, offset: int = 0) -> EventsListResponse:
         objs = await self.dao.list_events(session, limit=limit, offset=offset)
-        items = [
-            EventResponse(
-                id=d.id,
-                title=d.title,
-                event_type=d.event_type,
-                date=d.date,
-                venue=d.venue,
-                status=d.status,
-                created_by=d.created_by,
-                created_at=d.created_at,
+        items = []
+        for d in objs:
+            image_url = self.storage.get_file_url(d.image_path) if d.image_path and self.storage else None
+            items.append(
+                EventResponse(
+                    id=d.id,
+                    title=d.title,
+                    event_type=d.event_type,
+                    date=d.date,
+                    venue=d.venue,
+                    status=d.status,
+                    image_path=d.image_path,
+                    image_url=image_url,
+                    created_by=d.created_by,
+                    created_at=d.created_at,
+                )
             )
-            for d in objs
-        ]
         return EventsListResponse(events=items, total=len(items))
 
     async def update_event(self, session: AsyncSession, event_id: int, payload: EventUpdate) -> EventResponse:
         db_obj = await self.dao.update_event(session, event_id, payload)
         if not db_obj:
             raise HTTPException(status_code=404, detail="Event not found")
+        
+        image_url = self.storage.get_file_url(db_obj.image_path) if db_obj.image_path and self.storage else None
+
         return EventResponse(
             id=db_obj.id,
             title=db_obj.title,
@@ -67,6 +94,8 @@ class EventsService:
             date=db_obj.date,
             venue=db_obj.venue,
             status=db_obj.status,
+            image_path=db_obj.image_path,
+            image_url=image_url,
             created_by=db_obj.created_by,
             created_at=db_obj.created_at,
         )

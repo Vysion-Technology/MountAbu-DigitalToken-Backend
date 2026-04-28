@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.database import get_db
 from backend.middlewares.auth import get_admin_or_nodal
@@ -7,8 +7,10 @@ from backend.services.tenders import TendersService, get_tenders_service
 from backend.schemas.request.tender import TenderCreate, TenderUpdate
 from backend.schemas.response.tender import TenderResponse, TendersListResponse
 from backend.schemas.response.meta import SuccessResponse
+from backend.meta import TenderStatus
 from backend.services.audit import AuditService
 from backend.meta.audit import AuditAction
+from datetime import datetime
 
 router = APIRouter()
 audit_service = AuditService()
@@ -16,12 +18,28 @@ audit_service = AuditService()
 
 @router.post("/tenders", response_model=TenderResponse, status_code=201)
 async def create_tender(
-    payload: TenderCreate,
+    title: str = Form(...),
+    tender_type: str | None = Form(None),
+    department_id: int | None = Form(None),
+    amount: float | None = Form(None),
+    published_on: datetime | None = Form(None),
+    submission_deadline: datetime | None = Form(None),
+    status: TenderStatus | None = Form(TenderStatus.ACTIVE),
+    file: UploadFile | None = File(None),
     db: AsyncSession = Depends(get_db),
     current_user: UserDetails = Depends(get_admin_or_nodal),
     service: TendersService = Depends(get_tenders_service),
 ):
-    response = await service.create_tender(db, payload, current_user.user_id)
+    payload = TenderCreate(
+        title=title,
+        tender_type=tender_type,
+        department_id=department_id,
+        amount=amount,
+        published_on=published_on,
+        submission_deadline=submission_deadline,
+        status=status,
+    )
+    response = await service.create_tender(db, payload, current_user.user_id, file=file)
     await audit_service.log(
         db,
         "TENDER",

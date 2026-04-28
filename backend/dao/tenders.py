@@ -7,9 +7,9 @@ from backend.schemas.request.tender import TenderCreate, TenderUpdate
 
 
 class TendersDAO:
-    async def create_tender(self, session: AsyncSession, tender: TenderCreate, created_by: Optional[int]) -> Tender:
+    async def create_tender(self, session: AsyncSession, tender: TenderCreate, created_by: Optional[int], document_path: Optional[str] = None) -> Tender:
         data = tender.model_dump()
-        db_obj = Tender(**data, created_by=created_by)
+        db_obj = Tender(**data, created_by=created_by, document_path=document_path)
         session.add(db_obj)
         await session.commit()
         await session.refresh(db_obj)

@@ -7,9 +7,9 @@ from backend.schemas.request.notice import NoticeCreate, NoticeUpdate
 
 
 class NoticesDAO:
-    async def create_notice(self, session: AsyncSession, notice: NoticeCreate, created_by: Optional[int]) -> Notice:
+    async def create_notice(self, session: AsyncSession, notice: NoticeCreate, created_by: Optional[int], image_path: Optional[str] = None, document_path: Optional[str] = None) -> Notice:
         data = notice.model_dump()
-        db_obj = Notice(**data, created_by=created_by)
+        db_obj = Notice(**data, created_by=created_by, image_path=image_path, document_path=document_path)
         session.add(db_obj)
         await session.commit()
         await session.refresh(db_obj)

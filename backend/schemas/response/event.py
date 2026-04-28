@@ -12,6 +12,8 @@ class EventResponse(BaseModel):
     date: Optional[datetime]
     venue: Optional[str]
     status: TenderStatus
+    image_path: Optional[str] = None
+    image_url: Optional[str] = None
     created_by: Optional[int]
     created_at: Optional[datetime] = None
 

@@ -7,9 +7,9 @@ from backend.schemas.request.event import EventCreate, EventUpdate
 
 
 class EventsDAO:
-    async def create_event(self, session: AsyncSession, event: EventCreate, created_by: Optional[int]) -> Event:
+    async def create_event(self, session: AsyncSession, event: EventCreate, created_by: Optional[int], image_path: Optional[str] = None) -> Event:
         data = event.model_dump()
-        db_obj = Event(**data, created_by=created_by)
+        db_obj = Event(**data, created_by=created_by, image_path=image_path)
         session.add(db_obj)
         await session.commit()
         await session.refresh(db_obj)

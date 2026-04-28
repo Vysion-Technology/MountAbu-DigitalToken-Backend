@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.database import get_db
 from backend.middlewares.auth import get_admin_or_nodal
@@ -7,8 +7,10 @@ from backend.services.leaders import LeadersService, get_leaders_service
 from backend.schemas.request.leader import LeaderCreate, LeaderUpdate
 from backend.schemas.response.leader import LeaderResponse, LeadersListResponse
 from backend.schemas.response.meta import SuccessResponse
+from backend.meta import NoticeStatus
 from backend.services.audit import AuditService
 from backend.meta.audit import AuditAction
+from datetime import datetime
 
 router = APIRouter()
 audit_service = AuditService()
@@ -16,12 +18,24 @@ audit_service = AuditService()
 
 @router.post("/leaders", response_model=LeaderResponse, status_code=201)
 async def create_leader(
-    payload: LeaderCreate,
+    name: str = Form(...),
+    designation: str | None = Form(None),
+    tenure_start: datetime | None = Form(None),
+    tenure_end: datetime | None = Form(None),
+    status: NoticeStatus | None = Form(NoticeStatus.ACTIVE),
+    image: UploadFile | None = File(None),
     db: AsyncSession = Depends(get_db),
     current_user: UserDetails = Depends(get_admin_or_nodal),
     service: LeadersService = Depends(get_leaders_service),
 ):
-    response = await service.create_leader(db, payload, current_user.user_id)
+    payload = LeaderCreate(
+        name=name,
+        designation=designation,
+        tenure_start=tenure_start,
+        tenure_end=tenure_end,
+        status=status,
+    )
+    response = await service.create_leader(db, payload, current_user.user_id, image=image)
     await audit_service.log(
         db,
         "LEADER",

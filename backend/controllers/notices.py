@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.database import get_db
 from backend.middlewares.auth import get_admin_or_nodal
@@ -7,8 +7,10 @@ from backend.services.notices import NoticesService, get_notices_service
 from backend.schemas.request.notice import NoticeCreate, NoticeUpdate
 from backend.schemas.response.notice import NoticeResponse, NoticesListResponse
 from backend.schemas.response.meta import SuccessResponse
+from backend.meta import NoticeStatus, Visibility
 from backend.services.audit import AuditService
 from backend.meta.audit import AuditAction
+from datetime import datetime
 
 router = APIRouter()
 audit_service = AuditService()
@@ -16,12 +18,27 @@ audit_service = AuditService()
 
 @router.post("/notices", response_model=NoticeResponse, status_code=201)
 async def create_notice(
-    payload: NoticeCreate,
+    title: str = Form(...),
+    notice_type: str | None = Form(None),
+    published_on: datetime | None = Form(None),
+    valid_till: datetime | None = Form(None),
+    status: NoticeStatus | None = Form(NoticeStatus.ACTIVE),
+    visibility: Visibility | None = Form(Visibility.PUBLIC),
+    image: UploadFile | None = File(None),
+    document: UploadFile | None = File(None),
     db: AsyncSession = Depends(get_db),
     current_user: UserDetails = Depends(get_admin_or_nodal),
     service: NoticesService = Depends(get_notices_service),
 ):
-    response = await service.create_notice(db, payload, current_user.user_id)
+    payload = NoticeCreate(
+        title=title,
+        notice_type=notice_type,
+        published_on=published_on,
+        valid_till=valid_till,
+        status=status,
+        visibility=visibility,
+    )
+    response = await service.create_notice(db, payload, current_user.user_id, image=image, document=document)
     await audit_service.log(
         db,
         "NOTICE",
