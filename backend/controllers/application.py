@@ -748,7 +748,7 @@ async def list_tokens(
         None, description="Filter by token status: ACTIVE, PENDING, COMPLETED"
     ),
     search: Optional[str] = Query(
-        None, description="Search by token number or application number"
+        None, description="Search by token number, application number, applicant name, or mobile"
     ),
     offset: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),

@@ -232,6 +232,8 @@ class TokenResponse(BaseModel):
     transport_code: str
     token_number: str
     application_number: str
+    applicant_name: Optional[str] = None
+    mobile: Optional[str] = None
     phase: int
     remaining_quantity_pct: Optional[float] = None
     valid_till: Optional[datetime] = None

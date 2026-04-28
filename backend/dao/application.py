@@ -1536,6 +1536,8 @@ class ApplicationDAO(BaseDAO):
                     "remaining_quantity_pct": remaining_pct,
                     "valid_till": valid_till,
                     "status": phase_rec.status,
+                    "applicant_name": phase_rec.application.applicant_name,
+                    "mobile": phase_rec.application.mobile,
                 }
             )
 
@@ -1770,6 +1772,7 @@ class ApplicationDAO(BaseDAO):
         # Fetch phases
         stmt = (
             select(ApprovedApplicationPhase)
+            .options(joinedload(ApprovedApplicationPhase.application))
             .join(
                 Application, ApprovedApplicationPhase.application_id == Application.id
             )
@@ -1792,7 +1795,7 @@ class ApplicationDAO(BaseDAO):
         # Build lightweight token dicts for listing
         tokens = await self._build_token_list_dicts(phases)
 
-        # Search filter (on token_number or application_number)
+        # Search filter (on token_number, application_number, applicant_name, or mobile)
         if search:
             search_lower = search.lower()
             tokens = [
@@ -1800,6 +1803,8 @@ class ApplicationDAO(BaseDAO):
                 for t in tokens
                 if search_lower in t["token_number"].lower()
                 or search_lower in t["application_number"].lower()
+                or search_lower in (t["applicant_name"] or "").lower()
+                or search_lower in (t["mobile"] or "").lower()
             ]
 
         # Paginate
@@ -1809,6 +1814,7 @@ class ApplicationDAO(BaseDAO):
         """Get all tokens (phases) for a single application with material summaries."""
         stmt = (
             select(ApprovedApplicationPhase)
+            .options(joinedload(ApprovedApplicationPhase.application))
             .where(ApprovedApplicationPhase.application_id == application_id)
             .order_by(ApprovedApplicationPhase.phase)
         )
