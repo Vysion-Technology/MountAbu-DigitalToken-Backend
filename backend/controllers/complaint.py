@@ -17,6 +17,7 @@ from backend.schemas.response.complaint import ComplaintResponse, ComplaintListR
 from backend.middlewares.auth import get_current_user, get_current_user_id
 from backend.schemas.base.auth import UserDetails
 from backend.services.audit import AuditService
+from backend.services.sms import sms_service
 from backend.meta.audit import AuditAction
 
 router = APIRouter()
@@ -214,6 +215,16 @@ async def create_complaint(
     await db.commit()
     await db.refresh(new_complaint)
 
+    # Trigger SMS
+    try:
+        await sms_service.send_complaint_sms(
+            mobile=new_complaint.applicant_mobile,
+            complaint_id=f"CMP-{new_complaint.id}",
+            status="raised successfully"
+        )
+    except Exception as e:
+        print(f"Error sending complaint creation SMS: {e}")
+
     # Reload with relations for response
     response = await get_complaint_or_404(db, new_complaint.id)
     await audit_service.log(
@@ -402,4 +413,15 @@ async def resolve_complaint(
         new_state={"status": "RESOLVED", "id": id},
     )
     await db.commit()
+
+    # Trigger SMS
+    try:
+        await sms_service.send_complaint_sms(
+            mobile=complaint.applicant_mobile,
+            complaint_id=f"CMP-{complaint.id}",
+            status="resolved"
+        )
+    except Exception as e:
+        print(f"Error sending complaint resolution SMS: {e}")
+
     return await get_complaint_or_404(db, id)

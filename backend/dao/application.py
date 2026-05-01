@@ -9,8 +9,8 @@ from sqlalchemy import insert, select, update, exists, and_, or_
 from sqlalchemy.orm import selectinload, joinedload
 from datetime import datetime, timedelta
 
-
 from backend.database import get_db
+from backend.services.sms import sms_service
 from backend.dbmodels.application import (
     ApplicationComment,
     ApplicationActionLog,
@@ -177,8 +177,8 @@ class ApplicationDAO(BaseDAO):
             .values(**application_data)
         )
         await self.session.commit()
-        return await self.get_application(application_id)
 
+        return await self.get_application(application_id)
     async def create_application(
         self, application: ApplicationCreate, user_id: int, mobile: str
     ) -> ApplicationResponse:
@@ -229,6 +229,18 @@ class ApplicationDAO(BaseDAO):
                 )
 
         await self.session.commit()
+
+        # Trigger SMS notification
+        try:
+            year = datetime.now().year
+            app_number = f"APP-{year}-{new_application_id:05d}"
+            await sms_service.send_application_sms(
+                mobile=mobile,
+                app_id=app_number,
+                status="successfully submitted"
+            )
+        except Exception as e:
+            print(f"Error sending application submission SMS: {e}")
 
         # Re-fetch the application with all relationships loaded
         stmt = (
@@ -719,6 +731,24 @@ class ApplicationDAO(BaseDAO):
         )
 
         await self.session.commit()
+
+        # Trigger SMS notification
+        try:
+            year = application.created_at.year if application.created_at else datetime.now().year
+            app_number = f"APP-{year}-{application_id:05d}"
+            
+            if action == WorkflowAction.APPROVE and next_status == ApplicationStatus.APPROVED:
+                await sms_service.send_application_sms(application.mobile, app_number, "approved")
+            elif action == WorkflowAction.REJECT:
+                await sms_service.send_application_sms(application.mobile, app_number, "rejected")
+            elif action == WorkflowAction.OBJECT:
+                await sms_service.send_application_sms(application.mobile, app_number, "objected")
+            elif action == WorkflowAction.GENERATE_TOKENS:
+                # Notify that tokens are generated for the application
+                await sms_service.send_token_sms(application.mobile, app_number, "generated")
+        except Exception as e:
+            print(f"Error sending workflow SMS: {e}")
+
         return SuccessResponse(
             message=f"Application {action.value.lower()}d successfully"
         )
@@ -1418,6 +1448,23 @@ class ApplicationDAO(BaseDAO):
         )
 
         await self.session.commit()
+
+        # Trigger SMS for specific phase status changes
+        try:
+            if status in (ApplicationPhaseStatus.WITHHELD, ApplicationPhaseStatus.TERMINATED):
+                # We need the application's mobile number
+                app_stmt = select(Application.mobile, Application.created_at).where(Application.id == application_id)
+                app_res = await self.session.execute(app_stmt)
+                app_row = app_res.one_or_none()
+                
+                if app_row:
+                    year = app_row.created_at.year if app_row.created_at else datetime.now().year
+                    token_number = f"TKN-{year}-{phase_record.id:03d}"
+                    status_text = "put on hold" if status == ApplicationPhaseStatus.WITHHELD else "terminated"
+                    await sms_service.send_token_sms(app_row.mobile, token_number, status_text)
+        except Exception as e:
+            print(f"Error sending phase status SMS: {e}")
+
         return SuccessResponse(message=f"Phase {phase_num} status updated to {status.value}")
 
     # ── Comment (enhanced) ────────────────────────────────────────────────
