@@ -16,10 +16,19 @@ class SMSService(BaseService):
     COMPLAINT_TEMPLATE_ID = "69f0774ab51957fcc6088a84"
 
     async def send_otp(self, mobile: str, otp: str) -> bool:
-...
-        except Exception as e:
-            logger.error(f"Exception while sending SMS: {str(e)}")
-            return False
+        """
+        Send OTP to the given mobile number using MSG91 Flow API.
+        """
+        payload = {
+            "template_id": self.OTP_TEMPLATE_ID,
+            "recipients": [
+                {
+                    "mobiles": self._format_mobile(mobile),
+                    "OTP": otp
+                }
+            ]
+        }
+        return await self._send_flow_sms(payload, f"OTP {otp}")
 
     async def send_application_sms(self, mobile: str, app_id: str, status: str) -> bool:
         """
