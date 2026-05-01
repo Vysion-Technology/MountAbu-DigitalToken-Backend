@@ -1,6 +1,8 @@
 from jose import jwt, ExpiredSignatureError, JWTError
 from backend.config import settings
 import time
+import secrets
+import string
 
 from datetime import datetime
 from typing import Optional
@@ -12,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database import get_db
 from backend.services.user import UserService
+from backend.services.sms import sms_service
 from backend.dao.user import UserDAO, UserRole
 from backend.core.security import (
     create_tokens,
@@ -95,8 +98,12 @@ async def send_otp(request: OTPRequest, db: AsyncSession = Depends(get_db)):
         print(f"RESENDING EXISTING OTP {otp_value} TO {request.mobile}")
         print("========================================")
     else:
-        # Generate new OTP (placeholder: using "123456" for everyone)
-        otp_value = "123456"
+        # Generate new OTP
+        if settings.USE_REAL_OTP:
+            otp_value = "".join(secrets.choice(string.digits) for _ in range(6))
+        else:
+            # placeholder for development
+            otp_value = "123456"
 
         # Store OTP in DB
         await user_dao.create_otp(db, request.mobile, otp_value)
@@ -104,6 +111,9 @@ async def send_otp(request: OTPRequest, db: AsyncSession = Depends(get_db)):
         print("========================================")
         print(f"SENT NEW OTP {otp_value} TO {request.mobile}")
         print("========================================")
+
+    # Trigger SMS delivery (will log if USE_REAL_OTP is False)
+    await sms_service.send_otp(request.mobile, otp_value)
 
     return {"message": "OTP sent successfully"}
 
@@ -119,7 +129,10 @@ async def login_with_otp(request: LoginRequest, db: AsyncSession = Depends(get_d
     if otp_record.valid_till < datetime.now():
         raise HTTPException(status_code=400, detail="OTP Expired")
 
-    # 2. Get or create user
+    # 2. OTP is valid, delete it to prevent reuse
+    await user_dao.delete_otp_records(db, request.mobile)
+
+    # 3. Get or create user
     is_new_user = False
     user = await user_service.get_user_by_mobile(db, request.mobile)
 

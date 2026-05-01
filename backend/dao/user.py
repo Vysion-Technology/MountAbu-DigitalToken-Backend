@@ -73,6 +73,13 @@ class UserDAO:
         session.add(otp_record)
         await session.commit()
 
+    async def delete_otp_records(self, session: AsyncSession, mobile: str):
+        """Delete all OTP records for a mobile number."""
+        from sqlalchemy import delete
+        stmt = delete(ActiveUserOTP).where(ActiveUserOTP.mobile == mobile)
+        await session.execute(stmt)
+        await session.commit()
+
     async def get_users_filtered(
         self, session: AsyncSession, is_citizen: bool
     ) -> Sequence[User]:

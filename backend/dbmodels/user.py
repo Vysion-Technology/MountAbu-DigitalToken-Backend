@@ -15,7 +15,7 @@ class ActiveUserOTP(Base):
     otp: Mapped[str] = mapped_column(String, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     valid_till: Mapped[datetime] = mapped_column(
-        DateTime, default=lambda: datetime.now() + timedelta(minutes=60)
+        DateTime, default=lambda: datetime.now() + timedelta(minutes=5)
     )
 
 
