@@ -230,18 +230,6 @@ class ApplicationDAO(BaseDAO):
 
         await self.session.commit()
 
-        # Trigger SMS notification
-        try:
-            year = datetime.now().year
-            app_number = f"APP-{year}-{new_application_id:05d}"
-            await sms_service.send_application_sms(
-                mobile=mobile,
-                app_id=app_number,
-                status="successfully submitted"
-            )
-        except Exception as e:
-            print(f"Error sending application submission SMS: {e}")
-
         # Re-fetch the application with all relationships loaded
         stmt = (
             select(Application)
@@ -566,6 +554,19 @@ class ApplicationDAO(BaseDAO):
         # Update status
         application.status = ApplicationStatus.SUBMITTED
         await self.session.commit()
+
+        # Trigger SMS notification
+        try:
+            year = application.created_at.year if application.created_at else datetime.now().year
+            app_number = f"APP-{year}-{application_id:05d}"
+            await sms_service.send_application_sms(
+                mobile=application.mobile,
+                app_id=app_number,
+                status="successfully submitted"
+            )
+        except Exception as e:
+            print(f"Error sending application submission SMS: {e}")
+
         return SuccessResponse(message="Application submitted successfully")
 
     async def get_comments(self, application_id: int) -> list[ApplicationComment]:
