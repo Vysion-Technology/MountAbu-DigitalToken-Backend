@@ -16,6 +16,7 @@ from backend.schemas.request.master import (
     ComplaintCategoryCreate,
     ComplaintCategoryUpdate,
     MaterialCreate,
+    MaterialUpdate,
 )
 # Note: Material is imported inside methods to avoid potential circular deps or just clean structure
 
@@ -87,6 +88,9 @@ class MasterDataDAO:
     async def list_wards(self, session: AsyncSession) -> List[Ward]:
         return await self._list(session, Ward)
 
+    async def delete_ward(self, session: AsyncSession, ward_id: int) -> bool:
+        return await self._delete(session, Ward, ward_id)
+
     # Department Operations
     async def create_department(
         self,
@@ -143,6 +147,9 @@ class MasterDataDAO:
         result = await session.execute(stmt)
         return list(result.scalars().all())
 
+    async def delete_department(self, session: AsyncSession, dept_id: int) -> bool:
+        return await self._delete(session, Department, dept_id)
+
     # Role Operations
     async def create_role(
         self,
@@ -167,6 +174,9 @@ class MasterDataDAO:
 
     async def list_roles(self, session: AsyncSession) -> List[Role]:
         return await self._list(session, Role)
+
+    async def delete_role(self, session: AsyncSession, role_id: int) -> bool:
+        return await self._delete(session, Role, role_id)
 
     # Complaint Category Operations
     async def create_complaint_category(
@@ -200,6 +210,11 @@ class MasterDataDAO:
     ) -> List[ComplaintCategory]:
         return await self._list(session, ComplaintCategory)
 
+    async def delete_complaint_category(
+        self, session: AsyncSession, category_id: int
+    ) -> bool:
+        return await self._delete(session, ComplaintCategory, category_id)
+
     # Material Operations
     async def create_material(
         self,
@@ -219,3 +234,17 @@ class MasterDataDAO:
         from backend.dbmodels.application import Material
 
         return await self._list(session, Material)
+
+    async def update_material(
+        self, session: AsyncSession, material_id: int, material: MaterialUpdate
+    ) -> Optional[Material]:
+        from backend.dbmodels.application import Material
+
+        return await self._update(
+            session, Material, material_id, material.model_dump(exclude_unset=True)
+        )
+
+    async def delete_material(self, session: AsyncSession, material_id: int) -> bool:
+        from backend.dbmodels.application import Material
+
+        return await self._delete(session, Material, material_id)

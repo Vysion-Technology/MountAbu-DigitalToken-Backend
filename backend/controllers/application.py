@@ -176,6 +176,11 @@ async def get_vehicle_entry_detail(
     response_model=List[AuthorityVehicleEntryResponse],
 )
 async def get_all_vehicle_entries(
+    search: Optional[str] = Query(
+        None, description="Search by vehicle number, token number, material or date"
+    ),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=500),
     application_service: ApplicationService = Depends(get_application_service),
     user: UserDetails = Depends(get_current_user),
 ) -> List[AuthorityVehicleEntryResponse]:
@@ -189,7 +194,9 @@ async def get_all_vehicle_entries(
             status_code=403,
             detail="You are not permitted to view the vehicle entries list.",
         )
-    return await application_service.get_all_vehicle_entries(user.role)
+    return await application_service.get_all_vehicle_entries(
+        user.role, search=search, offset=offset, limit=limit
+    )
 
 
 @router.get("/applications", response_model=List[ApplicationResponse])

@@ -293,19 +293,26 @@ class ApplicationService(BaseService):
 
         return VehicleEntryDetailResponse.model_validate(entry_data)
 
-    async def get_all_vehicle_entries(self, user_role: UserRole) -> list[AuthorityVehicleEntryResponse]:
+    async def get_all_vehicle_entries(
+        self,
+        user_role: UserRole,
+        search: Optional[str] = None,
+        offset: int = 0,
+        limit: int = 50,
+    ) -> list[AuthorityVehicleEntryResponse]:
         """Get all vehicle entries for authority view, with role-based token_number hiding."""
-        entries_data = await self.dao.get_all_vehicle_entries()
-        
+        entries_data = await self.dao.get_all_vehicle_entries(
+            search=search, offset=offset, limit=limit
+        )
+
         response = []
         for item in entries_data:
             if user_role == UserRole.NAKA_INCHARGE:
                 item["token_number"] = None
-            
-            response.append(AuthorityVehicleEntryResponse.model_validate(item))
-            
-        return response
 
+            response.append(AuthorityVehicleEntryResponse.model_validate(item))
+
+        return response
     async def get_phase_material_summary(self, application_id: int, phase: int) -> dict:
         """Get material summary for a phase (used by naka checkpoint)."""
         return await self.dao.get_phase_material_summary(application_id, phase)

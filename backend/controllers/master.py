@@ -25,6 +25,7 @@ from backend.schemas.request.master import (
     ComplaintCategoryCreate,
     ComplaintCategoryUpdate,
     MaterialCreate,
+    MaterialUpdate,
 )
 from backend.schemas.response.master import (
     WardResponse,
@@ -84,6 +85,27 @@ async def update_ward(
     )
     await session.commit()
     return updated
+
+
+@router.delete("/wards/{ward_id}")
+async def delete_ward(
+    ward_id: int,
+    current_user: UserDetails = Depends(get_admin_or_nodal),
+    session: AsyncSession = Depends(get_db),
+):
+    success = await dao.delete_ward(session, ward_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Ward not found")
+
+    await audit_service.log(
+        session,
+        "WARD",
+        AuditAction.DELETED,
+        current_user.user_id,
+        new_state={"ward_id": ward_id},
+    )
+    await session.commit()
+    return {"message": "Ward deleted successfully"}
 
 
 from backend.dbmodels.user import User
@@ -156,6 +178,27 @@ async def update_department(
     return updated
 
 
+@router.delete("/departments/{dept_id}")
+async def delete_department(
+    dept_id: int,
+    current_user: UserDetails = Depends(get_admin_or_nodal),
+    session: AsyncSession = Depends(get_db),
+):
+    success = await dao.delete_department(session, dept_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Department not found")
+
+    await audit_service.log(
+        session,
+        "DEPARTMENT",
+        AuditAction.DELETED,
+        current_user.user_id,
+        new_state={"dept_id": dept_id},
+    )
+    await session.commit()
+    return {"message": "Department deleted successfully"}
+
+
 # Roles
 @router.post("/roles", response_model=RoleResponse)
 async def create_role(
@@ -182,6 +225,19 @@ async def update_role(
     if not updated:
         raise HTTPException(status_code=404, detail="Role not found")
     return updated
+
+
+@router.delete("/roles/{role_id}")
+async def delete_role(
+    role_id: int,
+    current_user: UserDetails = Depends(get_superadmin),
+    session: AsyncSession = Depends(get_db),
+):
+    success = await dao.delete_role(session, role_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Role not found")
+    await session.commit()
+    return {"message": "Role deleted successfully"}
 
 
 # Complaint Categories
@@ -216,6 +272,19 @@ async def update_complaint_category(
     return updated
 
 
+@router.delete("/complaint-categories/{category_id}")
+async def delete_complaint_category(
+    category_id: int,
+    current_user: UserDetails = Depends(get_admin_or_nodal),
+    session: AsyncSession = Depends(get_db),
+):
+    success = await dao.delete_complaint_category(session, category_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Category not found")
+    await session.commit()
+    return {"message": "Category deleted successfully"}
+
+
 # Materials
 @router.post("/materials", response_model=MaterialResponse)
 async def create_material(
@@ -231,6 +300,49 @@ async def create_material(
 @router.get("/materials", response_model=List[MaterialResponse])
 async def list_materials(session: AsyncSession = Depends(get_db)):
     return await dao.list_materials(session)
+
+
+@router.put("/materials/{material_id}", response_model=MaterialResponse)
+async def update_material(
+    material_id: int,
+    material: MaterialUpdate,
+    current_user: UserDetails = Depends(get_admin_or_nodal),
+    session: AsyncSession = Depends(get_db),
+):
+    updated = await dao.update_material(session, material_id, material)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Material not found")
+
+    await audit_service.log(
+        session,
+        "MATERIAL",
+        AuditAction.CHANGED,
+        current_user.user_id,
+        new_state=updated.model_dump() if hasattr(updated, "model_dump") else None,
+    )
+    await session.commit()
+    return updated
+
+
+@router.delete("/materials/{material_id}")
+async def delete_material(
+    material_id: int,
+    current_user: UserDetails = Depends(get_admin_or_nodal),
+    session: AsyncSession = Depends(get_db),
+):
+    success = await dao.delete_material(session, material_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Material not found")
+
+    await audit_service.log(
+        session,
+        "MATERIAL",
+        AuditAction.DELETED,
+        current_user.user_id,
+        new_state={"material_id": material_id},
+    )
+    await session.commit()
+    return {"message": "Material deleted successfully"}
 
 
 # Users / Officials

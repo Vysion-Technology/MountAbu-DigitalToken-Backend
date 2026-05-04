@@ -5,7 +5,7 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func
 from typing import Optional
-from sqlalchemy import insert, select, update, exists, and_, or_
+from sqlalchemy import insert, select, update, exists, and_, or_, String
 from sqlalchemy.orm import selectinload, joinedload
 from datetime import datetime, timedelta
 
@@ -1188,7 +1188,12 @@ class ApplicationDAO(BaseDAO):
             "application_user_id": app.user_id,  # For authorization check
         }
 
-    async def get_all_vehicle_entries(self) -> list[dict]:
+    async def get_all_vehicle_entries(
+        self,
+        search: Optional[str] = None,
+        offset: int = 0,
+        limit: int = 50,
+    ) -> list[dict]:
         """Get all vehicle entries for authority view, flattened by material."""
         from backend.dbmodels.user import User
         from backend.dbmodels.application import ApprovedApplicationPhase, Material
@@ -1203,18 +1208,61 @@ class ApplicationDAO(BaseDAO):
                 User,
                 Material,
                 ApprovedApplicationPhase,
-                exists().where(VehicleEntryDumpingPhoto.vehicle_entry_id == VehicleEntry.id).label("has_dumping_photos")
+                exists()
+                .where(VehicleEntryDumpingPhoto.vehicle_entry_id == VehicleEntry.id)
+                .label("has_dumping_photos"),
             )
             .join(VehicleEntry, VehicleMaterial.vehicle_entry_id == VehicleEntry.id)
             .join(Application, VehicleEntry.application_id == Application.id)
             .join(User, VehicleEntry.entry_by == User.id)
             .outerjoin(Material, VehicleMaterial.material_id == Material.id)
-            .outerjoin(ApprovedApplicationPhase, and_(
-                ApprovedApplicationPhase.application_id == VehicleEntry.application_id,
-                ApprovedApplicationPhase.phase == VehicleEntry.phase
-            ))
-            .order_by(VehicleEntry.entry_at.desc())
+            .outerjoin(
+                ApprovedApplicationPhase,
+                and_(
+                    ApprovedApplicationPhase.application_id == VehicleEntry.application_id,
+                    ApprovedApplicationPhase.phase == VehicleEntry.phase,
+                ),
+            )
         )
+
+        # ── Fuzzy Search Filters ──────────────────────────────────────────
+        if search:
+            search_filters = []
+
+            # 1. Vehicle Number
+            search_filters.append(VehicleEntry.vehicle_number.ilike(f"%{search}%"))
+
+            # 2. Material Name (Catalog or Custom)
+            search_filters.append(Material.name.ilike(f"%{search}%"))
+            search_filters.append(VehicleMaterial.custom_name.ilike(f"%{search}%"))
+
+            # 3. Date (entry_at)
+            # Casting to string for partial matching
+            search_filters.append(func.cast(VehicleEntry.entry_at, String).ilike(f"%{search}%"))
+
+            # 4. Token Number / Application ID
+            if search.isdigit():
+                val = int(search)
+                search_filters.append(Application.id == val)
+                search_filters.append(ApprovedApplicationPhase.id == val)
+            elif search.upper().startswith("TKN-"):
+                try:
+                    parts = search.split("-")
+                    phase_id = int(parts[-1])
+                    search_filters.append(ApprovedApplicationPhase.id == phase_id)
+                except (ValueError, IndexError):
+                    pass
+            elif search.upper().startswith("APP-"):
+                try:
+                    parts = search.split("-")
+                    app_id = int(parts[-1])
+                    search_filters.append(Application.id == app_id)
+                except (ValueError, IndexError):
+                    pass
+
+            stmt = stmt.where(or_(*search_filters))
+
+        stmt = stmt.order_by(VehicleEntry.entry_at.desc()).offset(offset).limit(limit)
 
         result = await self.session.execute(stmt)
         rows = result.all()
