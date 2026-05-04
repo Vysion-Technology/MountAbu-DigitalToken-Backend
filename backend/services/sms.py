@@ -13,7 +13,7 @@ class SMSService(BaseService):
     OTP_TEMPLATE_ID = "69edd13d2ee1bac60804bdb2"
     APPLICATION_TEMPLATE_ID = "69f0774ab51957fcc6088a84"
     TOKEN_TEMPLATE_ID = "69f075f0a665146853008054"
-    COMPLAINT_TEMPLATE_ID = "69f0774ab51957fcc6088a84"
+    COMPLAINT_TEMPLATE_ID = "69f078c7bbab984c20070bd2"
 
     async def send_otp(self, mobile: str, otp: str) -> bool:
         """
