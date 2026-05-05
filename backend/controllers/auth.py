@@ -22,6 +22,7 @@ from backend.core.security import (
     decode_token,
     verify_password,
     decrypt_credentials,
+    get_rsa_public_key,
 )
 from backend.middlewares.auth import get_current_user, security
 from backend.schemas.base.auth import UserDetails
@@ -200,6 +201,12 @@ async def login_with_password(
         "user_id": user.id,
         "name": user.name,
     }
+
+
+@router.get("/public-key")
+async def get_public_key():
+    """Returns the RSA public key for client-side encryption."""
+    return {"public_key": get_rsa_public_key()}
 
 
 @router.post("/refresh", response_model=RefreshTokenResponse)
