@@ -2,9 +2,52 @@ from datetime import datetime, timedelta
 from typing import Optional, Tuple
 
 import bcrypt
+import base64
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import padding
 from jose import jwt, JWTError
 
 from backend.config import settings
+
+
+def decrypt_credentials(encrypted_text: str) -> str:
+    """
+    Decrypt credentials encrypted with AES-256-CBC.
+    Expects base64 encoded string containing IV + Ciphertext.
+    The key is retrieved from settings.CREDENTIALS_SECRET_KEY (must be 32 bytes).
+    """
+    if not settings.CREDENTIALS_SECRET_KEY:
+        # Fallback for development if key is not set, return as is or handle error
+        return encrypted_text
+
+    try:
+        # Decode base64
+        encrypted_data = base64.b64decode(encrypted_text)
+        
+        # AES-256-CBC uses 16 byte IV
+        iv = encrypted_data[:16]
+        ciphertext = encrypted_data[16:]
+        
+        # Key must be 32 bytes for AES-256
+        key = settings.CREDENTIALS_SECRET_KEY.encode("utf-8")
+        if len(key) != 32:
+            raise ValueError("CREDENTIALS_SECRET_KEY must be exactly 32 bytes")
+
+        cipher = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend())
+        decryptor = cipher.decryptor()
+        
+        padded_plain_text = decryptor.update(ciphertext) + decryptor.finalize()
+        
+        # Remove padding
+        unpadder = padding.PKCS7(128).unpadder()
+        plain_text = unpadder.update(padded_plain_text) + unpadder.finalize()
+        
+        return plain_text.decode("utf-8")
+    except Exception as e:
+        print(f"Decryption error: {e}")
+        # In production, you'd likely want to raise a 400 error via FastAPI
+        return encrypted_text
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:

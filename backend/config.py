@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30  # 30 minutes for access token
     REFRESH_TOKEN_EXPIRE_DAYS: int = 90  # 90 days for refresh token
 
+    CREDENTIALS_SECRET_KEY: str = ""  # For decrypting credentials in request body
+
     @property
     def database_url(self) -> str:
         # Use asyncpg driver for async sqlalchemy

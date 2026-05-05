@@ -21,6 +21,7 @@ from backend.core.security import (
     create_access_token,
     decode_token,
     verify_password,
+    decrypt_credentials,
 )
 from backend.middlewares.auth import get_current_user, security
 from backend.schemas.base.auth import UserDetails
@@ -33,11 +34,11 @@ user_dao = UserDAO()
 
 
 class OTPRequest(BaseModel):
-    mobile: str = Field(..., pattern=r"^\d{10}$")
+    mobile: str
 
 
 class LoginRequest(BaseModel):
-    mobile: str = Field(..., pattern=r"^\d{10}$")
+    mobile: str
     otp: str
 
 
@@ -120,9 +121,13 @@ async def send_otp(request: OTPRequest, db: AsyncSession = Depends(get_db)):
 
 @router.post("/login/otp", response_model=TokenResponse)
 async def login_with_otp(request: LoginRequest, db: AsyncSession = Depends(get_db)):
+    # Decrypt credentials
+    mobile = decrypt_credentials(request.mobile)
+    otp = decrypt_credentials(request.otp)
+
     # 1. Verify OTP
-    otp_record = await user_dao.get_otp_record(db, request.mobile)
-    if not otp_record or otp_record.otp != request.otp:
+    otp_record = await user_dao.get_otp_record(db, mobile)
+    if not otp_record or otp_record.otp != otp:
         raise HTTPException(status_code=400, detail="Invalid OTP")
 
     # Check expiry
@@ -130,16 +135,16 @@ async def login_with_otp(request: LoginRequest, db: AsyncSession = Depends(get_d
         raise HTTPException(status_code=400, detail="OTP Expired")
 
     # 2. OTP is valid, delete it to prevent reuse
-    await user_dao.delete_otp_records(db, request.mobile)
+    await user_dao.delete_otp_records(db, mobile)
 
     # 3. Get or create user
     is_new_user = False
-    user = await user_service.get_user_by_mobile(db, request.mobile)
+    user = await user_service.get_user_by_mobile(db, mobile)
 
     if not user:
         # Auto-register as citizen
         user = await user_service.create_user(
-            db, mobile=request.mobile, role=UserRole.CITIZEN
+            db, mobile=mobile, role=UserRole.CITIZEN
         )
         await db.commit()
         await db.refresh(user)
@@ -165,7 +170,11 @@ async def login_with_otp(request: LoginRequest, db: AsyncSession = Depends(get_d
 async def login_with_password(
     request: PasswordLoginRequest, db: AsyncSession = Depends(get_db)
 ):
-    user = await user_service.get_user_by_username(db, request.username)
+    # Decrypt credentials
+    username = decrypt_credentials(request.username)
+    password = decrypt_credentials(request.password)
+
+    user = await user_service.get_user_by_username(db, username)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
@@ -177,7 +186,7 @@ async def login_with_password(
             status_code=401, detail="Password login not enabled for this user"
         )
 
-    if not verify_password(request.password, user.password):
+    if not verify_password(password, user.password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     # Generate Tokens (access + refresh)
