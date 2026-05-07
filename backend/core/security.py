@@ -2,9 +2,56 @@ from datetime import datetime, timedelta
 from typing import Optional, Tuple
 
 import bcrypt
+import base64
+from Crypto.PublicKey import RSA
+from Crypto.Cipher import PKCS1_v1_5
+from Crypto.Hash import SHA256
+from Crypto import Random
 from jose import jwt, JWTError
 
 from backend.config import settings
+
+# RSA Key Management
+_private_key = None
+_public_key_pem = None
+
+def get_rsa_public_key() -> str:
+    """Returns the public key in PEM format."""
+    global _private_key, _public_key_pem
+    if _public_key_pem is None:
+        # In a real production app, you might load these from a file or env
+        # For now, we generate them on startup if not present
+        random_generator = Random.new().read
+        _private_key = RSA.generate(2048, random_generator)
+        _public_key_pem = _private_key.publickey().export_key().decode("utf-8")
+    return _public_key_pem
+
+def decrypt_credentials(encrypted_text: str) -> str:
+    """
+    Decrypt credentials encrypted with RSA Public Key.
+    Expects base64 encoded ciphertext.
+    """
+    global _private_key
+    if _private_key is None:
+        get_rsa_public_key() # Ensure keys are generated
+
+    try:
+        # Decode base64
+        ciphertext = base64.b64decode(encrypted_text)
+        
+        # Decrypt using PKCS1_v1_5 (common for browser/mobile compatibility)
+        sentinel = Random.new().read(16) # Dummy value for failure
+        cipher = PKCS1_v1_5.new(_private_key)
+        plain_text = cipher.decrypt(ciphertext, sentinel)
+        
+        if plain_text == sentinel:
+            raise ValueError("RSA Decryption failed")
+            
+        return plain_text.decode("utf-8")
+    except Exception as e:
+        print(f"Decryption error: {e}")
+        # In development, return as is if not encrypted, or handle error
+        return encrypted_text
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
