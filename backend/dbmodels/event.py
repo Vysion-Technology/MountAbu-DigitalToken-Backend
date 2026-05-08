@@ -19,6 +19,7 @@ class Event(Base):
 
     date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     venue: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     status: Mapped[TenderStatus] = mapped_column(SAEnum(TenderStatus, name="eventstatus"), default=TenderStatus.ACTIVE, index=True)
 

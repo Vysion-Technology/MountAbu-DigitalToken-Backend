@@ -22,6 +22,7 @@ async def create_event(
     event_type: str | None = Form(None),
     date: datetime | None = Form(None),
     venue: str | None = Form(None),
+    description: str | None = Form(None),
     status: TenderStatus | None = Form(TenderStatus.ACTIVE),
     image: UploadFile | None = File(None),
     db: AsyncSession = Depends(get_db),
@@ -33,6 +34,7 @@ async def create_event(
         event_type=event_type,
         date=date,
         venue=venue,
+        description=description,
         status=status,
     )
     response = await service.create_event(db, payload, current_user.user_id, image=image)
@@ -73,6 +75,7 @@ async def update_event(
     event_type: str | None = Form(None),
     date: datetime | None = Form(None),
     venue: str | None = Form(None),
+    description: str | None = Form(None),
     status: TenderStatus | None = Form(None),
     image: UploadFile | None = File(None),
     db: AsyncSession = Depends(get_db),
@@ -84,6 +87,7 @@ async def update_event(
         event_type=event_type,
         date=date,
         venue=venue,
+        description=description,
         status=status,
     )
     response = await service.update_event(db, event_id, payload, image=image)
