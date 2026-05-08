@@ -41,6 +41,30 @@ async def get_current_user(
     return UserDetails(user_id=user_id, role=role)
 
 
+async def get_optional_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+) -> Optional[UserDetails]:
+    """Get user details if token is provided, else return None."""
+    if not credentials:
+        return None
+    try:
+        token = credentials.credentials
+        payload = jwt.decode(
+            token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
+        )
+        user_id_str: str = payload.get("sub")
+        role_str: str = payload.get("role")
+
+        if user_id_str is None:
+            return None
+
+        user_id = int(user_id_str)
+        role = UserRole(role_str) if role_str else UserRole.CITIZEN
+        return UserDetails(user_id=user_id, role=role)
+    except (JWTError, ValueError):
+        return None
+
+
 async def get_current_user_id(
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> int:
