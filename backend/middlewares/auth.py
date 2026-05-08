@@ -30,6 +30,7 @@ async def get_current_user(
         )
         user_id_str: str = payload.get("sub")
         role_str: str = payload.get("role")
+        token_version: int = payload.get("version", 1)
 
         if user_id_str is None:
             raise credentials_exception
@@ -40,7 +41,17 @@ async def get_current_user(
     except (JWTError, ValueError):
         raise credentials_exception
 
-    return UserDetails(user_id=user_id, role=role)
+    # Token version verification
+    from backend.database import get_db
+    from backend.dao.user import UserDAO
+    async for db in get_db():
+        user_dao = UserDAO()
+        user = await user_dao.get_by_id(db, user_id)
+        if not user or user.token_version != token_version:
+            raise credentials_exception
+        break
+
+    return UserDetails(user_id=user_id, role=role, token_version=token_version)
 
 
 async def get_optional_user(
@@ -56,13 +67,25 @@ async def get_optional_user(
         )
         user_id_str: str = payload.get("sub")
         role_str: str = payload.get("role")
+        token_version: int = payload.get("version", 1)
 
         if user_id_str is None:
             return None
 
         user_id = int(user_id_str)
         role = UserRole(role_str) if role_str else UserRole.CITIZEN
-        return UserDetails(user_id=user_id, role=role)
+
+        # Token version verification
+        from backend.database import get_db
+        from backend.dao.user import UserDAO
+        async for db in get_db():
+            user_dao = UserDAO()
+            user = await user_dao.get_by_id(db, user_id)
+            if not user or user.token_version != token_version:
+                return None
+            break
+
+        return UserDetails(user_id=user_id, role=role, token_version=token_version)
     except (JWTError, ValueError):
         return None
 

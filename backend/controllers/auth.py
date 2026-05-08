@@ -154,7 +154,7 @@ async def login_with_otp(request: LoginRequest, db: AsyncSession = Depends(get_d
         raise HTTPException(status_code=403, detail="User account is inactive")
 
     # 3. Generate Tokens (access + refresh)
-    access_token, refresh_token = create_tokens(user.id, user.role.value)
+    access_token, refresh_token = create_tokens(user.id, user.role.value, user.token_version)
 
     return {
         "access_token": access_token,
@@ -191,7 +191,7 @@ async def login_with_password(
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     # Generate Tokens (access + refresh)
-    access_token, refresh_token = create_tokens(user.id, user.role.value)
+    access_token, refresh_token = create_tokens(user.id, user.role.value, user.token_version)
 
     return {
         "access_token": access_token,
@@ -210,7 +210,7 @@ async def get_public_key():
 
 
 @router.post("/refresh", response_model=RefreshTokenResponse)
-async def refresh_access_token(request: RefreshTokenRequest):
+async def refresh_access_token(request: RefreshTokenRequest, db: AsyncSession = Depends(get_db)):
     """
     Exchange a valid refresh token for a new access token.
 
@@ -235,23 +235,51 @@ async def refresh_access_token(request: RefreshTokenRequest):
         )
 
     # Extract user info from refresh token
-    user_id = payload.get("sub")
+    user_id_str = payload.get("sub")
     role = payload.get("role")
+    token_version = payload.get("version", 1)
 
-    if not user_id or not role:
+    if not user_id_str or not role:
         raise HTTPException(
             status_code=401,
             detail="Invalid refresh token payload",
         )
 
+    user_id = int(user_id_str)
+    user = await user_dao.get_by_id(db, user_id)
+    if not user or user.token_version != token_version:
+        raise HTTPException(
+            status_code=401,
+            detail="Token invalidated. Please login again.",
+        )
+
     # Create new access token
-    token_data = {"sub": user_id, "role": role}
+    token_data = {"sub": str(user_id), "role": role, "version": user.token_version}
     new_access_token = create_access_token(token_data)
 
     return {
         "access_token": new_access_token,
         "token_type": "bearer",
     }
+
+
+@router.post("/logout", response_model=MessageResponse)
+async def logout(
+    current_user: UserDetails = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Logout the current user by incrementing their token_version.
+    This invalidates all current access and refresh tokens for this user.
+    """
+    user = await user_dao.get_by_id(db, current_user.user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.token_version += 1
+    await db.commit()
+
+    return {"message": "Logged out successfully. All sessions invalidated."}
 
 
 @router.get("/me", response_model=MeResponse)
