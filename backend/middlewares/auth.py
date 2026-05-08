@@ -1,3 +1,4 @@
+from typing import Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
@@ -9,6 +10,7 @@ from backend.schemas.base.auth import UserDetails
 # HTTPBearer scheme - expects token in "Authorization: Bearer <token>" header
 # Shows simple token input in Swagger UI
 security = HTTPBearer()
+optional_security = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
@@ -42,7 +44,7 @@ async def get_current_user(
 
 
 async def get_optional_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(optional_security),
 ) -> Optional[UserDetails]:
     """Get user details if token is provided, else return None."""
     if not credentials:
