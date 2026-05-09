@@ -30,3 +30,4 @@ class User(Base):
     username: Mapped[Optional[str]] = mapped_column(String, index=True)
     password: Mapped[Optional[str]] = mapped_column(String, index=True)
     is_active: Mapped[bool] = mapped_column(default=True)
+    token_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")

@@ -23,6 +23,7 @@ async def create_leader(
     tenure_start: datetime | None = Form(None),
     tenure_end: datetime | None = Form(None),
     status: NoticeStatus | None = Form(NoticeStatus.ACTIVE),
+    message: str | None = Form(None),
     image: UploadFile | None = File(None),
     db: AsyncSession = Depends(get_db),
     current_user: UserDetails = Depends(get_admin_or_nodal),
@@ -34,6 +35,7 @@ async def create_leader(
         tenure_start=tenure_start,
         tenure_end=tenure_end,
         status=status,
+        message=message,
     )
     response = await service.create_leader(db, payload, current_user.user_id, image=image)
     await audit_service.log(
@@ -74,6 +76,7 @@ async def update_leader(
     tenure_start: datetime | None = Form(None),
     tenure_end: datetime | None = Form(None),
     status: NoticeStatus | None = Form(None),
+    message: str | None = Form(None),
     image: UploadFile | None = File(None),
     db: AsyncSession = Depends(get_db),
     current_user: UserDetails = Depends(get_admin_or_nodal),
@@ -85,6 +88,7 @@ async def update_leader(
         tenure_start=tenure_start,
         tenure_end=tenure_end,
         status=status,
+        message=message,
     )
     response = await service.update_leader(db, leader_id, payload, image=image)
     await audit_service.log(

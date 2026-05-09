@@ -25,6 +25,7 @@ class Notice(Base):
 
     image_path: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     document_path: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    content: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

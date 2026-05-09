@@ -12,6 +12,7 @@ class LeaderResponse(BaseModel):
     tenure_start: Optional[datetime]
     tenure_end: Optional[datetime]
     status: NoticeStatus
+    message: Optional[str] = None
     image_path: Optional[str] = None
     image_url: Optional[str] = None
     created_by: Optional[int]

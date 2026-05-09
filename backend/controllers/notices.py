@@ -24,6 +24,7 @@ async def create_notice(
     valid_till: datetime | None = Form(None),
     status: NoticeStatus | None = Form(NoticeStatus.ACTIVE),
     visibility: Visibility | None = Form(Visibility.PUBLIC),
+    content: str | None = Form(None),
     image: UploadFile | None = File(None),
     document: UploadFile | None = File(None),
     db: AsyncSession = Depends(get_db),
@@ -37,6 +38,7 @@ async def create_notice(
         valid_till=valid_till,
         status=status,
         visibility=visibility,
+        content=content,
     )
     response = await service.create_notice(db, payload, current_user.user_id, image=image, document=document)
     await audit_service.log(
@@ -78,6 +80,7 @@ async def update_notice(
     valid_till: datetime | None = Form(None),
     status: NoticeStatus | None = Form(None),
     visibility: Visibility | None = Form(None),
+    content: str | None = Form(None),
     image: UploadFile | None = File(None),
     document: UploadFile | None = File(None),
     db: AsyncSession = Depends(get_db),
@@ -91,6 +94,7 @@ async def update_notice(
         valid_till=valid_till,
         status=status,
         visibility=visibility,
+        content=content,
     )
     response = await service.update_notice(db, notice_id, payload, image=image, document=document)
     await audit_service.log(

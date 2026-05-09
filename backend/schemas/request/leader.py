@@ -11,6 +11,7 @@ class LeaderCreate(BaseModel):
     tenure_start: Optional[datetime] = Field(None)
     tenure_end: Optional[datetime] = Field(None)
     status: Optional[NoticeStatus] = Field(NoticeStatus.ACTIVE)
+    message: Optional[str] = Field(None, description="Message from the leader")
 
 
 class LeaderUpdate(BaseModel):
@@ -20,3 +21,4 @@ class LeaderUpdate(BaseModel):
     tenure_end: Optional[datetime] = Field(None)
     status: Optional[NoticeStatus] = Field(None)
     image_path: Optional[str] = Field(None)
+    message: Optional[str] = Field(None)

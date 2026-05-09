@@ -93,9 +93,9 @@ def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None) 
     return encoded_jwt
 
 
-def create_tokens(user_id: int, role: str) -> Tuple[str, str]:
+def create_tokens(user_id: int, role: str, token_version: int = 1) -> Tuple[str, str]:
     """Create both access and refresh tokens for a user."""
-    token_data = {"sub": str(user_id), "role": role}
+    token_data = {"sub": str(user_id), "role": role, "version": token_version}
     access_token = create_access_token(token_data)
     refresh_token = create_refresh_token(token_data)
     return access_token, refresh_token
