@@ -90,12 +90,31 @@ class MeResponse(BaseModel):
 
 @router.post("/send-otp", response_model=MessageResponse)
 async def send_otp(request: OTPRequest, db: AsyncSession = Depends(get_db)):
-    # Check if a valid (non-expired) OTP already exists
+    # Check for existing OTP record (valid or not, to check cooldown)
+    latest_otp = await user_dao.get_otp_record(db, request.mobile)
+    
+    now = datetime.now()
+    cooldown_seconds = 120  # 2 minutes cooldown
+
+    if latest_otp:
+        elapsed = (now - latest_otp.created_at).total_seconds()
+        if elapsed < cooldown_seconds:
+            wait_time = int(cooldown_seconds - elapsed)
+            raise HTTPException(
+                status_code=429,
+                detail=f"Please wait {wait_time} seconds before requesting another OTP."
+            )
+
+    # Check if a valid (non-expired) OTP already exists to reuse it
     existing_otp = await user_dao.get_valid_otp_record(db, request.mobile)
 
     if existing_otp:
-        # Resend the same OTP if it hasn't expired
+        # Resend the same OTP
         otp_value = existing_otp.otp
+        # Update created_at so the cooldown resets on resend
+        existing_otp.created_at = now
+        await db.commit()
+        
         print("========================================")
         print(f"RESENDING EXISTING OTP {otp_value} TO {request.mobile}")
         print("========================================")
@@ -104,7 +123,6 @@ async def send_otp(request: OTPRequest, db: AsyncSession = Depends(get_db)):
         if settings.USE_REAL_OTP:
             otp_value = "".join(secrets.choice(string.digits) for _ in range(6))
         else:
-            # placeholder for development
             otp_value = "123456"
 
         # Store OTP in DB
@@ -114,7 +132,7 @@ async def send_otp(request: OTPRequest, db: AsyncSession = Depends(get_db)):
         print(f"SENT NEW OTP {otp_value} TO {request.mobile}")
         print("========================================")
 
-    # Trigger SMS delivery (will log if USE_REAL_OTP is False)
+    # Trigger SMS delivery
     await sms_service.send_otp(request.mobile, otp_value)
 
     return {"message": "OTP sent successfully"}

@@ -51,13 +51,13 @@ class AuthorityDashboardService(BaseService):
         if role == UserRole.SUPERADMIN:
             return await self._superadmin(since, prev_start, prev_end, ward_id, department_id)
         elif role == UserRole.JEN:
-            return await self._jen(user_id)
+            return await self._jen(user_id, since, days, ward_id)
         elif role == UserRole.NAKA_INCHARGE:
-            return await self._naka(user_id)
+            return await self._naka(user_id, since)
         elif role == UserRole.COMMISSIONER:
-            return await self._complaint_officer()
+            return await self._complaint_officer(since, ward_id)
         elif role == UserRole.NODAL_OFFICER:
-            return await self._nodal_officer()
+            return await self._nodal_officer(since)
         else:
             # DEPT_LAND / DEPT_LEGAL / DEPT_ATP → same as superadmin (read-only overview)
             return await self._superadmin(since, prev_start, prev_end, ward_id, department_id)
@@ -73,9 +73,9 @@ class AuthorityDashboardService(BaseService):
         department_id: Optional[int],
     ) -> AuthorityDashboardResponse:
         kpis_raw = await self.dao.superadmin_kpis(since, prev_start, prev_end, ward_id, department_id)
-        status_raw = await self.dao.application_status_breakdown(ward_id, department_id)
-        category_raw = await self.dao.complaints_by_category(ward_id, department_id)
-        ward_raw = await self.dao.ward_activity(department_id)
+        status_raw = await self.dao.application_status_breakdown(since, ward_id, department_id)
+        category_raw = await self.dao.complaints_by_category(since, ward_id, department_id)
+        ward_raw = await self.dao.ward_activity(since, department_id)
 
         return AuthorityDashboardResponse(
             role=UserRole.SUPERADMIN.value,
@@ -85,11 +85,17 @@ class AuthorityDashboardService(BaseService):
             ward_activity=[WardActivity(**w) for w in ward_raw],
         )
 
-    async def _jen(self, user_id: int) -> AuthorityDashboardResponse:
-        kpis_raw = await self.dao.jen_kpis(user_id)
-        vstatus = await self.dao.jen_verification_status(user_id)
-        trend = await self.dao.jen_avg_verification_trend(user_id)
-        latest = await self.dao.jen_latest_applications(user_id)
+    async def _jen(
+        self,
+        user_id: int,
+        since: datetime,
+        days: int,
+        ward_id: Optional[int] = None,
+    ) -> AuthorityDashboardResponse:
+        kpis_raw = await self.dao.jen_kpis(user_id, since, ward_id)
+        vstatus = await self.dao.jen_verification_status(user_id, since, ward_id)
+        trend = await self.dao.jen_avg_verification_trend(user_id, days)
+        latest = await self.dao.jen_latest_applications(user_id, limit=5, ward_id=ward_id)
 
         return AuthorityDashboardResponse(
             role=UserRole.JEN.value,
@@ -99,10 +105,10 @@ class AuthorityDashboardService(BaseService):
             latest_applications=[JenApplicationRow(**a) for a in latest],
         )
 
-    async def _naka(self, user_id: int) -> AuthorityDashboardResponse:
-        kpis_raw = await self.dao.naka_kpis(user_id)
-        by_naka = await self.dao.naka_entries_by_user()
-        entries = await self.dao.naka_vehicle_entry_list(user_id)
+    async def _naka(self, user_id: int, since: datetime) -> AuthorityDashboardResponse:
+        kpis_raw = await self.dao.naka_kpis(user_id, since)
+        by_naka = await self.dao.naka_entries_by_user(since)
+        entries = await self.dao.naka_vehicle_entry_list(user_id, limit=20, since=since)
 
         return AuthorityDashboardResponse(
             role=UserRole.NAKA_INCHARGE.value,
@@ -111,11 +117,13 @@ class AuthorityDashboardService(BaseService):
             vehicle_entry_list=[NakaEntryRow(**e) for e in entries],
         )
 
-    async def _complaint_officer(self) -> AuthorityDashboardResponse:
-        kpis_raw = await self.dao.complaint_officer_kpis()
-        by_cat = await self.dao.complaints_by_category()
-        resolution = await self.dao.complaint_resolution_status()
-        clist = await self.dao.complaint_list()
+    async def _complaint_officer(
+        self, since: datetime, ward_id: Optional[int] = None
+    ) -> AuthorityDashboardResponse:
+        kpis_raw = await self.dao.complaint_officer_kpis(since, ward_id)
+        by_cat = await self.dao.complaints_by_category(since, ward_id)
+        resolution = await self.dao.complaint_resolution_status(since, ward_id)
+        clist = await self.dao.complaint_list(limit=20, since=since, ward_id=ward_id)
 
         return AuthorityDashboardResponse(
             role=UserRole.COMMISSIONER.value,
@@ -125,12 +133,12 @@ class AuthorityDashboardService(BaseService):
             complaint_list=[ComplaintRow(**c) for c in clist],
         )
 
-    async def _nodal_officer(self) -> AuthorityDashboardResponse:
-        kpis_raw = await self.dao.nodal_kpis()
-        tstatus = await self.dao.nodal_token_status()
-        mat = await self.dao.nodal_material_approved_vs_used()
-        tlist = await self.dao.nodal_token_utilization_list()
-        entries = await self.dao.nodal_vehicle_entry_list()
+    async def _nodal_officer(self, since: datetime) -> AuthorityDashboardResponse:
+        kpis_raw = await self.dao.nodal_kpis(since)
+        tstatus = await self.dao.nodal_token_status(since)
+        mat = await self.dao.nodal_material_approved_vs_used(since)
+        tlist = await self.dao.nodal_token_utilization_list(limit=20, since=since)
+        entries = await self.dao.nodal_vehicle_entry_list(limit=50, since=since)
 
         return AuthorityDashboardResponse(
             role=UserRole.NODAL_OFFICER.value,

@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import List, Optional
 
 from fastapi import Depends, UploadFile
@@ -297,12 +298,24 @@ class ApplicationService(BaseService):
         self,
         user_role: UserRole,
         search: Optional[str] = None,
+        vehicle_number: Optional[str] = None,
+        material_name: Optional[str] = None,
+        token_number: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
         offset: int = 0,
         limit: int = 50,
     ) -> list[AuthorityVehicleEntryResponse]:
         """Get all vehicle entries for authority view, with role-based token_number hiding."""
         entries_data = await self.dao.get_all_vehicle_entries(
-            search=search, offset=offset, limit=limit
+            search=search,
+            vehicle_number=vehicle_number,
+            material_name=material_name,
+            token_number=token_number,
+            start_date=start_date,
+            end_date=end_date,
+            offset=offset,
+            limit=limit,
         )
 
         response = []

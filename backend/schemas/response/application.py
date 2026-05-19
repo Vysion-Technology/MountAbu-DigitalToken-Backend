@@ -511,19 +511,27 @@ class ApplicationResponse(BaseModel):
         return data
 
 
-class AuthorityVehicleEntryResponse(BaseModel):
-    """Flattened response for authority view of vehicle entries."""
-
+class VehicleEntryMaterialItem(BaseModel):
+    """Single material item within a vehicle entry."""
     id: int  # VehicleMaterial.id
-    vehicle_entry_id: int
+    material_name: str
+    quantity: float
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AuthorityVehicleEntryResponse(BaseModel):
+    """Grouped response for authority view of vehicle entries."""
+
+    id: int  # VehicleEntry.id
     application_id: int
     token_number: Optional[str] = None  # Hidden for NAKA_INCHARGE
     vehicle_number: str
-    material_name: str
-    material_quantity: float
+    vehicle_type: Optional[str] = None
     entry_at: datetime
     naka_incharge_name: str
     has_dumping_photos: bool
+    materials: List[VehicleEntryMaterialItem]
     media: Optional[dict] = None
     access_urls: Optional[dict] = None
 

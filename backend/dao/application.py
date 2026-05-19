@@ -1191,31 +1191,35 @@ class ApplicationDAO(BaseDAO):
     async def get_all_vehicle_entries(
         self,
         search: Optional[str] = None,
+        vehicle_number: Optional[str] = None,
+        material_name: Optional[str] = None,
+        token_number: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
         offset: int = 0,
         limit: int = 50,
     ) -> list[dict]:
-        """Get all vehicle entries for authority view, flattened by material."""
+        """Get all vehicle entries for authority view, grouped by trip with advanced filtering."""
         from backend.dbmodels.user import User
-        from backend.dbmodels.application import ApprovedApplicationPhase, Material
+        from backend.dbmodels.application import (
+            ApprovedApplicationPhase,
+            Material,
+            VehicleMaterial,
+        )
 
-        # Query all VehicleMaterial rows with their entry, application, user, and material details
-        # Also check for dumping photos existence
+        # Base query for VehicleEntry
         stmt = (
             select(
-                VehicleMaterial,
                 VehicleEntry,
                 Application,
                 User,
-                Material,
                 ApprovedApplicationPhase,
                 exists()
                 .where(VehicleEntryDumpingPhoto.vehicle_entry_id == VehicleEntry.id)
                 .label("has_dumping_photos"),
             )
-            .join(VehicleEntry, VehicleMaterial.vehicle_entry_id == VehicleEntry.id)
             .join(Application, VehicleEntry.application_id == Application.id)
             .join(User, VehicleEntry.entry_by == User.id)
-            .outerjoin(Material, VehicleMaterial.material_id == Material.id)
             .outerjoin(
                 ApprovedApplicationPhase,
                 and_(
@@ -1225,22 +1229,78 @@ class ApplicationDAO(BaseDAO):
             )
         )
 
-        # ── Fuzzy Search Filters ──────────────────────────────────────────
+        # ── Explicit Filters ─────────────────────────────────────────────
+        filters = []
+        if vehicle_number:
+            filters.append(VehicleEntry.vehicle_number.ilike(f"%{vehicle_number}%"))
+
+        if material_name:
+            material_match_exists = exists().where(
+                and_(
+                    VehicleMaterial.vehicle_entry_id == VehicleEntry.id,
+                    or_(
+                        VehicleMaterial.custom_name.ilike(f"%{material_name}%"),
+                        exists().where(
+                            and_(
+                                Material.id == VehicleMaterial.material_id,
+                                Material.name.ilike(f"%{material_name}%"),
+                            )
+                        ),
+                    ),
+                )
+            )
+            filters.append(material_match_exists)
+
+        if token_number:
+            if token_number.upper().startswith("TKN-"):
+                try:
+                    parts = token_number.split("-")
+                    phase_id = int(parts[-1])
+                    filters.append(ApprovedApplicationPhase.id == phase_id)
+                except (ValueError, IndexError):
+                    pass
+            elif token_number.upper().startswith("APP-"):
+                try:
+                    parts = token_number.split("-")
+                    app_id = int(parts[-1])
+                    filters.append(Application.id == app_id)
+                except (ValueError, IndexError):
+                    pass
+            elif token_number.isdigit():
+                val = int(token_number)
+                filters.append(
+                    or_(Application.id == val, ApprovedApplicationPhase.id == val)
+                )
+
+        if start_date:
+            filters.append(VehicleEntry.entry_at >= start_date)
+        if end_date:
+            filters.append(VehicleEntry.entry_at <= end_date)
+
+        # ── Fuzzy Search Filters (Legacy) ─────────────────────────────────
         if search:
             search_filters = []
-
-            # 1. Vehicle Number
             search_filters.append(VehicleEntry.vehicle_number.ilike(f"%{search}%"))
 
-            # 2. Material Name (Catalog or Custom)
-            search_filters.append(Material.name.ilike(f"%{search}%"))
-            search_filters.append(VehicleMaterial.custom_name.ilike(f"%{search}%"))
+            material_match_exists = exists().where(
+                and_(
+                    VehicleMaterial.vehicle_entry_id == VehicleEntry.id,
+                    or_(
+                        VehicleMaterial.custom_name.ilike(f"%{search}%"),
+                        exists().where(
+                            and_(
+                                Material.id == VehicleMaterial.material_id,
+                                Material.name.ilike(f"%{search}%"),
+                            )
+                        ),
+                    ),
+                )
+            )
+            search_filters.append(material_match_exists)
+            search_filters.append(
+                func.cast(VehicleEntry.entry_at, String).ilike(f"%{search}%")
+            )
 
-            # 3. Date (entry_at)
-            # Casting to string for partial matching
-            search_filters.append(func.cast(VehicleEntry.entry_at, String).ilike(f"%{search}%"))
-
-            # 4. Token Number / Application ID
             if search.isdigit():
                 val = int(search)
                 search_filters.append(Application.id == val)
@@ -1260,19 +1320,19 @@ class ApplicationDAO(BaseDAO):
                 except (ValueError, IndexError):
                     pass
 
-            stmt = stmt.where(or_(*search_filters))
+            filters.append(or_(*search_filters))
+
+        if filters:
+            stmt = stmt.where(and_(*filters))
 
         stmt = stmt.order_by(VehicleEntry.entry_at.desc()).offset(offset).limit(limit)
 
         result = await self.session.execute(stmt)
         rows = result.all()
 
-        flattened = []
-        for vm, ve, app, incharge, m_catalog, phase_rec, has_photos in rows:
-            # Use custom name if catalog material is not linked
-            m_name = m_catalog.name if m_catalog else (vm.custom_name or "Unknown")
-            
-            # Generate token_number like the system does
+        grouped_results = []
+        for ve, app, incharge, phase_rec, has_photos in rows:
+            # Generate token_number
             if phase_rec:
                 year = (
                     phase_rec.activated_at.year
@@ -1283,21 +1343,41 @@ class ApplicationDAO(BaseDAO):
             else:
                 token_number = f"APP-{app.id}-P{ve.phase}"
 
-            flattened.append({
-                "id": vm.id,
-                "vehicle_entry_id": ve.id,
-                "application_id": ve.application_id,
-                "token_number": token_number,
-                "vehicle_number": ve.vehicle_number,
-                "material_name": m_name,
-                "material_quantity": vm.quantity,
-                "entry_at": ve.entry_at,
-                "naka_incharge_name": incharge.name,
-                "has_dumping_photos": has_photos,
-                "media": ve.media
-            })
-            
-        return flattened
+            # Fetch all materials for this vehicle entry
+            mat_stmt = (
+                select(VehicleMaterial, Material.name)
+                .outerjoin(Material, VehicleMaterial.material_id == Material.id)
+                .where(VehicleMaterial.vehicle_entry_id == ve.id)
+            )
+            mat_result = await self.session.execute(mat_stmt)
+            mat_rows = mat_result.all()
+
+            materials_list = []
+            for vm, catalog_name in mat_rows:
+                materials_list.append(
+                    {
+                        "id": vm.id,
+                        "material_name": catalog_name or vm.custom_name or "Unknown",
+                        "quantity": vm.quantity,
+                    }
+                )
+
+            grouped_results.append(
+                {
+                    "id": ve.id,
+                    "application_id": ve.application_id,
+                    "token_number": token_number,
+                    "vehicle_number": ve.vehicle_number,
+                    "vehicle_type": ve.vehicle_type,
+                    "entry_at": ve.entry_at,
+                    "naka_incharge_name": incharge.name,
+                    "has_dumping_photos": has_photos,
+                    "materials": materials_list,
+                    "media": ve.media,
+                }
+            )
+
+        return grouped_results
 
     async def get_phase_material_summary(self, application_id: int, phase: int) -> dict:
         """Get material summary for a phase at the naka checkpoint.

@@ -10,6 +10,7 @@ from backend.schemas.base.auth import UserDetails
 from backend.meta import UserRole
 from backend.schemas.response.meta import MessageResponse, UserCreatedResponse
 from backend.services.user import UserService
+from backend.core.security import decrypt_credentials
 
 router = APIRouter()
 user_service = UserService()
@@ -59,8 +60,11 @@ async def create_initial_superadmin(
     Creates a superadmin if one does not exist (by username).
     Public endpoint for initial setup.
     """
+    username = decrypt_credentials(request.username)
+    password = decrypt_credentials(request.password)
+    
     await user_service.create_superadmin_if_not_exists(
-        db, username=request.username, password=request.password, mobile=request.mobile
+        db, username=username, password=password, mobile=request.mobile
     )
     return MessageResponse(message="Superadmin setup check complete.")
 
@@ -76,15 +80,19 @@ async def create_user(
     """
     Superadmin can create new users with some role.
     """
+    # Decrypt sensitive fields
+    username = decrypt_credentials(request.username) if request.username else None
+    password = decrypt_credentials(request.password) if request.password else None
+
     existing = await user_service.get_user_by_mobile(db, request.mobile)
     if existing:
         raise HTTPException(
             status_code=400, detail="User with this mobile already exists"
         )
 
-    if request.username:
+    if username:
         existing_username = await user_service.get_user_by_username(
-            db, request.username
+            db, username
         )
         if existing_username:
             raise HTTPException(
@@ -96,8 +104,8 @@ async def create_user(
         mobile=request.mobile,
         name=request.name,
         role=request.role,
-        password=request.password,
-        username=request.username,
+        password=password,
+        username=username,
     )
     await db.commit()
     return UserCreatedResponse(message="User created successfully", user_id=new_user.id)
@@ -112,8 +120,9 @@ async def change_password(
     """
     Superadmin can change the password of a user.
     """
+    password = decrypt_credentials(request.new_password)
     result = await user_service.change_password(
-        db, request.user_id, request.new_password
+        db, request.user_id, password
     )
     if not result:
         raise HTTPException(status_code=404, detail="User not found")

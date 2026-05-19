@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, Form, Query
@@ -177,14 +178,19 @@ async def get_vehicle_entry_detail(
 )
 async def get_all_vehicle_entries(
     search: Optional[str] = Query(
-        None, description="Search by vehicle number, token number, material or date"
+        None, description="Fuzzy search by vehicle number, token number, material or date"
     ),
+    vehicle_number: Optional[str] = Query(None, description="Filter by vehicle number"),
+    material_name: Optional[str] = Query(None, description="Filter by material name"),
+    token_number: Optional[str] = Query(None, description="Filter by token number"),
+    start_date: Optional[datetime] = Query(None, description="Filter by start date"),
+    end_date: Optional[datetime] = Query(None, description="Filter by end date"),
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=500),
     application_service: ApplicationService = Depends(get_application_service),
     user: UserDetails = Depends(get_current_user),
 ) -> List[AuthorityVehicleEntryResponse]:
-    """Get all vehicle entries for authority view."""
+    """Get all vehicle entries for authority view with advanced filtering."""
     if user.role not in [
         UserRole.SUPERADMIN,
         UserRole.NODAL_OFFICER,
@@ -195,7 +201,15 @@ async def get_all_vehicle_entries(
             detail="You are not permitted to view the vehicle entries list.",
         )
     return await application_service.get_all_vehicle_entries(
-        user.role, search=search, offset=offset, limit=limit
+        user.role,
+        search=search,
+        vehicle_number=vehicle_number,
+        material_name=material_name,
+        token_number=token_number,
+        start_date=start_date,
+        end_date=end_date,
+        offset=offset,
+        limit=limit,
     )
 
 
