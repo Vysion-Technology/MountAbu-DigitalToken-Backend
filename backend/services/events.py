@@ -7,6 +7,8 @@ from backend.services.storage import get_storage_service
 from backend.dao.events import EventsDAO, get_events_dao
 from backend.schemas.request.event import EventCreate, EventUpdate
 from backend.schemas.response.event import EventResponse, EventsListResponse
+from backend.meta import UserRole
+from backend.schemas.base.auth import UserDetails
 
 
 class EventsService:
@@ -42,8 +44,9 @@ class EventsService:
             created_at=db_obj.created_at,
         )
 
-    async def get_event(self, session: AsyncSession, event_id: int) -> EventResponse:
-        db_obj = await self.dao.get_event(session, event_id)
+    async def get_event(self, session: AsyncSession, event_id: int, user: Optional[UserDetails] = None) -> EventResponse:
+        active_only = True if not user or user.role != UserRole.SUPERADMIN else False
+        db_obj = await self.dao.get_event(session, event_id, active_only=active_only)
         if not db_obj:
             raise HTTPException(status_code=404, detail="Event not found")
         
@@ -63,8 +66,9 @@ class EventsService:
             created_at=db_obj.created_at,
         )
 
-    async def list_events(self, session: AsyncSession, limit: int = 50, offset: int = 0) -> EventsListResponse:
-        objs = await self.dao.list_events(session, limit=limit, offset=offset)
+    async def list_events(self, session: AsyncSession, limit: int = 50, offset: int = 0, user: Optional[UserDetails] = None) -> EventsListResponse:
+        active_only = True if not user or user.role != UserRole.SUPERADMIN else False
+        objs = await self.dao.list_events(session, limit=limit, offset=offset, active_only=active_only)
         items = []
         for d in objs:
             image_url = self.storage.get_file_url(d.image_path) if d.image_path and self.storage else None

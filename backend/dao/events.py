@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.dbmodels.event import Event
 from backend.schemas.request.event import EventCreate, EventUpdate
+from backend.meta import TenderStatus as EventStatus
 
 
 class EventsDAO:
@@ -15,12 +16,18 @@ class EventsDAO:
         await session.refresh(db_obj)
         return db_obj
 
-    async def get_event(self, session: AsyncSession, event_id: int) -> Optional[Event]:
-        result = await session.execute(select(Event).where(Event.id == event_id))
+    async def get_event(self, session: AsyncSession, event_id: int, active_only: bool = False) -> Optional[Event]:
+        stmt = select(Event).where(Event.id == event_id)
+        if active_only:
+            stmt = stmt.where(Event.status == EventStatus.ACTIVE)
+        result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def list_events(self, session: AsyncSession, limit: int = 50, offset: int = 0) -> List[Event]:
-        result = await session.execute(select(Event).order_by(Event.date.desc()).limit(limit).offset(offset))
+    async def list_events(self, session: AsyncSession, limit: int = 50, offset: int = 0, active_only: bool = False) -> List[Event]:
+        stmt = select(Event).order_by(Event.date.desc()).limit(limit).offset(offset)
+        if active_only:
+            stmt = stmt.where(Event.status == EventStatus.ACTIVE)
+        result = await session.execute(stmt)
         return result.scalars().all()
 
     async def update_event(self, session: AsyncSession, event_id: int, data: EventUpdate) -> Optional[Event]:

@@ -62,4 +62,3 @@ class XSSMiddleware(BaseHTTPMiddleware):
 
         response = await call_next(request)
         return response
-",file_path:

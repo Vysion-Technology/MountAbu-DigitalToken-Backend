@@ -35,8 +35,12 @@ class MasterDataDAO:
         result = await session.execute(stmt)
         return result.scalar_one()
 
-    async def _get(self, session: AsyncSession, model: Type[T], id: int) -> Optional[T]:
+    async def _get(self, session: AsyncSession, model: Type[T], id: int, active_only: bool = False) -> Optional[T]:
         stmt = select(model).where(model.id == id)
+        if active_only and hasattr(model, "status"):
+            # Master data tables use boolean 'status'
+            if model in [Ward, Department, Role, ComplaintCategory]:
+                stmt = stmt.where(model.status == True)
         if hasattr(model, "created_by"):
             stmt = stmt.options(joinedload(getattr(model, "created_by")))
         result = await session.execute(stmt)
@@ -50,18 +54,21 @@ class MasterDataDAO:
         row = result.fetchone()
         if not row:
             return None
-        return await self._get(session, model, row[0])
+        return await self._get(session, model, row[0], active_only=False)
 
     async def _delete(self, session: AsyncSession, model: Type[T], id: int) -> bool:
         result = await session.execute(delete(model).where(model.id == id))
         return result.rowcount > 0
 
-    async def _list(self, session: AsyncSession, model: Type[T]) -> List[T]:
+    async def _list(self, session: AsyncSession, model: Type[T], active_only: bool = False) -> List[T]:
         stmt = select(model)
+        if active_only and hasattr(model, "status"):
+            if model in [Ward, Department, Role, ComplaintCategory]:
+                stmt = stmt.where(model.status == True)
         if hasattr(model, "created_by"):
             stmt = stmt.options(joinedload(getattr(model, "created_by")))
         result = await session.execute(stmt)
-        return result.scalars().all()
+        return list(result.scalars().all())
 
     # Ward Operations
     async def create_ward(
@@ -75,8 +82,8 @@ class MasterDataDAO:
             data["created_by_id"] = created_by_id
         return await self._create(session, Ward, data)
 
-    async def get_ward(self, session: AsyncSession, ward_id: int) -> Optional[Ward]:
-        return await self._get(session, Ward, ward_id)
+    async def get_ward(self, session: AsyncSession, ward_id: int, active_only: bool = False) -> Optional[Ward]:
+        return await self._get(session, Ward, ward_id, active_only=active_only)
 
     async def update_ward(
         self, session: AsyncSession, ward_id: int, ward: WardUpdate
@@ -85,8 +92,8 @@ class MasterDataDAO:
             session, Ward, ward_id, ward.model_dump(exclude_unset=True)
         )
 
-    async def list_wards(self, session: AsyncSession) -> List[Ward]:
-        return await self._list(session, Ward)
+    async def list_wards(self, session: AsyncSession, active_only: bool = False) -> List[Ward]:
+        return await self._list(session, Ward, active_only=active_only)
 
     async def delete_ward(self, session: AsyncSession, ward_id: int) -> bool:
         return await self._delete(session, Ward, ward_id)
@@ -117,13 +124,15 @@ class MasterDataDAO:
         return result.scalar_one()
 
     async def get_department(
-        self, session: AsyncSession, dept_id: int
+        self, session: AsyncSession, dept_id: int, active_only: bool = False
     ) -> Optional[Department]:
         stmt = (
             select(Department)
             .where(Department.id == dept_id)
             .options(selectinload(Department.jen), selectinload(Department.created_by))
         )
+        if active_only:
+            stmt = stmt.where(Department.status == True)
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -136,14 +145,16 @@ class MasterDataDAO:
             await session.execute(stmt)
             await session.flush()
             
-        return await self.get_department(session, dept_id)
+        return await self.get_department(session, dept_id, active_only=False)
 
-    async def list_departments(self, session: AsyncSession) -> List[Department]:
+    async def list_departments(self, session: AsyncSession, active_only: bool = False) -> List[Department]:
         stmt = (
             select(Department)
             .options(selectinload(Department.jen), selectinload(Department.created_by))
             .order_by(Department.id)
         )
+        if active_only:
+            stmt = stmt.where(Department.status == True)
         result = await session.execute(stmt)
         return list(result.scalars().all())
 
@@ -162,8 +173,8 @@ class MasterDataDAO:
             data["created_by_id"] = created_by_id
         return await self._create(session, Role, data)
 
-    async def get_role(self, session: AsyncSession, role_id: int) -> Optional[Role]:
-        return await self._get(session, Role, role_id)
+    async def get_role(self, session: AsyncSession, role_id: int, active_only: bool = False) -> Optional[Role]:
+        return await self._get(session, Role, role_id, active_only=active_only)
 
     async def update_role(
         self, session: AsyncSession, role_id: int, role: RoleUpdate
@@ -172,8 +183,8 @@ class MasterDataDAO:
             session, Role, role_id, role.model_dump(exclude_unset=True)
         )
 
-    async def list_roles(self, session: AsyncSession) -> List[Role]:
-        return await self._list(session, Role)
+    async def list_roles(self, session: AsyncSession, active_only: bool = False) -> List[Role]:
+        return await self._list(session, Role, active_only=active_only)
 
     async def delete_role(self, session: AsyncSession, role_id: int) -> bool:
         return await self._delete(session, Role, role_id)
@@ -191,9 +202,9 @@ class MasterDataDAO:
         return await self._create(session, ComplaintCategory, data)
 
     async def get_complaint_category(
-        self, session: AsyncSession, category_id: int
+        self, session: AsyncSession, category_id: int, active_only: bool = False
     ) -> Optional[ComplaintCategory]:
-        return await self._get(session, ComplaintCategory, category_id)
+        return await self._get(session, ComplaintCategory, category_id, active_only=active_only)
 
     async def update_complaint_category(
         self, session: AsyncSession, category_id: int, category: ComplaintCategoryUpdate
@@ -206,9 +217,9 @@ class MasterDataDAO:
         )
 
     async def list_complaint_categories(
-        self, session: AsyncSession
+        self, session: AsyncSession, active_only: bool = False
     ) -> List[ComplaintCategory]:
-        return await self._list(session, ComplaintCategory)
+        return await self._list(session, ComplaintCategory, active_only=active_only)
 
     async def delete_complaint_category(
         self, session: AsyncSession, category_id: int

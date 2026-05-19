@@ -11,6 +11,7 @@ from backend.middlewares.auth import (
     get_current_user,
     get_admin_or_nodal,
     get_superadmin,
+    get_optional_user,
 )
 from backend.services.audit import AuditService
 from backend.meta.audit import AuditAction
@@ -61,8 +62,12 @@ async def create_ward(
 
 
 @router.get("/wards", response_model=List[WardResponse])
-async def list_wards(session: AsyncSession = Depends(get_db)):
-    return await dao.list_wards(session)
+async def list_wards(
+    session: AsyncSession = Depends(get_db),
+    user: Optional[UserDetails] = Depends(get_optional_user),
+):
+    active_only = True if not user or user.role != UserRole.SUPERADMIN else False
+    return await dao.list_wards(session, active_only=active_only)
 
 
 @router.put("/wards/{ward_id}", response_model=WardResponse)
@@ -151,8 +156,12 @@ async def create_department(
 
 
 @router.get("/departments", response_model=List[DepartmentResponse])
-async def list_departments(session: AsyncSession = Depends(get_db)):
-    return await dao.list_departments(session)
+async def list_departments(
+    session: AsyncSession = Depends(get_db),
+    user: Optional[UserDetails] = Depends(get_optional_user),
+):
+    active_only = True if not user or user.role != UserRole.SUPERADMIN else False
+    return await dao.list_departments(session, active_only=active_only)
 
 
 @router.put("/departments/{dept_id}", response_model=DepartmentResponse)
@@ -210,8 +219,12 @@ async def create_role(
 
 
 @router.get("/roles", response_model=List[RoleResponse])
-async def list_roles(session: AsyncSession = Depends(get_db)):
-    return await dao.list_roles(session)
+async def list_roles(
+    session: AsyncSession = Depends(get_db),
+    user: Optional[UserDetails] = Depends(get_optional_user),
+):
+    active_only = True if not user or user.role != UserRole.SUPERADMIN else False
+    return await dao.list_roles(session, active_only=active_only)
 
 
 @router.put("/roles/{role_id}", response_model=RoleResponse)
@@ -253,8 +266,12 @@ async def create_complaint_category(
 
 
 @router.get("/complaint-categories", response_model=List[ComplaintCategoryResponse])
-async def list_complaint_categories(session: AsyncSession = Depends(get_db)):
-    return await dao.list_complaint_categories(session)
+async def list_complaint_categories(
+    session: AsyncSession = Depends(get_db),
+    user: Optional[UserDetails] = Depends(get_optional_user),
+):
+    active_only = True if not user or user.role != UserRole.SUPERADMIN else False
+    return await dao.list_complaint_categories(session, active_only=active_only)
 
 
 @router.put(
@@ -298,7 +315,11 @@ async def create_material(
 
 
 @router.get("/materials", response_model=List[MaterialResponse])
-async def list_materials(session: AsyncSession = Depends(get_db)):
+async def list_materials(
+    session: AsyncSession = Depends(get_db),
+    user: Optional[UserDetails] = Depends(get_optional_user),
+):
+    active_only = True if not user or user.role != UserRole.SUPERADMIN else False
     return await dao.list_materials(session)
 
 

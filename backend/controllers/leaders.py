@@ -1,7 +1,8 @@
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.database import get_db
-from backend.middlewares.auth import get_admin_or_nodal
+from backend.middlewares.auth import get_admin_or_nodal, get_optional_user
 from backend.schemas.base.auth import UserDetails
 from backend.services.leaders import LeadersService, get_leaders_service
 from backend.schemas.request.leader import LeaderCreate, LeaderUpdate
@@ -54,18 +55,20 @@ async def list_leaders(
     limit: int = 50,
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
+    user: Optional[UserDetails] = Depends(get_optional_user),
     service: LeadersService = Depends(get_leaders_service),
 ):
-    return await service.list_leaders(db, limit=limit, offset=offset)
+    return await service.list_leaders(db, limit=limit, offset=offset, user=user)
 
 
 @router.get("/leaders/{leader_id}", response_model=LeaderResponse)
 async def get_leader(
     leader_id: int,
     db: AsyncSession = Depends(get_db),
+    user: Optional[UserDetails] = Depends(get_optional_user),
     service: LeadersService = Depends(get_leaders_service),
 ):
-    return await service.get_leader(db, leader_id)
+    return await service.get_leader(db, leader_id, user=user)
 
 
 @router.put("/leaders/{leader_id}", response_model=LeaderResponse)
