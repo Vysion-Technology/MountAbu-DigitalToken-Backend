@@ -122,6 +122,10 @@ async def get_all_complaints(
     if category_id is not None:
         base_where.append(Complaint.category_id == category_id)
 
+    # Filter by assigned user for specific roles
+    if user.role in (UserRole.JEN, UserRole.AEN, UserRole.RIN, UserRole.SIN):
+        base_where.append(Complaint.assigned_to_id == user.user_id)
+
     # Count total
     count_stmt = select(sa_func.count(Complaint.id))
     if department_id is not None:
@@ -371,14 +375,21 @@ async def resolve_complaint(
     user: UserDetails = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Resolve a complaint. Only JEN role can resolve."""
-    if user.role != UserRole.JEN:
+    """Resolve a complaint. Only assigned JEN, AEN, RIN, or SIN can resolve."""
+    allowed_roles = (UserRole.JEN, UserRole.AEN, UserRole.RIN, UserRole.SIN)
+    if user.role not in allowed_roles:
         raise HTTPException(
             status_code=403,
-            detail="Only JEN can resolve complaints",
+            detail=f"Only roles {', '.join(allowed_roles)} can resolve complaints",
         )
 
     complaint = await get_complaint_or_404(db, id)
+
+    if complaint.assigned_to_id != user.user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="You can only resolve complaints assigned to you",
+        )
 
     if complaint.status not in (ComplaintStatus.PENDING, ComplaintStatus.IN_PROGRESS):
         raise HTTPException(

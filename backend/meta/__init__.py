@@ -12,6 +12,9 @@ class UserRole(str, PyEnum):
     DEPT_LEGAL = "DEPT_LEGAL"
     DEPT_ATP = "DEPT_ATP"
     JEN = "JEN"
+    AEN = "AEN"
+    RIN = "RIN"
+    SIN = "SIN"
 
 
 class ApplicationStatus(str, PyEnum):

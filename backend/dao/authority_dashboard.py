@@ -227,6 +227,7 @@ class AuthorityDashboardDAO(BaseDAO):
         since: Optional[datetime] = None,
         ward_id: Optional[int] = None,
         department_id: Optional[int] = None,
+        assigned_to_id: Optional[int] = None,
     ) -> list[dict]:
         stmt = (
             select(
@@ -244,6 +245,8 @@ class AuthorityDashboardDAO(BaseDAO):
             stmt = stmt.where(Complaint.ward_id == ward_id)
         if department_id:
             stmt = stmt.where(ComplaintCategory.department_id == department_id)
+        if assigned_to_id:
+            stmt = stmt.where(Complaint.assigned_to_id == assigned_to_id)
         rows = (await self.session.execute(stmt)).all()
         return [
             {"category_id": r[0], "category_name": r[1], "count": r[2]}
@@ -574,12 +577,15 @@ class AuthorityDashboardDAO(BaseDAO):
         self,
         since: Optional[datetime] = None,
         ward_id: Optional[int] = None,
+        assigned_to_id: Optional[int] = None,
     ) -> list[dict]:
         def _filter(stmt):
             if since:
                 stmt = stmt.where(Complaint.created_at >= since)
             if ward_id:
                 stmt = stmt.where(Complaint.ward_id == ward_id)
+            if assigned_to_id:
+                stmt = stmt.where(Complaint.assigned_to_id == assigned_to_id)
             return stmt
 
         received = (
@@ -653,6 +659,7 @@ class AuthorityDashboardDAO(BaseDAO):
         limit: int = 20,
         since: Optional[datetime] = None,
         ward_id: Optional[int] = None,
+        assigned_to_id: Optional[int] = None,
     ) -> list[dict]:
         stmt = (
             select(Complaint, ComplaintCategory.name.label("category_name"))
@@ -664,6 +671,8 @@ class AuthorityDashboardDAO(BaseDAO):
             stmt = stmt.where(Complaint.created_at >= since)
         if ward_id:
             stmt = stmt.where(Complaint.ward_id == ward_id)
+        if assigned_to_id:
+            stmt = stmt.where(Complaint.assigned_to_id == assigned_to_id)
 
         rows = (await self.session.execute(stmt)).all()
         return [

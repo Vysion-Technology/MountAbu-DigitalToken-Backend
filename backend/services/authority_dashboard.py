@@ -56,6 +56,10 @@ class AuthorityDashboardService(BaseService):
             return await self._naka(user_id, since)
         elif role == UserRole.COMMISSIONER:
             return await self._complaint_officer(since, ward_id)
+        elif role in (UserRole.AEN, UserRole.RIN, UserRole.SIN):
+            return await self._complaint_officer(
+                since, ward_id, assigned_to_id=user_id, role=role
+            )
         elif role == UserRole.NODAL_OFFICER:
             return await self._nodal_officer(since)
         else:
@@ -97,12 +101,34 @@ class AuthorityDashboardService(BaseService):
         trend = await self.dao.jen_avg_verification_trend(user_id, days)
         latest = await self.dao.jen_latest_applications(user_id, limit=5, ward_id=ward_id)
 
+        # Complaint data for JEN
+        complaint_kpis = await self.dao.complaint_officer_kpis(
+            since, ward_id, assigned_to_id=user_id
+        )
+        # Merge complaint KPIs into main KPIs if needed, or just keep them separate?
+        # The schema has a single `kpis` list. I'll append them.
+        kpis = [KpiCard(**k) for k in kpis_raw]
+        kpis.extend([KpiCard(**k) for k in complaint_kpis])
+
+        by_cat = await self.dao.complaints_by_category(
+            since, ward_id, assigned_to_id=user_id
+        )
+        resolution = await self.dao.complaint_resolution_status(
+            since, ward_id, assigned_to_id=user_id
+        )
+        clist = await self.dao.complaint_list(
+            limit=20, since=since, ward_id=ward_id, assigned_to_id=user_id
+        )
+
         return AuthorityDashboardResponse(
             role=UserRole.JEN.value,
-            kpis=[KpiCard(**k) for k in kpis_raw],
+            kpis=kpis,
             verification_status=[StatusCount(**s) for s in vstatus],
             avg_verification_time_trend=[AvgVerificationTimeTrend(**t) for t in trend],
             latest_applications=[JenApplicationRow(**a) for a in latest],
+            complaints_by_category=[CategoryCount(**c) for c in by_cat],
+            complaint_resolution_status=[StatusCount(**s) for s in resolution],
+            complaint_list=[ComplaintRow(**c) for c in clist],
         )
 
     async def _naka(self, user_id: int, since: datetime) -> AuthorityDashboardResponse:
@@ -118,15 +144,27 @@ class AuthorityDashboardService(BaseService):
         )
 
     async def _complaint_officer(
-        self, since: datetime, ward_id: Optional[int] = None
+        self,
+        since: datetime,
+        ward_id: Optional[int] = None,
+        assigned_to_id: Optional[int] = None,
+        role: UserRole = UserRole.COMMISSIONER,
     ) -> AuthorityDashboardResponse:
-        kpis_raw = await self.dao.complaint_officer_kpis(since, ward_id)
-        by_cat = await self.dao.complaints_by_category(since, ward_id)
-        resolution = await self.dao.complaint_resolution_status(since, ward_id)
-        clist = await self.dao.complaint_list(limit=20, since=since, ward_id=ward_id)
+        kpis_raw = await self.dao.complaint_officer_kpis(
+            since, ward_id, assigned_to_id=assigned_to_id
+        )
+        by_cat = await self.dao.complaints_by_category(
+            since, ward_id, assigned_to_id=assigned_to_id
+        )
+        resolution = await self.dao.complaint_resolution_status(
+            since, ward_id, assigned_to_id=assigned_to_id
+        )
+        clist = await self.dao.complaint_list(
+            limit=20, since=since, ward_id=ward_id, assigned_to_id=assigned_to_id
+        )
 
         return AuthorityDashboardResponse(
-            role=UserRole.COMMISSIONER.value,
+            role=role.value,
             kpis=[KpiCard(**k) for k in kpis_raw],
             complaints_by_category=[CategoryCount(**c) for c in by_cat],
             complaint_resolution_status=[StatusCount(**s) for s in resolution],

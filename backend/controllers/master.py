@@ -215,7 +215,16 @@ async def create_role(
     current_user: UserDetails = Depends(get_superadmin),
     session: AsyncSession = Depends(get_db),
 ):
-    return await dao.create_role(session, role, created_by_id=current_user.user_id)
+    response = await dao.create_role(session, role, created_by_id=current_user.user_id)
+    await audit_service.log(
+        session,
+        "ROLE",
+        AuditAction.CREATED,
+        current_user.user_id,
+        new_state=response.model_dump() if hasattr(response, "model_dump") else None,
+    )
+    await session.commit()
+    return response
 
 
 @router.get("/roles", response_model=List[RoleResponse])
@@ -237,6 +246,15 @@ async def update_role(
     updated = await dao.update_role(session, role_id, role)
     if not updated:
         raise HTTPException(status_code=404, detail="Role not found")
+
+    await audit_service.log(
+        session,
+        "ROLE",
+        AuditAction.CHANGED,
+        current_user.user_id,
+        new_state=updated.model_dump() if hasattr(updated, "model_dump") else None,
+    )
+    await session.commit()
     return updated
 
 
@@ -249,6 +267,14 @@ async def delete_role(
     success = await dao.delete_role(session, role_id)
     if not success:
         raise HTTPException(status_code=404, detail="Role not found")
+
+    await audit_service.log(
+        session,
+        "ROLE",
+        AuditAction.DELETED,
+        current_user.user_id,
+        new_state={"role_id": role_id},
+    )
     await session.commit()
     return {"message": "Role deleted successfully"}
 
@@ -260,9 +286,18 @@ async def create_complaint_category(
     current_user: UserDetails = Depends(get_admin_or_nodal),
     session: AsyncSession = Depends(get_db),
 ):
-    return await dao.create_complaint_category(
+    response = await dao.create_complaint_category(
         session, category, created_by_id=current_user.user_id
     )
+    await audit_service.log(
+        session,
+        "COMPLAINT_CATEGORY",
+        AuditAction.CREATED,
+        current_user.user_id,
+        new_state=response.model_dump() if hasattr(response, "model_dump") else None,
+    )
+    await session.commit()
+    return response
 
 
 @router.get("/complaint-categories", response_model=List[ComplaintCategoryResponse])
@@ -286,6 +321,15 @@ async def update_complaint_category(
     updated = await dao.update_complaint_category(session, category_id, category)
     if not updated:
         raise HTTPException(status_code=404, detail="Category not found")
+
+    await audit_service.log(
+        session,
+        "COMPLAINT_CATEGORY",
+        AuditAction.CHANGED,
+        current_user.user_id,
+        new_state=updated.model_dump() if hasattr(updated, "model_dump") else None,
+    )
+    await session.commit()
     return updated
 
 
@@ -298,6 +342,14 @@ async def delete_complaint_category(
     success = await dao.delete_complaint_category(session, category_id)
     if not success:
         raise HTTPException(status_code=404, detail="Category not found")
+
+    await audit_service.log(
+        session,
+        "COMPLAINT_CATEGORY",
+        AuditAction.DELETED,
+        current_user.user_id,
+        new_state={"category_id": category_id},
+    )
     await session.commit()
     return {"message": "Category deleted successfully"}
 
@@ -306,12 +358,22 @@ async def delete_complaint_category(
 @router.post("/materials", response_model=MaterialResponse)
 async def create_material(
     material: MaterialCreate,
-    current_user: UserDetails = Depends(get_current_user),
+    current_user: UserDetails = Depends(get_admin_or_nodal),
     session: AsyncSession = Depends(get_db),
 ):
-    return await dao.create_material(
+    response = await dao.create_material(
         session, material, created_by_id=current_user.user_id
     )
+    await audit_service.log(
+        session,
+        "MATERIAL",
+        AuditAction.CREATED,
+        current_user.user_id,
+        new_state=response.model_dump() if hasattr(response, "model_dump") else None,
+    )
+    await session.commit()
+    return response
+
 
 
 @router.get("/materials", response_model=List[MaterialResponse])
@@ -372,7 +434,8 @@ async def list_jens(
     current_user: UserDetails = Depends(get_superadmin),
     session: AsyncSession = Depends(get_db),
 ):
-    """List all users with the JEN role. Only accessible by superadmin."""
-    stmt = select(User).where(User.role == UserRole.JEN).order_by(User.name)
+    """List all users with roles that can handle complaints/inspections (JEN, AEN, RIN, SIN)."""
+    allowed_roles = [UserRole.JEN, UserRole.AEN, UserRole.RIN, UserRole.SIN]
+    stmt = select(User).where(User.role.in_(allowed_roles)).order_by(User.name)
     result = await session.execute(stmt)
     return result.scalars().all()
