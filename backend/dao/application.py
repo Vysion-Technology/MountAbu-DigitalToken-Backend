@@ -1205,6 +1205,7 @@ class ApplicationDAO(BaseDAO):
             ApprovedApplicationPhase,
             Material,
             VehicleMaterial,
+            ApplicationPhaseMaterial,
         )
 
         # Base query for VehicleEntry
@@ -1330,6 +1331,67 @@ class ApplicationDAO(BaseDAO):
         result = await self.session.execute(stmt)
         rows = result.all()
 
+        # Batch fetch phase material limits and total brought quantities for efficiency
+        app_phase_pairs = set((ve.application_id, ve.phase) for ve, _, _, _, _ in rows)
+        phase_material_limits = {}  # (app_id, phase, material_id, custom_name) -> qty
+        phase_material_units = {}   # (app_id, phase, material_id, custom_name) -> unit
+        total_brought_so_far = {}   # (app_id, phase, material_id, custom_name) -> total_qty
+
+        if app_phase_pairs:
+            # 1. Get Phase Material Limits and Units
+            pm_filters = [
+                and_(
+                    ApplicationPhaseMaterial.application_id == aid,
+                    ApplicationPhaseMaterial.phase == ph,
+                )
+                for aid, ph in app_phase_pairs
+            ]
+            pm_stmt = (
+                select(ApplicationPhaseMaterial, Material.unit)
+                .outerjoin(Material, ApplicationPhaseMaterial.material_id == Material.id)
+                .where(or_(*pm_filters))
+            )
+            pm_results = await self.session.execute(pm_stmt)
+            for pm, m_unit in pm_results.all():
+                key = (pm.application_id, pm.phase, pm.material_id, pm.custom_name)
+                phase_material_limits[key] = pm.quantity
+                phase_material_units[key] = m_unit or pm.custom_unit or ""
+
+            # 2. Get Total Brought Quantities for these phases
+            brought_stmt = (
+                select(
+                    VehicleEntry.application_id,
+                    VehicleEntry.phase,
+                    VehicleMaterial.material_id,
+                    VehicleMaterial.custom_name,
+                    func.sum(VehicleMaterial.quantity).label("total"),
+                )
+                .join(
+                    VehicleMaterial, VehicleEntry.id == VehicleMaterial.vehicle_entry_id
+                )
+                .where(
+                    or_(
+                        *[
+                            and_(
+                                VehicleEntry.application_id == aid,
+                                VehicleEntry.phase == ph,
+                            )
+                            for aid, ph in app_phase_pairs
+                        ]
+                    )
+                )
+                .group_by(
+                    VehicleEntry.application_id,
+                    VehicleEntry.phase,
+                    VehicleMaterial.material_id,
+                    VehicleMaterial.custom_name,
+                )
+            )
+            brought_results = await self.session.execute(brought_stmt)
+            for row in brought_results.all():
+                key = (row.application_id, row.phase, row.material_id, row.custom_name)
+                total_brought_so_far[key] = row.total
+
         grouped_results = []
         for ve, app, incharge, phase_rec, has_photos in rows:
             # Generate token_number
@@ -1345,7 +1407,7 @@ class ApplicationDAO(BaseDAO):
 
             # Fetch all materials for this vehicle entry
             mat_stmt = (
-                select(VehicleMaterial, Material.name)
+                select(VehicleMaterial, Material.name, Material.unit)
                 .outerjoin(Material, VehicleMaterial.material_id == Material.id)
                 .where(VehicleMaterial.vehicle_entry_id == ve.id)
             )
@@ -1353,12 +1415,20 @@ class ApplicationDAO(BaseDAO):
             mat_rows = mat_result.all()
 
             materials_list = []
-            for vm, catalog_name in mat_rows:
+            for vm, catalog_name, m_unit in mat_rows:
+                key = (ve.application_id, ve.phase, vm.material_id, vm.custom_name)
+                permitted = phase_material_limits.get(key, 0.0)
+                brought = total_brought_so_far.get(key, 0.0)
+                unit = m_unit or vm.custom_unit or phase_material_units.get(key, "")
+
                 materials_list.append(
                     {
                         "id": vm.id,
                         "material_name": catalog_name or vm.custom_name or "Unknown",
                         "quantity": vm.quantity,
+                        "unit": unit,
+                        "permitted_material_quantity": permitted,
+                        "remaining_material_quantity": permitted - brought,
                     }
                 )
 

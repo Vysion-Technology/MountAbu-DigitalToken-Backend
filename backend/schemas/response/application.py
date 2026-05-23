@@ -516,6 +516,9 @@ class VehicleEntryMaterialItem(BaseModel):
     id: int  # VehicleMaterial.id
     material_name: str
     quantity: float
+    unit: str = ""
+    permitted_material_quantity: float = 0.0
+    remaining_material_quantity: float = 0.0
 
     model_config = ConfigDict(from_attributes=True)
 
