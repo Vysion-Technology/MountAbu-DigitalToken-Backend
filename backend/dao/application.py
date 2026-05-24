@@ -179,6 +179,32 @@ class ApplicationDAO(BaseDAO):
         await self.session.commit()
 
         return await self.get_application(application_id)
+    async def _validate_materials_active(self, material_ids: list[int]):
+        """Validate that all material IDs exist and are active."""
+        if not material_ids:
+            return
+
+        stmt = select(Material.id, Material.name, Material.status).where(
+            Material.id.in_(material_ids)
+        )
+        result = await self.session.execute(stmt)
+        rows = result.all()
+
+        existing_ids = {r[0] for r in rows}
+        invalid_ids = [mid for mid in material_ids if mid not in existing_ids]
+        if invalid_ids:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid material IDs: {invalid_ids}. These materials do not exist.",
+            )
+
+        inactive_materials = [r[1] for r in rows if not r[2]]
+        if inactive_materials:
+            raise HTTPException(
+                status_code=400,
+                detail=f"The following materials are deactivated and cannot be used for new entries: {', '.join(inactive_materials)}",
+            )
+
     async def create_application(
         self, application: ApplicationCreate, user_id: int, mobile: str
     ) -> ApplicationResponse:
@@ -189,25 +215,12 @@ class ApplicationDAO(BaseDAO):
         application_data["user_id"] = user_id
         application_data["mobile"] = mobile
 
-        # Validate that all material IDs exist
+        # Validate that all material IDs exist and are active
         if material_requirements:
             material_ids = [
                 m.material_id for m in material_requirements if m.material_id is not None
             ]
-
-            if material_ids:
-                # Query existing materials
-                stmt = select(Material.id).where(Material.id.in_(material_ids))
-                result = await self.session.execute(stmt)
-                existing_ids = set(result.scalars().all())
-
-                # Check for invalid material IDs
-                invalid_ids = [mid for mid in material_ids if mid not in existing_ids]
-                if invalid_ids:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Invalid material IDs: {invalid_ids}. These materials do not exist.",
-                    )
+            await self._validate_materials_active(material_ids)
 
         # Create the application
         result = await self.session.execute(
@@ -475,18 +488,7 @@ class ApplicationDAO(BaseDAO):
         ]
 
         if material_ids:
-            # Query existing materials
-            stmt = select(Material.id).where(Material.id.in_(material_ids))
-            result = await self.session.execute(stmt)
-            existing_ids = set(result.scalars().all())
-
-            # Check for invalid material IDs
-            invalid_ids = [mid for mid in material_ids if mid not in existing_ids]
-            if invalid_ids:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Invalid material IDs: {invalid_ids}. These materials do not exist.",
-                )
+            await self._validate_materials_active(material_ids)
 
         # Insert material requirements into ApplicationMaterial table
         for material in material_requirements:

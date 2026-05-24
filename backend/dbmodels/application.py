@@ -2,7 +2,7 @@ from datetime import datetime
 from backend.meta import ApplicationDocumentType, CommentType, WorkflowAction
 from typing import Optional
 
-from sqlalchemy import Enum, Float, Integer, String, ForeignKey, DateTime, JSON
+from sqlalchemy import Boolean, Enum, Float, Integer, String, ForeignKey, DateTime, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.database import Base
@@ -21,6 +21,7 @@ class Material(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String, index=True)
     unit: Mapped[str] = mapped_column(String, index=True)
+    status: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime, default=datetime.now, nullable=True
     )

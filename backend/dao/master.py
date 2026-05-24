@@ -63,7 +63,8 @@ class MasterDataDAO:
     async def _list(self, session: AsyncSession, model: Type[T], active_only: bool = False) -> List[T]:
         stmt = select(model)
         if active_only and hasattr(model, "status"):
-            if model in [Ward, Department, Role, ComplaintCategory]:
+            from backend.dbmodels.application import Material
+            if model in [Ward, Department, Role, ComplaintCategory, Material]:
                 stmt = stmt.where(model.status == True)
         if hasattr(model, "created_by"):
             stmt = stmt.options(joinedload(getattr(model, "created_by")))
@@ -241,10 +242,10 @@ class MasterDataDAO:
             data["created_by_id"] = created_by_id
         return await self._create(session, Material, data)
 
-    async def list_materials(self, session: AsyncSession) -> List[Material]:
+    async def list_materials(self, session: AsyncSession, active_only: bool = False) -> List[Material]:
         from backend.dbmodels.application import Material
 
-        return await self._list(session, Material)
+        return await self._list(session, Material, active_only=active_only)
 
     async def update_material(
         self, session: AsyncSession, material_id: int, material: MaterialUpdate

@@ -65,8 +65,10 @@ class ComplaintCategoryUpdate(BaseModel):
 class MaterialCreate(BaseModel):
     name: str = Field(..., description="Material Name")
     unit: str = Field(..., description="Unit (e.g., kg, bags)")
+    status: bool = Field(True, description="Active status")
 
 
 class MaterialUpdate(BaseModel):
     name: Optional[str] = None
     unit: Optional[str] = None
+    status: Optional[bool] = None

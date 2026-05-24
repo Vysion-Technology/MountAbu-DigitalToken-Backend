@@ -1,4 +1,11 @@
 from backend.schemas.base.auth import UserDetails
+from backend.meta import (
+    ApplicationDocumentType,
+    ApplicationFlags,
+    UserRole,
+    CommentType,
+    PropertyUsageType,
+)
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -114,7 +121,6 @@ async def delete_ward(
 
 
 from backend.dbmodels.user import User
-from backend.meta import UserRole
 
 
 # Departments
@@ -384,7 +390,7 @@ async def list_materials(
     user: Optional[UserDetails] = Depends(get_optional_user),
 ):
     active_only = True if not user or user.role != UserRole.SUPERADMIN else False
-    return await dao.list_materials(session)
+    return await dao.list_materials(session, active_only=active_only)
 
 
 @router.put("/materials/{material_id}", response_model=MaterialResponse)

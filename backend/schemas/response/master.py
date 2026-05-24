@@ -66,6 +66,7 @@ class MaterialResponse(BaseModel):
     id: int
     name: str
     unit: str
+    status: bool = True
     created_at: Optional[datetime] = None
     created_by: Optional[UserSummary] = None
 
