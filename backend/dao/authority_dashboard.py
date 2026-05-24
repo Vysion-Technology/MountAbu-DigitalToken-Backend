@@ -179,7 +179,7 @@ class AuthorityDashboardDAO(BaseDAO):
                 "percent_change": pct(cur_total, prev_total),
             },
             {
-                "label": "Approved",
+                "label": "Applications Approved",
                 "value": cur_approved,
                 "previous_value": None,
                 "percent_change": None,
@@ -191,7 +191,7 @@ class AuthorityDashboardDAO(BaseDAO):
                 "percent_change": None,
             },
             {
-                "label": "Complaints",
+                "label": "Total Complaints",
                 "value": cur_complaints,
                 "previous_value": prev_complaints,
                 "percent_change": pct(cur_complaints, prev_complaints),
@@ -366,19 +366,19 @@ class AuthorityDashboardDAO(BaseDAO):
         assigned = verified + pending
         return [
             {
-                "label": "Assigned",
+                "label": "Applications Assigned",
                 "value": assigned,
                 "previous_value": None,
                 "percent_change": None,
             },
             {
-                "label": "Verified",
+                "label": "Applications Verified",
                 "value": verified,
                 "previous_value": None,
                 "percent_change": None,
             },
             {
-                "label": "Pending",
+                "label": "Applications Pending",
                 "value": pending,
                 "previous_value": None,
                 "percent_change": None,
@@ -512,7 +512,7 @@ class AuthorityDashboardDAO(BaseDAO):
         total = (await self.session.execute(stmt)).scalar() or 0
         return [
             {
-                "label": "Total Entries",
+                "label": "Total Vehicle Entries",
                 "value": total,
                 "previous_value": None,
                 "percent_change": None,
@@ -619,19 +619,19 @@ class AuthorityDashboardDAO(BaseDAO):
 
         return [
             {
-                "label": "Received",
+                "label": "Complaints Received",
                 "value": received,
                 "previous_value": None,
                 "percent_change": None,
             },
             {
-                "label": "Resolved",
+                "label": "Complaints Resolved",
                 "value": resolved,
                 "previous_value": None,
                 "percent_change": None,
             },
             {
-                "label": "Pending",
+                "label": "Complaints Pending",
                 "value": pending,
                 "previous_value": None,
                 "percent_change": None,
