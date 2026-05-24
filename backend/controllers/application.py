@@ -180,9 +180,9 @@ async def get_all_vehicle_entries(
     search: Optional[str] = Query(
         None, description="Fuzzy search by vehicle number, token number, material or date"
     ),
-    vehicle_number: Optional[str] = Query(None, description="Filter by vehicle number"),
-    material_name: Optional[str] = Query(None, description="Filter by material name"),
-    token_number: Optional[str] = Query(None, description="Filter by token number"),
+    vehicle_number: Optional[List[str]] = Query(None, description="Filter by vehicle number(s)"),
+    material_name: Optional[List[str]] = Query(None, description="Filter by material name(s)"),
+    token_number: Optional[List[str]] = Query(None, description="Filter by token number(s)"),
     start_date: Optional[datetime] = Query(None, description="Filter by start date"),
     end_date: Optional[datetime] = Query(None, description="Filter by end date"),
     offset: int = Query(0, ge=0),

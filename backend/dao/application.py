@@ -4,7 +4,7 @@ from fastapi import HTTPException
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func
-from typing import Optional
+from typing import List, Optional
 from sqlalchemy import insert, select, update, exists, and_, or_, String
 from sqlalchemy.orm import selectinload, joinedload
 from datetime import datetime, timedelta
@@ -1240,9 +1240,9 @@ class ApplicationDAO(BaseDAO):
     async def get_all_vehicle_entries(
         self,
         search: Optional[str] = None,
-        vehicle_number: Optional[str] = None,
-        material_name: Optional[str] = None,
-        token_number: Optional[str] = None,
+        vehicle_number: Optional[List[str]] = None,
+        material_name: Optional[List[str]] = None,
+        token_number: Optional[List[str]] = None,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
         offset: int = 0,
@@ -1282,45 +1282,53 @@ class ApplicationDAO(BaseDAO):
         # ── Explicit Filters ─────────────────────────────────────────────
         filters = []
         if vehicle_number:
-            filters.append(VehicleEntry.vehicle_number.ilike(f"%{vehicle_number}%"))
+            v_filters = [VehicleEntry.vehicle_number.ilike(f"%{vn}%") for vn in vehicle_number]
+            filters.append(or_(*v_filters))
 
         if material_name:
-            material_match_exists = exists().where(
-                and_(
-                    VehicleMaterial.vehicle_entry_id == VehicleEntry.id,
-                    or_(
-                        VehicleMaterial.custom_name.ilike(f"%{material_name}%"),
-                        exists().where(
-                            and_(
-                                Material.id == VehicleMaterial.material_id,
-                                Material.name.ilike(f"%{material_name}%"),
-                            )
+            m_or_filters = []
+            for mn in material_name:
+                material_match_exists = exists().where(
+                    and_(
+                        VehicleMaterial.vehicle_entry_id == VehicleEntry.id,
+                        or_(
+                            VehicleMaterial.custom_name.ilike(f"%{mn}%"),
+                            exists().where(
+                                and_(
+                                    Material.id == VehicleMaterial.material_id,
+                                    Material.name.ilike(f"%{mn}%"),
+                                )
+                            ),
                         ),
-                    ),
+                    )
                 )
-            )
-            filters.append(material_match_exists)
+                m_or_filters.append(material_match_exists)
+            filters.append(or_(*m_or_filters))
 
         if token_number:
-            if token_number.upper().startswith("TKN-"):
-                try:
-                    parts = token_number.split("-")
-                    phase_id = int(parts[-1])
-                    filters.append(ApprovedApplicationPhase.id == phase_id)
-                except (ValueError, IndexError):
-                    pass
-            elif token_number.upper().startswith("APP-"):
-                try:
-                    parts = token_number.split("-")
-                    app_id = int(parts[-1])
-                    filters.append(Application.id == app_id)
-                except (ValueError, IndexError):
-                    pass
-            elif token_number.isdigit():
-                val = int(token_number)
-                filters.append(
-                    or_(Application.id == val, ApprovedApplicationPhase.id == val)
-                )
+            t_or_filters = []
+            for tn in token_number:
+                if tn.upper().startswith("TKN-"):
+                    try:
+                        parts = tn.split("-")
+                        phase_id = int(parts[-1])
+                        t_or_filters.append(ApprovedApplicationPhase.id == phase_id)
+                    except (ValueError, IndexError):
+                        pass
+                elif tn.upper().startswith("APP-"):
+                    try:
+                        parts = tn.split("-")
+                        app_id = int(parts[-1])
+                        t_or_filters.append(Application.id == app_id)
+                    except (ValueError, IndexError):
+                        pass
+                elif tn.isdigit():
+                    val = int(tn)
+                    t_or_filters.append(
+                        or_(Application.id == val, ApprovedApplicationPhase.id == val)
+                    )
+            if t_or_filters:
+                filters.append(or_(*t_or_filters))
 
         if start_date:
             filters.append(VehicleEntry.entry_at >= start_date)
