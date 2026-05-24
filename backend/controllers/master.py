@@ -119,7 +119,7 @@ from backend.meta import UserRole
 
 # Departments
 async def _validate_jen_id(session: AsyncSession, jen_id: Optional[int]):
-    """Ensure the user exists and has the JEN role."""
+    """Ensure the user exists and has a role that can handle assignments (JEN, AEN, RIN, SIN)."""
     if jen_id is None:
         return
     stmt = select(User).where(User.id == jen_id)
@@ -127,10 +127,12 @@ async def _validate_jen_id(session: AsyncSession, jen_id: Optional[int]):
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=400, detail=f"User with ID {jen_id} not found")
-    if user.role != UserRole.JEN:
+    
+    allowed_roles = [UserRole.JEN, UserRole.AEN, UserRole.RIN, UserRole.SIN]
+    if user.role not in allowed_roles:
         raise HTTPException(
             status_code=400,
-            detail=f"User with ID {jen_id} is not a JEN (Role: {user.role})",
+            detail=f"User with ID {jen_id} has role {user.role}, which is not allowed for department incharge. Allowed: {allowed_roles}",
         )
 
 
