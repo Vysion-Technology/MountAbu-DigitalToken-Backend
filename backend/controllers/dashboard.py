@@ -29,6 +29,9 @@ AUTHORITY_ROLES = {
     UserRole.DEPT_LAND,
     UserRole.DEPT_LEGAL,
     UserRole.DEPT_ATP,
+    UserRole.AEN,
+    UserRole.RIN,
+    UserRole.SIN,
 }
 
 
