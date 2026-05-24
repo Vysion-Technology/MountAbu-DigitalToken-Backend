@@ -7,6 +7,8 @@ from backend.services.storage import get_storage_service
 from backend.dao.notices import NoticesDAO, get_notices_dao
 from backend.schemas.request.notice import NoticeCreate, NoticeUpdate
 from backend.schemas.response.notice import NoticeResponse, NoticesListResponse
+from backend.meta import UserRole
+from backend.schemas.base.auth import UserDetails
 
 
 class NoticesService:
@@ -55,8 +57,9 @@ class NoticesService:
             created_at=db_obj.created_at,
         )
 
-    async def get_notice(self, session: AsyncSession, notice_id: int) -> NoticeResponse:
-        db_obj = await self.dao.get_notice(session, notice_id)
+    async def get_notice(self, session: AsyncSession, notice_id: int, user: Optional[UserDetails] = None) -> NoticeResponse:
+        active_only = True if not user or user.role != UserRole.SUPERADMIN else False
+        db_obj = await self.dao.get_notice(session, notice_id, active_only=active_only)
         if not db_obj:
             raise HTTPException(status_code=404, detail="Notice not found")
         
@@ -80,8 +83,9 @@ class NoticesService:
             created_at=db_obj.created_at,
         )
 
-    async def list_notices(self, session: AsyncSession, limit: int = 50, offset: int = 0) -> NoticesListResponse:
-        objs = await self.dao.list_notices(session, limit=limit, offset=offset)
+    async def list_notices(self, session: AsyncSession, limit: int = 50, offset: int = 0, user: Optional[UserDetails] = None) -> NoticesListResponse:
+        active_only = True if not user or user.role != UserRole.SUPERADMIN else False
+        objs = await self.dao.list_notices(session, limit=limit, offset=offset, active_only=active_only)
         items = []
         for d in objs:
             image_url = self.storage.get_file_url(d.image_path) if d.image_path and self.storage else None

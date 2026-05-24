@@ -7,6 +7,8 @@ from backend.services.storage import get_storage_service
 from backend.dao.tenders import TendersDAO, get_tenders_dao
 from backend.schemas.request.tender import TenderCreate, TenderUpdate
 from backend.schemas.response.tender import TenderResponse, TendersListResponse
+from backend.meta import UserRole
+from backend.schemas.base.auth import UserDetails
 
 
 class TendersService:
@@ -43,8 +45,9 @@ class TendersService:
             created_at=db_obj.created_at,
         )
 
-    async def get_tender(self, session: AsyncSession, tender_id: int) -> TenderResponse:
-        db_obj = await self.dao.get_tender(session, tender_id)
+    async def get_tender(self, session: AsyncSession, tender_id: int, user: Optional[UserDetails] = None) -> TenderResponse:
+        active_only = True if not user or user.role != UserRole.SUPERADMIN else False
+        db_obj = await self.dao.get_tender(session, tender_id, active_only=active_only)
         if not db_obj:
             raise HTTPException(status_code=404, detail="Tender not found")
         
@@ -65,8 +68,9 @@ class TendersService:
             created_at=db_obj.created_at,
         )
 
-    async def list_tenders(self, session: AsyncSession, limit: int = 50, offset: int = 0) -> TendersListResponse:
-        objs = await self.dao.list_tenders(session, limit=limit, offset=offset)
+    async def list_tenders(self, session: AsyncSession, limit: int = 50, offset: int = 0, user: Optional[UserDetails] = None) -> TendersListResponse:
+        active_only = True if not user or user.role != UserRole.SUPERADMIN else False
+        objs = await self.dao.list_tenders(session, limit=limit, offset=offset, active_only=active_only)
         items = []
         for d in objs:
             doc_url = self.storage.get_file_url(d.document_path) if d.document_path and self.storage else None

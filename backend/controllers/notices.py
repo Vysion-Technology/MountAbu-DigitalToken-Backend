@@ -1,7 +1,8 @@
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.database import get_db
-from backend.middlewares.auth import get_admin_or_nodal
+from backend.middlewares.auth import get_admin_or_nodal, get_optional_user
 from backend.schemas.base.auth import UserDetails
 from backend.services.notices import NoticesService, get_notices_service
 from backend.schemas.request.notice import NoticeCreate, NoticeUpdate
@@ -57,18 +58,21 @@ async def list_notices(
     limit: int = 50,
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
+    user: Optional[UserDetails] = Depends(get_optional_user),
     service: NoticesService = Depends(get_notices_service),
 ):
-    return await service.list_notices(db, limit=limit, offset=offset)
+    return await service.list_notices(db, limit=limit, offset=offset, user=user)
 
 
 @router.get("/notices/{notice_id}", response_model=NoticeResponse)
 async def get_notice(
     notice_id: int,
     db: AsyncSession = Depends(get_db),
+    user: Optional[UserDetails] = Depends(get_optional_user),
     service: NoticesService = Depends(get_notices_service),
 ):
-    return await service.get_notice(db, notice_id)
+    return await service.get_notice(db, notice_id, user=user)
+
 
 
 @router.put("/notices/{notice_id}", response_model=NoticeResponse)

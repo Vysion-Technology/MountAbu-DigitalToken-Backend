@@ -222,8 +222,22 @@ class TokenMaterialResponse(BaseModel):
     approved_quantity: float
     consumed_quantity: float
     remaining_quantity: float
+    
+    # Aliases for consistency with VehicleEntryMaterialItem
+    permitted_material_quantity: float = 0.0
+    remaining_material_quantity: float = 0.0
 
     model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def set_aliases(cls, data):
+        if isinstance(data, dict):
+            if "approved_quantity" in data:
+                data["permitted_material_quantity"] = data["approved_quantity"]
+            if "remaining_quantity" in data:
+                data["remaining_material_quantity"] = data["remaining_quantity"]
+        return data
 
 
 class TokenResponse(BaseModel):
@@ -511,19 +525,30 @@ class ApplicationResponse(BaseModel):
         return data
 
 
-class AuthorityVehicleEntryResponse(BaseModel):
-    """Flattened response for authority view of vehicle entries."""
-
+class VehicleEntryMaterialItem(BaseModel):
+    """Single material item within a vehicle entry."""
     id: int  # VehicleMaterial.id
-    vehicle_entry_id: int
+    material_name: str
+    quantity: float
+    unit: str = ""
+    permitted_material_quantity: float = 0.0
+    remaining_material_quantity: float = 0.0
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AuthorityVehicleEntryResponse(BaseModel):
+    """Grouped response for authority view of vehicle entries."""
+
+    id: int  # VehicleEntry.id
     application_id: int
     token_number: Optional[str] = None  # Hidden for NAKA_INCHARGE
     vehicle_number: str
-    material_name: str
-    material_quantity: float
+    vehicle_type: Optional[str] = None
     entry_at: datetime
     naka_incharge_name: str
     has_dumping_photos: bool
+    materials: List[VehicleEntryMaterialItem]
     media: Optional[dict] = None
     access_urls: Optional[dict] = None
 

@@ -39,8 +39,8 @@ def decrypt_credentials(encrypted_text: str) -> str:
         # Decode base64
         ciphertext = base64.b64decode(encrypted_text)
         
-        # Decrypt using PKCS1_v1_5 (common for browser/mobile compatibility)
-        sentinel = Random.new().read(16) # Dummy value for failure
+        # Decrypt using PKCS1_v1_5
+        sentinel = Random.new().read(16)
         cipher = PKCS1_v1_5.new(_private_key)
         plain_text = cipher.decrypt(ciphertext, sentinel)
         
@@ -49,8 +49,11 @@ def decrypt_credentials(encrypted_text: str) -> str:
             
         return plain_text.decode("utf-8")
     except Exception as e:
-        print(f"Decryption error: {e}")
-        # In development, return as is if not encrypted, or handle error
+        if settings.ENFORCE_RSA_ENCRYPTION:
+            print(f"Decryption error (Enforced): {e}")
+            raise ValueError("Invalid encrypted credentials format")
+        
+        # If not enforced, fallback to plain text (development mode)
         return encrypted_text
 
 
@@ -93,9 +96,11 @@ def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None) 
     return encoded_jwt
 
 
-def create_tokens(user_id: int, role: str, token_version: int = 1) -> Tuple[str, str]:
+def create_tokens(user_id: int, role: str, token_version: int = 1, nonce: Optional[str] = None) -> Tuple[str, str]:
     """Create both access and refresh tokens for a user."""
     token_data = {"sub": str(user_id), "role": role, "version": token_version}
+    if nonce:
+        token_data["nonce"] = nonce
     access_token = create_access_token(token_data)
     refresh_token = create_refresh_token(token_data)
     return access_token, refresh_token

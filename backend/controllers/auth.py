@@ -3,9 +3,10 @@ from backend.config import settings
 import time
 import secrets
 import string
+import json
 
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Tuple
 
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.security import HTTPAuthorizationCredentials
@@ -30,6 +31,23 @@ from backend.schemas.base.auth import UserDetails
 router = APIRouter()
 user_service = UserService()
 user_dao = UserDAO()
+
+# --- Utility Functions ---
+
+def parse_credential_with_nonce(decrypted_text: str) -> Tuple[str, Optional[str]]:
+    """
+    Parses a decrypted credential string.
+    If it's JSON like {"value": "...", "nonce": "..."}, it returns (value, nonce).
+    Otherwise, returns (decrypted_text, None).
+    """
+    try:
+        data = json.loads(decrypted_text)
+        if isinstance(data, dict):
+            return data.get("value", decrypted_text), data.get("nonce")
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return decrypted_text, None
+
 
 # --- Request/Response Models ---
 
@@ -81,7 +99,6 @@ class MeResponse(BaseModel):
     name: str
     mobile: str
     role: str
-    username: Optional[str] = None
     is_active: bool
 
 
@@ -90,12 +107,31 @@ class MeResponse(BaseModel):
 
 @router.post("/send-otp", response_model=MessageResponse)
 async def send_otp(request: OTPRequest, db: AsyncSession = Depends(get_db)):
-    # Check if a valid (non-expired) OTP already exists
+    # Check for existing OTP record (valid or not, to check cooldown)
+    latest_otp = await user_dao.get_otp_record(db, request.mobile)
+    
+    now = datetime.now()
+    cooldown_seconds = 120  # 2 minutes cooldown
+
+    if latest_otp:
+        elapsed = (now - latest_otp.created_at).total_seconds()
+        if elapsed < cooldown_seconds:
+            wait_time = int(cooldown_seconds - elapsed)
+            raise HTTPException(
+                status_code=429,
+                detail=f"Please wait {wait_time} seconds before requesting another OTP."
+            )
+
+    # Check if a valid (non-expired) OTP already exists to reuse it
     existing_otp = await user_dao.get_valid_otp_record(db, request.mobile)
 
     if existing_otp:
-        # Resend the same OTP if it hasn't expired
+        # Resend the same OTP
         otp_value = existing_otp.otp
+        # Update created_at so the cooldown resets on resend
+        existing_otp.created_at = now
+        await db.commit()
+        
         print("========================================")
         print(f"RESENDING EXISTING OTP {otp_value} TO {request.mobile}")
         print("========================================")
@@ -104,7 +140,6 @@ async def send_otp(request: OTPRequest, db: AsyncSession = Depends(get_db)):
         if settings.USE_REAL_OTP:
             otp_value = "".join(secrets.choice(string.digits) for _ in range(6))
         else:
-            # placeholder for development
             otp_value = "123456"
 
         # Store OTP in DB
@@ -114,7 +149,7 @@ async def send_otp(request: OTPRequest, db: AsyncSession = Depends(get_db)):
         print(f"SENT NEW OTP {otp_value} TO {request.mobile}")
         print("========================================")
 
-    # Trigger SMS delivery (will log if USE_REAL_OTP is False)
+    # Trigger SMS delivery
     await sms_service.send_otp(request.mobile, otp_value)
 
     return {"message": "OTP sent successfully"}
@@ -123,8 +158,12 @@ async def send_otp(request: OTPRequest, db: AsyncSession = Depends(get_db)):
 @router.post("/login/otp", response_model=TokenResponse)
 async def login_with_otp(request: LoginRequest, db: AsyncSession = Depends(get_db)):
     # Decrypt credentials
-    mobile = decrypt_credentials(request.mobile)
-    otp = decrypt_credentials(request.otp)
+    mobile_decrypted = decrypt_credentials(request.mobile)
+    otp_decrypted = decrypt_credentials(request.otp)
+
+    # Parse potential JSON (to extract nonce)
+    mobile, nonce = parse_credential_with_nonce(mobile_decrypted)
+    otp, _ = parse_credential_with_nonce(otp_decrypted)
 
     # 1. Verify OTP
     otp_record = await user_dao.get_otp_record(db, mobile)
@@ -154,7 +193,7 @@ async def login_with_otp(request: LoginRequest, db: AsyncSession = Depends(get_d
         raise HTTPException(status_code=403, detail="User account is inactive")
 
     # 3. Generate Tokens (access + refresh)
-    access_token, refresh_token = create_tokens(user.id, user.role.value, user.token_version)
+    access_token, refresh_token = create_tokens(user.id, user.role.value, user.token_version, nonce=nonce)
 
     return {
         "access_token": access_token,
@@ -172,8 +211,12 @@ async def login_with_password(
     request: PasswordLoginRequest, db: AsyncSession = Depends(get_db)
 ):
     # Decrypt credentials
-    username = decrypt_credentials(request.username)
-    password = decrypt_credentials(request.password)
+    username_decrypted = decrypt_credentials(request.username)
+    password_decrypted = decrypt_credentials(request.password)
+
+    # Parse potential JSON (to extract nonce)
+    username, nonce = parse_credential_with_nonce(username_decrypted)
+    password, _ = parse_credential_with_nonce(password_decrypted)
 
     user = await user_service.get_user_by_username(db, username)
     if not user:
@@ -191,7 +234,7 @@ async def login_with_password(
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     # Generate Tokens (access + refresh)
-    access_token, refresh_token = create_tokens(user.id, user.role.value, user.token_version)
+    access_token, refresh_token = create_tokens(user.id, user.role.value, user.token_version, nonce=nonce)
 
     return {
         "access_token": access_token,
@@ -238,6 +281,7 @@ async def refresh_access_token(request: RefreshTokenRequest, db: AsyncSession = 
     user_id_str = payload.get("sub")
     role = payload.get("role")
     token_version = payload.get("version", 1)
+    nonce = payload.get("nonce")
 
     if not user_id_str or not role:
         raise HTTPException(
@@ -255,6 +299,8 @@ async def refresh_access_token(request: RefreshTokenRequest, db: AsyncSession = 
 
     # Create new access token
     token_data = {"sub": str(user_id), "role": role, "version": user.token_version}
+    if nonce:
+        token_data["nonce"] = nonce
     new_access_token = create_access_token(token_data)
 
     return {
@@ -300,7 +346,6 @@ async def get_me(
         "name": user.name,
         "mobile": user.mobile,
         "role": user.role.value,
-        "username": user.username,
         "is_active": user.is_active,
     }
 

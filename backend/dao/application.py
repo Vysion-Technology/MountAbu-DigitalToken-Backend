@@ -4,7 +4,7 @@ from fastapi import HTTPException
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func
-from typing import Optional
+from typing import List, Optional
 from sqlalchemy import insert, select, update, exists, and_, or_, String
 from sqlalchemy.orm import selectinload, joinedload
 from datetime import datetime, timedelta
@@ -179,6 +179,32 @@ class ApplicationDAO(BaseDAO):
         await self.session.commit()
 
         return await self.get_application(application_id)
+    async def _validate_materials_active(self, material_ids: list[int]):
+        """Validate that all material IDs exist and are active."""
+        if not material_ids:
+            return
+
+        stmt = select(Material.id, Material.name, Material.status).where(
+            Material.id.in_(material_ids)
+        )
+        result = await self.session.execute(stmt)
+        rows = result.all()
+
+        existing_ids = {r[0] for r in rows}
+        invalid_ids = [mid for mid in material_ids if mid not in existing_ids]
+        if invalid_ids:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid material IDs: {invalid_ids}. These materials do not exist.",
+            )
+
+        inactive_materials = [r[1] for r in rows if not r[2]]
+        if inactive_materials:
+            raise HTTPException(
+                status_code=400,
+                detail=f"The following materials are deactivated and cannot be used for new entries: {', '.join(inactive_materials)}",
+            )
+
     async def create_application(
         self, application: ApplicationCreate, user_id: int, mobile: str
     ) -> ApplicationResponse:
@@ -189,25 +215,12 @@ class ApplicationDAO(BaseDAO):
         application_data["user_id"] = user_id
         application_data["mobile"] = mobile
 
-        # Validate that all material IDs exist
+        # Validate that all material IDs exist and are active
         if material_requirements:
             material_ids = [
                 m.material_id for m in material_requirements if m.material_id is not None
             ]
-
-            if material_ids:
-                # Query existing materials
-                stmt = select(Material.id).where(Material.id.in_(material_ids))
-                result = await self.session.execute(stmt)
-                existing_ids = set(result.scalars().all())
-
-                # Check for invalid material IDs
-                invalid_ids = [mid for mid in material_ids if mid not in existing_ids]
-                if invalid_ids:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Invalid material IDs: {invalid_ids}. These materials do not exist.",
-                    )
+            await self._validate_materials_active(material_ids)
 
         # Create the application
         result = await self.session.execute(
@@ -475,18 +488,7 @@ class ApplicationDAO(BaseDAO):
         ]
 
         if material_ids:
-            # Query existing materials
-            stmt = select(Material.id).where(Material.id.in_(material_ids))
-            result = await self.session.execute(stmt)
-            existing_ids = set(result.scalars().all())
-
-            # Check for invalid material IDs
-            invalid_ids = [mid for mid in material_ids if mid not in existing_ids]
-            if invalid_ids:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Invalid material IDs: {invalid_ids}. These materials do not exist.",
-                )
+            await self._validate_materials_active(material_ids)
 
         # Insert material requirements into ApplicationMaterial table
         for material in material_requirements:
@@ -1133,20 +1135,69 @@ class ApplicationDAO(BaseDAO):
         if phase_rec and phase_rec.activated_at:
             valid_till = phase_rec.activated_at + timedelta(days=TOKEN_VALIDITY_DAYS)
 
-        # 4. Material entry details (flattened list for schema)
+        # 4. Fetch phase material limits and total brought quantities for this phase
+        phase_limits = {}
+        phase_units = {}
+        brought_so_far = {}
+
+        # 4.1. Get limits and units
+        pm_stmt = (
+            select(ApplicationPhaseMaterial, Material.unit)
+            .outerjoin(Material, ApplicationPhaseMaterial.material_id == Material.id)
+            .where(
+                ApplicationPhaseMaterial.application_id == ve.application_id,
+                ApplicationPhaseMaterial.phase == ve.phase,
+            )
+        )
+        pm_results = await self.session.execute(pm_stmt)
+        for pm, m_unit in pm_results.all():
+            key = (pm.material_id, pm.custom_name)
+            phase_limits[key] = pm.quantity
+            phase_units[key] = m_unit or pm.custom_unit or ""
+
+        # 4.2. Get total brought quantities for this phase
+        brought_stmt = (
+            select(
+                VehicleMaterial.material_id,
+                VehicleMaterial.custom_name,
+                func.sum(VehicleMaterial.quantity).label("total"),
+            )
+            .join(VehicleEntry, VehicleMaterial.vehicle_entry_id == VehicleEntry.id)
+            .where(
+                VehicleEntry.application_id == ve.application_id,
+                VehicleEntry.phase == ve.phase,
+            )
+            .group_by(VehicleMaterial.material_id, VehicleMaterial.custom_name)
+        )
+        brought_results = await self.session.execute(brought_stmt)
+        for row in brought_results.all():
+            key = (row.material_id, row.custom_name)
+            brought_so_far[key] = row.total
+
+        # 5. Material entry details (flattened list for schema)
         material_details = []
         for vm in ve.materials:
             m_name = vm.material.name if vm.material else (vm.custom_name or "Unknown")
+            key = (vm.material_id, vm.custom_name)
+            
+            approved = phase_limits.get(key, 0.0)
+            brought = brought_so_far.get(key, 0.0)
+            unit = (vm.material.unit if vm.material else None) or vm.custom_unit or phase_units.get(key, "")
+
             material_details.append(
                 {
+                    "material_id": vm.material_id,
+                    "custom_name": vm.custom_name,
+                    "custom_unit": vm.custom_unit,
                     "material_name": m_name,
-                    "approved_quantity": 0,  # Not strictly requested to be precise here
+                    "unit": unit,
+                    "approved_quantity": approved,
                     "consumed_quantity": vm.quantity,
-                    "remaining_quantity": 0,
+                    "remaining_quantity": approved - brought,
                 }
             )
 
-        # 5. Media signed URLs
+        # 6. Media signed URLs
         vehicle_image = None
         entry_proof = []
         if ve.media:
@@ -1157,7 +1208,7 @@ class ApplicationDAO(BaseDAO):
             if proofs and isinstance(proofs, list):
                 entry_proof = [generate_signed_file_url(p) for p in proofs if p]
 
-        # 6. Dumping photos
+        # 7. Dumping photos
         dumping_photos = []
         for dp in ve.dumping_photos:
             dumping_photos.append(
@@ -1191,31 +1242,36 @@ class ApplicationDAO(BaseDAO):
     async def get_all_vehicle_entries(
         self,
         search: Optional[str] = None,
+        vehicle_number: Optional[List[str]] = None,
+        material_name: Optional[List[str]] = None,
+        token_number: Optional[List[str]] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
         offset: int = 0,
         limit: int = 50,
     ) -> list[dict]:
-        """Get all vehicle entries for authority view, flattened by material."""
+        """Get all vehicle entries for authority view, grouped by trip with advanced filtering."""
         from backend.dbmodels.user import User
-        from backend.dbmodels.application import ApprovedApplicationPhase, Material
+        from backend.dbmodels.application import (
+            ApprovedApplicationPhase,
+            Material,
+            VehicleMaterial,
+            ApplicationPhaseMaterial,
+        )
 
-        # Query all VehicleMaterial rows with their entry, application, user, and material details
-        # Also check for dumping photos existence
+        # Base query for VehicleEntry
         stmt = (
             select(
-                VehicleMaterial,
                 VehicleEntry,
                 Application,
                 User,
-                Material,
                 ApprovedApplicationPhase,
                 exists()
                 .where(VehicleEntryDumpingPhoto.vehicle_entry_id == VehicleEntry.id)
                 .label("has_dumping_photos"),
             )
-            .join(VehicleEntry, VehicleMaterial.vehicle_entry_id == VehicleEntry.id)
             .join(Application, VehicleEntry.application_id == Application.id)
             .join(User, VehicleEntry.entry_by == User.id)
-            .outerjoin(Material, VehicleMaterial.material_id == Material.id)
             .outerjoin(
                 ApprovedApplicationPhase,
                 and_(
@@ -1225,22 +1281,86 @@ class ApplicationDAO(BaseDAO):
             )
         )
 
-        # ── Fuzzy Search Filters ──────────────────────────────────────────
+        # ── Explicit Filters ─────────────────────────────────────────────
+        filters = []
+        if vehicle_number:
+            v_filters = [VehicleEntry.vehicle_number.ilike(f"%{vn}%") for vn in vehicle_number]
+            filters.append(or_(*v_filters))
+
+        if material_name:
+            m_or_filters = []
+            for mn in material_name:
+                material_match_exists = exists().where(
+                    and_(
+                        VehicleMaterial.vehicle_entry_id == VehicleEntry.id,
+                        or_(
+                            VehicleMaterial.custom_name.ilike(f"%{mn}%"),
+                            exists().where(
+                                and_(
+                                    Material.id == VehicleMaterial.material_id,
+                                    Material.name.ilike(f"%{mn}%"),
+                                )
+                            ),
+                        ),
+                    )
+                )
+                m_or_filters.append(material_match_exists)
+            filters.append(or_(*m_or_filters))
+
+        if token_number:
+            t_or_filters = []
+            for tn in token_number:
+                if tn.upper().startswith("TKN-"):
+                    try:
+                        parts = tn.split("-")
+                        phase_id = int(parts[-1])
+                        t_or_filters.append(ApprovedApplicationPhase.id == phase_id)
+                    except (ValueError, IndexError):
+                        pass
+                elif tn.upper().startswith("APP-"):
+                    try:
+                        parts = tn.split("-")
+                        app_id = int(parts[-1])
+                        t_or_filters.append(Application.id == app_id)
+                    except (ValueError, IndexError):
+                        pass
+                elif tn.isdigit():
+                    val = int(tn)
+                    t_or_filters.append(
+                        or_(Application.id == val, ApprovedApplicationPhase.id == val)
+                    )
+            if t_or_filters:
+                filters.append(or_(*t_or_filters))
+
+        if start_date:
+            filters.append(VehicleEntry.entry_at >= start_date)
+        if end_date:
+            filters.append(VehicleEntry.entry_at <= end_date)
+
+        # ── Fuzzy Search Filters (Legacy) ─────────────────────────────────
         if search:
             search_filters = []
-
-            # 1. Vehicle Number
             search_filters.append(VehicleEntry.vehicle_number.ilike(f"%{search}%"))
 
-            # 2. Material Name (Catalog or Custom)
-            search_filters.append(Material.name.ilike(f"%{search}%"))
-            search_filters.append(VehicleMaterial.custom_name.ilike(f"%{search}%"))
+            material_match_exists = exists().where(
+                and_(
+                    VehicleMaterial.vehicle_entry_id == VehicleEntry.id,
+                    or_(
+                        VehicleMaterial.custom_name.ilike(f"%{search}%"),
+                        exists().where(
+                            and_(
+                                Material.id == VehicleMaterial.material_id,
+                                Material.name.ilike(f"%{search}%"),
+                            )
+                        ),
+                    ),
+                )
+            )
+            search_filters.append(material_match_exists)
+            search_filters.append(
+                func.cast(VehicleEntry.entry_at, String).ilike(f"%{search}%")
+            )
 
-            # 3. Date (entry_at)
-            # Casting to string for partial matching
-            search_filters.append(func.cast(VehicleEntry.entry_at, String).ilike(f"%{search}%"))
-
-            # 4. Token Number / Application ID
             if search.isdigit():
                 val = int(search)
                 search_filters.append(Application.id == val)
@@ -1260,19 +1380,80 @@ class ApplicationDAO(BaseDAO):
                 except (ValueError, IndexError):
                     pass
 
-            stmt = stmt.where(or_(*search_filters))
+            filters.append(or_(*search_filters))
+
+        if filters:
+            stmt = stmt.where(and_(*filters))
 
         stmt = stmt.order_by(VehicleEntry.entry_at.desc()).offset(offset).limit(limit)
 
         result = await self.session.execute(stmt)
         rows = result.all()
 
-        flattened = []
-        for vm, ve, app, incharge, m_catalog, phase_rec, has_photos in rows:
-            # Use custom name if catalog material is not linked
-            m_name = m_catalog.name if m_catalog else (vm.custom_name or "Unknown")
-            
-            # Generate token_number like the system does
+        # Batch fetch phase material limits and total brought quantities for efficiency
+        app_phase_pairs = set((ve.application_id, ve.phase) for ve, _, _, _, _ in rows)
+        phase_material_limits = {}  # (app_id, phase, material_id, custom_name) -> qty
+        phase_material_units = {}   # (app_id, phase, material_id, custom_name) -> unit
+        total_brought_so_far = {}   # (app_id, phase, material_id, custom_name) -> total_qty
+
+        if app_phase_pairs:
+            # 1. Get Phase Material Limits and Units
+            pm_filters = [
+                and_(
+                    ApplicationPhaseMaterial.application_id == aid,
+                    ApplicationPhaseMaterial.phase == ph,
+                )
+                for aid, ph in app_phase_pairs
+            ]
+            pm_stmt = (
+                select(ApplicationPhaseMaterial, Material.unit)
+                .outerjoin(Material, ApplicationPhaseMaterial.material_id == Material.id)
+                .where(or_(*pm_filters))
+            )
+            pm_results = await self.session.execute(pm_stmt)
+            for pm, m_unit in pm_results.all():
+                key = (pm.application_id, pm.phase, pm.material_id, pm.custom_name)
+                phase_material_limits[key] = pm.quantity
+                phase_material_units[key] = m_unit or pm.custom_unit or ""
+
+            # 2. Get Total Brought Quantities for these phases
+            brought_stmt = (
+                select(
+                    VehicleEntry.application_id,
+                    VehicleEntry.phase,
+                    VehicleMaterial.material_id,
+                    VehicleMaterial.custom_name,
+                    func.sum(VehicleMaterial.quantity).label("total"),
+                )
+                .join(
+                    VehicleMaterial, VehicleEntry.id == VehicleMaterial.vehicle_entry_id
+                )
+                .where(
+                    or_(
+                        *[
+                            and_(
+                                VehicleEntry.application_id == aid,
+                                VehicleEntry.phase == ph,
+                            )
+                            for aid, ph in app_phase_pairs
+                        ]
+                    )
+                )
+                .group_by(
+                    VehicleEntry.application_id,
+                    VehicleEntry.phase,
+                    VehicleMaterial.material_id,
+                    VehicleMaterial.custom_name,
+                )
+            )
+            brought_results = await self.session.execute(brought_stmt)
+            for row in brought_results.all():
+                key = (row.application_id, row.phase, row.material_id, row.custom_name)
+                total_brought_so_far[key] = row.total
+
+        grouped_results = []
+        for ve, app, incharge, phase_rec, has_photos in rows:
+            # Generate token_number
             if phase_rec:
                 year = (
                     phase_rec.activated_at.year
@@ -1283,21 +1464,49 @@ class ApplicationDAO(BaseDAO):
             else:
                 token_number = f"APP-{app.id}-P{ve.phase}"
 
-            flattened.append({
-                "id": vm.id,
-                "vehicle_entry_id": ve.id,
-                "application_id": ve.application_id,
-                "token_number": token_number,
-                "vehicle_number": ve.vehicle_number,
-                "material_name": m_name,
-                "material_quantity": vm.quantity,
-                "entry_at": ve.entry_at,
-                "naka_incharge_name": incharge.name,
-                "has_dumping_photos": has_photos,
-                "media": ve.media
-            })
-            
-        return flattened
+            # Fetch all materials for this vehicle entry
+            mat_stmt = (
+                select(VehicleMaterial, Material.name, Material.unit)
+                .outerjoin(Material, VehicleMaterial.material_id == Material.id)
+                .where(VehicleMaterial.vehicle_entry_id == ve.id)
+            )
+            mat_result = await self.session.execute(mat_stmt)
+            mat_rows = mat_result.all()
+
+            materials_list = []
+            for vm, catalog_name, m_unit in mat_rows:
+                key = (ve.application_id, ve.phase, vm.material_id, vm.custom_name)
+                permitted = phase_material_limits.get(key, 0.0)
+                brought = total_brought_so_far.get(key, 0.0)
+                unit = m_unit or vm.custom_unit or phase_material_units.get(key, "")
+
+                materials_list.append(
+                    {
+                        "id": vm.id,
+                        "material_name": catalog_name or vm.custom_name or "Unknown",
+                        "quantity": vm.quantity,
+                        "unit": unit,
+                        "permitted_material_quantity": permitted,
+                        "remaining_material_quantity": permitted - brought,
+                    }
+                )
+
+            grouped_results.append(
+                {
+                    "id": ve.id,
+                    "application_id": ve.application_id,
+                    "token_number": token_number,
+                    "vehicle_number": ve.vehicle_number,
+                    "vehicle_type": ve.vehicle_type,
+                    "entry_at": ve.entry_at,
+                    "naka_incharge_name": incharge.name,
+                    "has_dumping_photos": has_photos,
+                    "materials": materials_list,
+                    "media": ve.media,
+                }
+            )
+
+        return grouped_results
 
     async def get_phase_material_summary(self, application_id: int, phase: int) -> dict:
         """Get material summary for a phase at the naka checkpoint.

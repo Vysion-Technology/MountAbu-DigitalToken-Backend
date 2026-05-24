@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.dbmodels.notice import Notice
 from backend.schemas.request.notice import NoticeCreate, NoticeUpdate
+from backend.meta import NoticeStatus
 
 
 class NoticesDAO:
@@ -15,12 +16,18 @@ class NoticesDAO:
         await session.refresh(db_obj)
         return db_obj
 
-    async def get_notice(self, session: AsyncSession, notice_id: int) -> Optional[Notice]:
-        result = await session.execute(select(Notice).where(Notice.id == notice_id))
+    async def get_notice(self, session: AsyncSession, notice_id: int, active_only: bool = False) -> Optional[Notice]:
+        stmt = select(Notice).where(Notice.id == notice_id)
+        if active_only:
+            stmt = stmt.where(Notice.status == NoticeStatus.ACTIVE)
+        result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def list_notices(self, session: AsyncSession, limit: int = 50, offset: int = 0) -> List[Notice]:
-        result = await session.execute(select(Notice).order_by(Notice.published_on.desc()).limit(limit).offset(offset))
+    async def list_notices(self, session: AsyncSession, limit: int = 50, offset: int = 0, active_only: bool = False) -> List[Notice]:
+        stmt = select(Notice).order_by(Notice.published_on.desc()).limit(limit).offset(offset)
+        if active_only:
+            stmt = stmt.where(Notice.status == NoticeStatus.ACTIVE)
+        result = await session.execute(stmt)
         return result.scalars().all()
 
     async def update_notice(self, session: AsyncSession, notice_id: int, data: NoticeUpdate) -> Optional[Notice]:

@@ -7,6 +7,8 @@ from backend.services.storage import get_storage_service
 from backend.dao.downloads import DownloadsDAO, get_downloads_dao
 from backend.schemas.request.download import DownloadCreate, DownloadUpdate
 from backend.schemas.response.download import DownloadResponse, DownloadsListResponse
+from backend.meta import UserRole
+from backend.schemas.base.auth import UserDetails
 
 
 class DownloadsService:
@@ -43,8 +45,9 @@ class DownloadsService:
             uploaded_on=db_obj.uploaded_on,
         )
 
-    async def get_download(self, session: AsyncSession, download_id: int) -> DownloadResponse:
-        db_obj = await self.dao.get_download(session, download_id)
+    async def get_download(self, session: AsyncSession, download_id: int, user: Optional[UserDetails] = None) -> DownloadResponse:
+        active_only = True if not user or user.role != UserRole.SUPERADMIN else False
+        db_obj = await self.dao.get_download(session, download_id, active_only=active_only)
         if not db_obj:
             raise HTTPException(status_code=404, detail="Download not found")
         file_url = self.storage.get_file_url(db_obj.file_path) if self.storage else None
@@ -61,8 +64,9 @@ class DownloadsService:
             uploaded_on=db_obj.uploaded_on,
         )
 
-    async def list_downloads(self, session: AsyncSession, limit: int = 50, offset: int = 0) -> DownloadsListResponse:
-        objs = await self.dao.list_downloads(session, limit=limit, offset=offset)
+    async def list_downloads(self, session: AsyncSession, limit: int = 50, offset: int = 0, user: Optional[UserDetails] = None) -> DownloadsListResponse:
+        active_only = True if not user or user.role != UserRole.SUPERADMIN else False
+        objs = await self.dao.list_downloads(session, limit=limit, offset=offset, active_only=active_only)
         items = []
         for d in objs:
             file_url = self.storage.get_file_url(d.file_path) if self.storage else None

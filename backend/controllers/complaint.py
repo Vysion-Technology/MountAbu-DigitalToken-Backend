@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, File, UploadFile, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func as sa_func
 from sqlalchemy.orm import selectinload
-from typing import Optional
+from typing import Optional, List
+from uuid import uuid4
 
 from backend.database import get_db
 from backend.dbmodels.complaint import Complaint, ComplaintMedia, ComplaintComment
@@ -19,6 +20,7 @@ from backend.schemas.base.auth import UserDetails
 from backend.services.audit import AuditService
 from backend.services.sms import sms_service
 from backend.meta.audit import AuditAction
+from backend.services.storage import get_storage_service
 
 router = APIRouter()
 audit_service = AuditService()
@@ -119,6 +121,10 @@ async def get_all_complaints(
         base_where.append(Complaint.ward_id == ward_id)
     if category_id is not None:
         base_where.append(Complaint.category_id == category_id)
+
+    # Filter by assigned user for specific roles
+    if user.role in (UserRole.JEN, UserRole.AEN, UserRole.RIN, UserRole.SIN):
+        base_where.append(Complaint.assigned_to_id == user.user_id)
 
     # Count total
     count_stmt = select(sa_func.count(Complaint.id))
@@ -364,18 +370,26 @@ async def withdraw_complaint(
 @router.post("/complaints/{id}/resolve", response_model=ComplaintResponse)
 async def resolve_complaint(
     id: int,
-    request: ComplaintResolveRequest,
+    remarks: Optional[str] = Form(None),
+    images: List[UploadFile] = File([]),
     user: UserDetails = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Resolve a complaint. Only JEN role can resolve."""
-    if user.role != UserRole.JEN:
+    """Resolve a complaint. Only assigned JEN, AEN, RIN, or SIN can resolve."""
+    allowed_roles = (UserRole.JEN, UserRole.AEN, UserRole.RIN, UserRole.SIN)
+    if user.role not in allowed_roles:
         raise HTTPException(
             status_code=403,
-            detail="Only JEN can resolve complaints",
+            detail=f"Only roles {', '.join(allowed_roles)} can resolve complaints",
         )
 
     complaint = await get_complaint_or_404(db, id)
+
+    if complaint.assigned_to_id != user.user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="You can only resolve complaints assigned to you",
+        )
 
     if complaint.status not in (ComplaintStatus.PENDING, ComplaintStatus.IN_PROGRESS):
         raise HTTPException(
@@ -386,24 +400,42 @@ async def resolve_complaint(
     complaint.status = ComplaintStatus.RESOLVED
 
     # Add resolution remarks as a comment
-    if request.remarks:
+    if remarks:
         comment = ComplaintComment(
             complaint_id=id,
-            comment=request.remarks,
+            comment=remarks,
             comment_by=user.user_id,
         )
         db.add(comment)
 
-    # Add proof/evidence media
-    for key in request.media_keys:
-        media = ComplaintMedia(
-            complaint_id=id,
-            media_path=key,
-            media_type="unknown",
-            uploaded_by=user.user_id,
-            is_initial=False,
-        )
-        db.add(media)
+    # Handle direct image uploads
+    if images:
+        storage = get_storage_service()
+        if not storage:
+            raise HTTPException(status_code=500, detail="Storage service unavailable")
+
+        for img in images:
+            if not img.filename:
+                continue
+                
+            # Create object key: complaints/{id}/resolution/{uuid}_{filename}
+            uid = uuid4()
+            clean_filename = img.filename.replace(" ", "_")
+            object_key = f"complaints/{id}/resolution/{uid}_{clean_filename}"
+            
+            # Upload
+            content = await img.read()
+            storage.upload_bytes(object_key, content, img.content_type)
+            
+            # Save media record
+            media = ComplaintMedia(
+                complaint_id=id,
+                media_path=object_key,
+                media_type=img.content_type or "image/jpeg",
+                uploaded_by=user.user_id,
+                is_initial=False,
+            )
+            db.add(media)
 
     await audit_service.log(
         db,
@@ -418,7 +450,7 @@ async def resolve_complaint(
     try:
         await sms_service.send_complaint_sms(
             mobile=complaint.applicant_mobile,
-            complaint_id=f"CMP-{complaint.id}",
+            complaint_id=f"CMP-{complaint.id:04d}",
             status="resolved"
         )
     except Exception as e:

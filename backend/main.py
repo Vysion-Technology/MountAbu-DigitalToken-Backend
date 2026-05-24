@@ -21,6 +21,7 @@ from backend.controllers.dashboard import router as dashboard_router
 from backend.controllers.user_management import router as user_management_router
 from backend.controllers.audit import router as audit_router
 from backend.controllers.contact_diary import router as contact_diary_router
+from backend.middlewares.security import XSSMiddleware
 
 
 @asynccontextmanager
@@ -39,6 +40,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Mount Abu E-Token System", lifespan=lifespan)
+
+# Add Middlewares
+app.add_middleware(XSSMiddleware)
 
 # Include routers
 app.include_router(auth_router, prefix="/auth", tags=["Auth"])

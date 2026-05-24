@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.dbmodels.download import Download
 from backend.schemas.request.download import DownloadCreate, DownloadUpdate
+from backend.meta import DownloadStatus
 
 
 class DownloadsDAO:
@@ -15,12 +16,18 @@ class DownloadsDAO:
         await session.refresh(db_obj)
         return db_obj
 
-    async def get_download(self, session: AsyncSession, download_id: int) -> Optional[Download]:
-        result = await session.execute(select(Download).where(Download.id == download_id))
+    async def get_download(self, session: AsyncSession, download_id: int, active_only: bool = False) -> Optional[Download]:
+        stmt = select(Download).where(Download.id == download_id)
+        if active_only:
+            stmt = stmt.where(Download.status == DownloadStatus.ACTIVE)
+        result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def list_downloads(self, session: AsyncSession, limit: int = 50, offset: int = 0) -> List[Download]:
-        result = await session.execute(select(Download).order_by(Download.uploaded_on.desc()).limit(limit).offset(offset))
+    async def list_downloads(self, session: AsyncSession, limit: int = 50, offset: int = 0, active_only: bool = False) -> List[Download]:
+        stmt = select(Download).order_by(Download.uploaded_on.desc()).limit(limit).offset(offset)
+        if active_only:
+            stmt = stmt.where(Download.status == DownloadStatus.ACTIVE)
+        result = await session.execute(stmt)
         return result.scalars().all()
 
     async def update_download(self, session: AsyncSession, download_id: int, data: DownloadUpdate) -> Optional[Download]:
