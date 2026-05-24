@@ -642,6 +642,7 @@ class AuthorityDashboardDAO(BaseDAO):
         self,
         since: Optional[datetime] = None,
         ward_id: Optional[int] = None,
+        assigned_to_id: Optional[int] = None,
     ) -> list[dict]:
         stmt = select(
             Complaint.status, func.count(Complaint.id).label("count")
@@ -650,6 +651,8 @@ class AuthorityDashboardDAO(BaseDAO):
             stmt = stmt.where(Complaint.created_at >= since)
         if ward_id:
             stmt = stmt.where(Complaint.ward_id == ward_id)
+        if assigned_to_id:
+            stmt = stmt.where(Complaint.assigned_to_id == assigned_to_id)
 
         rows = (await self.session.execute(stmt)).all()
         return [{"status": r[0].value, "count": r[1]} for r in rows]
