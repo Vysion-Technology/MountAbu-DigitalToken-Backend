@@ -222,8 +222,22 @@ class TokenMaterialResponse(BaseModel):
     approved_quantity: float
     consumed_quantity: float
     remaining_quantity: float
+    
+    # Aliases for consistency with VehicleEntryMaterialItem
+    permitted_material_quantity: float = 0.0
+    remaining_material_quantity: float = 0.0
 
     model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def set_aliases(cls, data):
+        if isinstance(data, dict):
+            if "approved_quantity" in data:
+                data["permitted_material_quantity"] = data["approved_quantity"]
+            if "remaining_quantity" in data:
+                data["remaining_material_quantity"] = data["remaining_quantity"]
+        return data
 
 
 class TokenResponse(BaseModel):

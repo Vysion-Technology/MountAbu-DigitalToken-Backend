@@ -1133,20 +1133,69 @@ class ApplicationDAO(BaseDAO):
         if phase_rec and phase_rec.activated_at:
             valid_till = phase_rec.activated_at + timedelta(days=TOKEN_VALIDITY_DAYS)
 
-        # 4. Material entry details (flattened list for schema)
+        # 4. Fetch phase material limits and total brought quantities for this phase
+        phase_limits = {}
+        phase_units = {}
+        brought_so_far = {}
+
+        # 4.1. Get limits and units
+        pm_stmt = (
+            select(ApplicationPhaseMaterial, Material.unit)
+            .outerjoin(Material, ApplicationPhaseMaterial.material_id == Material.id)
+            .where(
+                ApplicationPhaseMaterial.application_id == ve.application_id,
+                ApplicationPhaseMaterial.phase == ve.phase,
+            )
+        )
+        pm_results = await self.session.execute(pm_stmt)
+        for pm, m_unit in pm_results.all():
+            key = (pm.material_id, pm.custom_name)
+            phase_limits[key] = pm.quantity
+            phase_units[key] = m_unit or pm.custom_unit or ""
+
+        # 4.2. Get total brought quantities for this phase
+        brought_stmt = (
+            select(
+                VehicleMaterial.material_id,
+                VehicleMaterial.custom_name,
+                func.sum(VehicleMaterial.quantity).label("total"),
+            )
+            .join(VehicleEntry, VehicleMaterial.vehicle_entry_id == VehicleEntry.id)
+            .where(
+                VehicleEntry.application_id == ve.application_id,
+                VehicleEntry.phase == ve.phase,
+            )
+            .group_by(VehicleMaterial.material_id, VehicleMaterial.custom_name)
+        )
+        brought_results = await self.session.execute(brought_stmt)
+        for row in brought_results.all():
+            key = (row.material_id, row.custom_name)
+            brought_so_far[key] = row.total
+
+        # 5. Material entry details (flattened list for schema)
         material_details = []
         for vm in ve.materials:
             m_name = vm.material.name if vm.material else (vm.custom_name or "Unknown")
+            key = (vm.material_id, vm.custom_name)
+            
+            approved = phase_limits.get(key, 0.0)
+            brought = brought_so_far.get(key, 0.0)
+            unit = (vm.material.unit if vm.material else None) or vm.custom_unit or phase_units.get(key, "")
+
             material_details.append(
                 {
+                    "material_id": vm.material_id,
+                    "custom_name": vm.custom_name,
+                    "custom_unit": vm.custom_unit,
                     "material_name": m_name,
-                    "approved_quantity": 0,  # Not strictly requested to be precise here
+                    "unit": unit,
+                    "approved_quantity": approved,
                     "consumed_quantity": vm.quantity,
-                    "remaining_quantity": 0,
+                    "remaining_quantity": approved - brought,
                 }
             )
 
-        # 5. Media signed URLs
+        # 6. Media signed URLs
         vehicle_image = None
         entry_proof = []
         if ve.media:
@@ -1157,7 +1206,7 @@ class ApplicationDAO(BaseDAO):
             if proofs and isinstance(proofs, list):
                 entry_proof = [generate_signed_file_url(p) for p in proofs if p]
 
-        # 6. Dumping photos
+        # 7. Dumping photos
         dumping_photos = []
         for dp in ve.dumping_photos:
             dumping_photos.append(
