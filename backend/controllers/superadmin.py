@@ -10,7 +10,7 @@ from backend.schemas.base.auth import UserDetails
 from backend.meta import UserRole
 from backend.schemas.response.meta import MessageResponse, UserCreatedResponse
 from backend.services.user import UserService
-from backend.core.security import decrypt_credentials
+from backend.core.security import decrypt_and_verify_payload
 
 router = APIRouter()
 user_service = UserService()
@@ -60,8 +60,8 @@ async def create_initial_superadmin(
     Creates a superadmin if one does not exist (by username).
     Public endpoint for initial setup.
     """
-    username = decrypt_credentials(request.username)
-    password = decrypt_credentials(request.password)
+    username, _ = decrypt_and_verify_payload(request.username)
+    password, _ = decrypt_and_verify_payload(request.password)
     
     await user_service.create_superadmin_if_not_exists(
         db, username=username, password=password, mobile=request.mobile
@@ -81,8 +81,8 @@ async def create_user(
     Superadmin can create new users with some role.
     """
     # Decrypt sensitive fields
-    username = decrypt_credentials(request.username) if request.username else None
-    password = decrypt_credentials(request.password) if request.password else None
+    username, _ = decrypt_and_verify_payload(request.username) if request.username else (None, None)
+    password, _ = decrypt_and_verify_payload(request.password) if request.password else (None, None)
 
     existing = await user_service.get_user_by_mobile(db, request.mobile)
     if existing:
@@ -120,7 +120,7 @@ async def change_password(
     """
     Superadmin can change the password of a user.
     """
-    password = decrypt_credentials(request.new_password)
+    password, _ = decrypt_and_verify_payload(request.new_password)
     result = await user_service.change_password(
         db, request.user_id, password
     )
