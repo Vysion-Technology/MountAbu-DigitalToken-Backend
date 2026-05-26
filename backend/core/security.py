@@ -3,6 +3,7 @@ from typing import Optional, Tuple
 
 import bcrypt
 import json
+import time
 import base64
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import PKCS1_v1_5
@@ -77,7 +78,7 @@ def decrypt_and_verify_payload(encrypted_text: str) -> Tuple[str, Optional[str]]
                 if timestamp > 1e11: # Likely milliseconds (e.g., Date.now() in JS)
                     timestamp = timestamp / 1000.0
                 
-                now = datetime.utcnow().timestamp()
+                now = time.time()
                 if abs(now - timestamp) > 30:
                     raise HTTPException(
                         status_code=401, 
