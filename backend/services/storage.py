@@ -62,6 +62,18 @@ class StorageService:
         
         mime_type = magic.from_buffer(header, mime=True)
         
+        # 4. Extension-Content Integrity Check
+        ext = os.path.splitext(filename)[1].lower()
+        mime_map = {
+            ".pdf": ["application/pdf"],
+            ".jpg": ["image/jpeg"],
+            ".jpeg": ["image/jpeg"],
+            ".png": ["image/png"],
+        }
+        
+        if ext in mime_map and mime_type not in mime_map[ext]:
+            raise ValueError(f"Content mismatch: File extension is {ext} but content is {mime_type}")
+
         # Normalize jpg to image/jpeg if needed (magic usually returns image/jpeg for both)
         if mime_type not in allowed_mime_types:
             raise ValueError(f"Invalid file type: {mime_type}. Allowed types: {', '.join(allowed_mime_types)}")
