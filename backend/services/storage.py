@@ -6,6 +6,8 @@ import hashlib
 import io
 import time
 import urllib.parse
+import magic
+import os
 
 class StorageService:
     def __init__(self):
@@ -22,14 +24,66 @@ class StorageService:
         if not self.client.bucket_exists(self.bucket_name):
             self.client.make_bucket(self.bucket_name)
     
-    async def upload_file(self, file: UploadFile, object_name: str) -> str:
+    async def validate_file(
+        self, 
+        file: UploadFile, 
+        allowed_mime_types: list[str] = ["image/jpeg", "image/png", "image/jpg", "application/pdf"],
+        max_size_mb: int = 10
+    ):
+        """
+        Validates a file based on:
+        1. Filename sanitization (Null bytes, Double extensions).
+        2. Secure size enforcement (Seeking to end).
+        3. Magic byte inspection (MIME validation).
+        """
+        filename = file.filename or ""
+        
+        # 1. Filename Sanitization
+        # Check for Null Byte Injection
+        if "%00" in filename or "\x00" in filename:
+            raise ValueError("Invalid filename: Null byte injection detected.")
+        
+        # Check for Double Extensions
+        if filename.count('.') > 1:
+            raise ValueError("Invalid filename: Double extensions are not allowed.")
+        
+        # 2. Secure Size Enforcement
+        file.file.seek(0, os.SEEK_END)
+        file_size = file.file.tell()
+        await file.seek(0)
+        
+        if file_size > max_size_mb * 1024 * 1024:
+            raise ValueError(f"File size exceeds the limit of {max_size_mb}MB.")
+        
+        # 3. Magic Byte Inspection (MIME Validation)
+        # Read the first 2048 bytes for magic byte inspection
+        header = await file.read(2048)
+        await file.seek(0)
+        
+        mime_type = magic.from_buffer(header, mime=True)
+        
+        # Normalize jpg to image/jpeg if needed (magic usually returns image/jpeg for both)
+        if mime_type not in allowed_mime_types:
+            raise ValueError(f"Invalid file type: {mime_type}. Allowed types: {', '.join(allowed_mime_types)}")
+            
+        # Store the detected mime type on the file object for later use
+        setattr(file, "custom_mime_type", mime_type)
+        
+        return mime_type, file_size
+
+    async def upload_file(self, file: UploadFile, object_name: str, validate: bool = True, **kwargs) -> str:
+        if validate:
+            content_type, _ = await self.validate_file(file, **kwargs)
+        else:
+            content_type = file.content_type or "application/octet-stream"
+
         content = await file.read()
         self.client.put_object(
             self.bucket_name,
             object_name,
             io.BytesIO(content),
             length=len(content),
-            content_type=file.content_type
+            content_type=content_type
         )
         await file.seek(0) # Reset pointer if needed elsewhere
         return f"{self.bucket_name}/{object_name}"

@@ -300,15 +300,9 @@ async def upload_document(
     user_id: int = Depends(get_current_user_id),
 ) -> DocumentUploadResponse:
     """Upload a document for an application."""
-    try:
-        return await application_service.upload_document(
-            application_id, document, user_id, document_type
-        )
-    except Exception as e:
-        import traceback
-
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+    return await application_service.upload_document(
+        application_id, document, user_id, document_type
+    )
 
 
 @router.post(

@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 import subprocess
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 import uvicorn
 
 from backend.controllers.auth import router as auth_router
@@ -40,6 +41,13 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Mount Abu E-Token System", lifespan=lifespan)
+
+@app.exception_handler(ValueError)
+async def value_error_exception_handler(request: Request, exc: ValueError):
+    return JSONResponse(
+        status_code=400,
+        content={"detail": str(exc)},
+    )
 
 # Add Middlewares
 app.add_middleware(XSSMiddleware)
