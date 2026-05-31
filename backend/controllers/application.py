@@ -135,29 +135,23 @@ async def create_application(
 ) -> ApplicationResponse:
     """Create a new application."""
     # Fetch full user to get mobile
-    try:
-        user = await user_service.get_user_by_id(db, user_id)
-        if not user:
-            # Should not happen as user_id is from token
-            raise HTTPException(status_code=404, detail="User not found")
+    user = await user_service.get_user_by_id(db, user_id)
+    if not user:
+        # Should not happen as user_id is from token
+        raise HTTPException(status_code=404, detail="User not found")
 
-        response = await application_service.create_application(
-            application_create, user_id, mobile=user.mobile
-        )
-        await audit_service.log(
-            db,
-            "APPLICATION",
-            AuditAction.CREATED,
-            user_id,
-            new_state=response.model_dump(mode="json") if hasattr(response, "model_dump") else None,
-        )
-        await db.commit()
-        return response
-    except Exception as e:
-        import traceback
-
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+    response = await application_service.create_application(
+        application_create, user_id, mobile=user.mobile
+    )
+    await audit_service.log(
+        db,
+        "APPLICATION",
+        AuditAction.CREATED,
+        user_id,
+        new_state=response.model_dump(mode="json") if hasattr(response, "model_dump") else None,
+    )
+    await db.commit()
+    return response
 
 
 @router.get(
@@ -317,17 +311,9 @@ async def upload_dumping_photo(
     user_id: int = Depends(get_current_user_id),
 ) -> DocumentUploadResponse:
     """Upload a dumping photo for a vehicle entry."""
-    try:
-        return await application_service.upload_dumping_photo(
-            application_id, entry_id, document, user_id
-        )
-    except HTTPException as he:
-        raise he
-    except Exception as e:
-        import traceback
-
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+    return await application_service.upload_dumping_photo(
+        application_id, entry_id, document, user_id
+    )
 
 
 @router.post("/applications/{application_id}/materials", response_model=SuccessResponse)

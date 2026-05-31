@@ -231,8 +231,8 @@ async def download_file(
 
     try:
         response = storage.get_file_stream(file_path)
-    except Exception as e:
-        raise HTTPException(status_code=404, detail=f"File not found: {e}")
+    except Exception:
+        raise HTTPException(status_code=404, detail="File not found")
 
     content_type = response.headers.get("Content-Type", "application/octet-stream")
     filename = file_path.rsplit("/", 1)[-1]

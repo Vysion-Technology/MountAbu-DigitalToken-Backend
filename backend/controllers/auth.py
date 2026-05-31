@@ -335,6 +335,8 @@ async def debug_token(
     DEBUG ONLY: Decode the token and return detailed info about what's wrong.
     Remove this endpoint in production.
     """
+    if not settings.debug:
+        raise HTTPException(status_code=404, detail="Not Found")
 
     token = credentials.credentials
     now_ts = time.time()

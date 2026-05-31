@@ -203,6 +203,7 @@ async def delete_user(
                 status_code=400,
                 detail="Cannot delete user: Associated records exist (applications, complaints, etc.). Deactivate the user instead.",
             )
-        raise HTTPException(status_code=500, detail=f"Database error: {error_msg}")
+        # Global handler will mask this if debug=False
+        raise e
 
     return MessageResponse(message="User deleted successfully")
