@@ -19,19 +19,19 @@ user_service = UserService()
 class CreateUserRequest(BaseModel):
     """Request schema for creating a new user."""
 
-    mobile: str = Field(..., description="User's mobile number")
-    name: str = Field(..., description="User's full name")
+    mobile: str = Field(..., min_length=10, max_length=10, pattern=r"^[0-9]+$", description="User's 10-digit mobile number")
+    name: str = Field(..., min_length=1, max_length=255, description="User's full name")
     role: UserRole = Field(..., description="User's role in the system")
     password: Optional[str] = Field(None, description="Optional password for the user")
-    username: Optional[str] = Field(None, description="Optional username for the user")
+    username: Optional[str] = Field(None, min_length=3, max_length=50, description="Optional username for the user")
 
 
 class UpdateUserRequest(BaseModel):
     """Request schema for updating user details."""
 
-    name: Optional[str] = Field(None, description="Updated full name")
-    mobile: Optional[str] = Field(None, description="Updated mobile number")
-    username: Optional[str] = Field(None, description="Updated username")
+    name: Optional[str] = Field(None, min_length=1, max_length=255, description="Updated full name")
+    mobile: Optional[str] = Field(None, min_length=10, max_length=10, pattern=r"^[0-9]+$", description="Updated 10-digit mobile number")
+    username: Optional[str] = Field(None, min_length=3, max_length=50, description="Updated username")
     is_active: Optional[bool] = Field(None, description="Status of the user (active or not)")
 
 
@@ -49,7 +49,7 @@ class SetupSuperAdminRequest(BaseModel):
 
     username: str = Field(..., description="Username for the superadmin")
     password: str = Field(..., description="Password for the superadmin")
-    mobile: str = Field("0000000000", description="Mobile number for the superadmin")
+    mobile: str = Field("0000000000", min_length=10, max_length=10, pattern=r"^[0-9]+$", description="Mobile number for the superadmin")
 
 
 @router.post("/setup", response_model=MessageResponse)

@@ -38,12 +38,12 @@ user_dao = UserDAO()
 
 
 class OTPRequest(BaseModel):
-    mobile: str
+    mobile: str = Field(..., min_length=10, max_length=10, pattern=r"^[0-9]+$")
 
 
 class LoginRequest(BaseModel):
-    mobile: str
-    otp: str
+    mobile: str = Field(..., min_length=10, max_length=10, pattern=r"^[0-9]+$")
+    otp: str = Field(..., min_length=6, max_length=6, pattern=r"^[0-9]+$")
 
 
 class PasswordLoginRequest(BaseModel):
