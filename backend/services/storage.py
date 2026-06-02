@@ -64,15 +64,24 @@ class StorageService:
         
         # 4. Extension-Content Integrity Check
         ext = os.path.splitext(filename)[1].lower()
+        
+        # This map defines which extensions are allowed and which MIME types they must contain.
+        # If an extension is not in this map, it is rejected entirely.
         mime_map = {
             ".pdf": ["application/pdf"],
             ".jpg": ["image/jpeg"],
             ".jpeg": ["image/jpeg"],
             ".png": ["image/png"],
+            # Add more recognized extensions here as needed
         }
         
-        if ext in mime_map and mime_type not in mime_map[ext]:
-            raise ValueError(f"Content mismatch: File extension is {ext} but content is {mime_type}")
+        # Reject unknown/unsupported extensions
+        if ext not in mime_map:
+            raise ValueError(f"Unsupported or dangerous file extension: {ext}")
+        
+        # Reject if the content does not match the extension
+        if mime_type not in mime_map[ext]:
+            raise ValueError(f"Content mismatch: File extension is {ext} but detected content is {mime_type}")
 
         # Normalize jpg to image/jpeg if needed (magic usually returns image/jpeg for both)
         if mime_type not in allowed_mime_types:
