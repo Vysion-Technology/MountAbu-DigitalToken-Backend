@@ -2,12 +2,15 @@ from datetime import datetime, timedelta
 from typing import Optional, Tuple
 
 import bcrypt
+import json
+import time
 import base64
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import PKCS1_v1_5
 from Crypto.Hash import SHA256
 from Crypto import Random
 from jose import jwt, JWTError
+from fastapi import HTTPException
 
 from backend.config import settings
 
@@ -55,6 +58,39 @@ def decrypt_credentials(encrypted_text: str) -> str:
         
         # If not enforced, fallback to plain text (development mode)
         return encrypted_text
+
+def decrypt_and_verify_payload(encrypted_text: str) -> Tuple[str, Optional[str]]:
+    """
+    Decrypts RSA payload and verifies timestamp expiry (30 seconds).
+    Returns (value, nonce).
+    """
+    decrypted_text = decrypt_credentials(encrypted_text)
+    
+    try:
+        data = json.loads(decrypted_text)
+        if isinstance(data, dict):
+            value = data.get("value")
+            nonce = data.get("nonce")
+            timestamp = data.get("timestamp")
+            
+            if timestamp:
+                # Handle both ms and s
+                if timestamp > 1e11: # Likely milliseconds (e.g., Date.now() in JS)
+                    timestamp = timestamp / 1000.0
+                
+                now = time.time()
+                if abs(now - timestamp) > 30:
+                    raise HTTPException(
+                        status_code=401, 
+                        detail="Request expired or clock out of sync. Please try again."
+                    )
+            
+            # If value is present, return it. Otherwise, return the whole JSON as string (fallback)
+            return value if value is not None else decrypted_text, nonce
+    except (json.JSONDecodeError, TypeError):
+        pass
+    
+    return decrypted_text, None
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:

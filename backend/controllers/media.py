@@ -157,10 +157,10 @@ async def upload_media(
         raise HTTPException(status_code=500, detail="Storage service unavailable")
 
     object_key = _build_object_key(category.value, entity_id, file.filename)
-    content = await file.read()
-    content_type = file.content_type or "application/octet-stream"
-
-    storage.upload_bytes(object_key, content, content_type)
+    path = await storage.upload_file(file, object_key)
+    
+    # Use the magic-detected content type stored during validation
+    content_type = getattr(file, "custom_mime_type", file.content_type or "application/octet-stream")
 
     # 3. Persist the media record in the database
     await _save_media_record(
@@ -231,8 +231,8 @@ async def download_file(
 
     try:
         response = storage.get_file_stream(file_path)
-    except Exception as e:
-        raise HTTPException(status_code=404, detail=f"File not found: {e}")
+    except Exception:
+        raise HTTPException(status_code=404, detail="File not found")
 
     content_type = response.headers.get("Content-Type", "application/octet-stream")
     filename = file_path.rsplit("/", 1)[-1]
@@ -242,5 +242,6 @@ async def download_file(
         media_type=content_type,
         headers={
             "Content-Disposition": f'inline; filename="{filename}"',
+            "X-Content-Type-Options": "nosniff",
         },
     )

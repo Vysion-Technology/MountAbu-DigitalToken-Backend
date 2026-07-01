@@ -22,7 +22,7 @@ from backend.core.security import (
     create_access_token,
     decode_token,
     verify_password,
-    decrypt_credentials,
+    decrypt_and_verify_payload,
     get_rsa_public_key,
 )
 from backend.middlewares.auth import get_current_user, security
@@ -34,26 +34,11 @@ user_dao = UserDAO()
 
 # --- Utility Functions ---
 
-def parse_credential_with_nonce(decrypted_text: str) -> Tuple[str, Optional[str]]:
-    """
-    Parses a decrypted credential string.
-    If it's JSON like {"value": "...", "nonce": "..."}, it returns (value, nonce).
-    Otherwise, returns (decrypted_text, None).
-    """
-    try:
-        data = json.loads(decrypted_text)
-        if isinstance(data, dict):
-            return data.get("value", decrypted_text), data.get("nonce")
-    except (json.JSONDecodeError, TypeError):
-        pass
-    return decrypted_text, None
-
-
 # --- Request/Response Models ---
 
 
 class OTPRequest(BaseModel):
-    mobile: str
+    mobile: str = Field(..., min_length=10, max_length=10, pattern=r"^[0-9]+$")
 
 
 class LoginRequest(BaseModel):
@@ -157,13 +142,9 @@ async def send_otp(request: OTPRequest, db: AsyncSession = Depends(get_db)):
 
 @router.post("/login/otp", response_model=TokenResponse)
 async def login_with_otp(request: LoginRequest, db: AsyncSession = Depends(get_db)):
-    # Decrypt credentials
-    mobile_decrypted = decrypt_credentials(request.mobile)
-    otp_decrypted = decrypt_credentials(request.otp)
-
-    # Parse potential JSON (to extract nonce)
-    mobile, nonce = parse_credential_with_nonce(mobile_decrypted)
-    otp, _ = parse_credential_with_nonce(otp_decrypted)
+    # Decrypt credentials and verify timestamp
+    mobile, nonce = decrypt_and_verify_payload(request.mobile)
+    otp, _ = decrypt_and_verify_payload(request.otp)
 
     # 1. Verify OTP
     otp_record = await user_dao.get_otp_record(db, mobile)
@@ -210,13 +191,9 @@ async def login_with_otp(request: LoginRequest, db: AsyncSession = Depends(get_d
 async def login_with_password(
     request: PasswordLoginRequest, db: AsyncSession = Depends(get_db)
 ):
-    # Decrypt credentials
-    username_decrypted = decrypt_credentials(request.username)
-    password_decrypted = decrypt_credentials(request.password)
-
-    # Parse potential JSON (to extract nonce)
-    username, nonce = parse_credential_with_nonce(username_decrypted)
-    password, _ = parse_credential_with_nonce(password_decrypted)
+    # Decrypt credentials and verify timestamp
+    username, nonce = decrypt_and_verify_payload(request.username)
+    password, _ = decrypt_and_verify_payload(request.password)
 
     user = await user_service.get_user_by_username(db, username)
     if not user:
@@ -358,6 +335,8 @@ async def debug_token(
     DEBUG ONLY: Decode the token and return detailed info about what's wrong.
     Remove this endpoint in production.
     """
+    if not settings.debug:
+        raise HTTPException(status_code=404, detail="Not Found")
 
     token = credentials.credentials
     now_ts = time.time()

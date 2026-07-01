@@ -10,7 +10,7 @@ from backend.schemas.base.auth import UserDetails
 from backend.meta import UserRole
 from backend.schemas.response.meta import MessageResponse, UserCreatedResponse
 from backend.services.user import UserService
-from backend.core.security import decrypt_credentials
+from backend.core.security import decrypt_and_verify_payload
 
 router = APIRouter()
 user_service = UserService()
@@ -19,19 +19,19 @@ user_service = UserService()
 class CreateUserRequest(BaseModel):
     """Request schema for creating a new user."""
 
-    mobile: str = Field(..., description="User's mobile number")
-    name: str = Field(..., description="User's full name")
+    mobile: str = Field(..., min_length=10, max_length=10, pattern=r"^[0-9]+$", description="User's 10-digit mobile number")
+    name: str = Field(..., min_length=1, max_length=255, description="User's full name")
     role: UserRole = Field(..., description="User's role in the system")
     password: Optional[str] = Field(None, description="Optional password for the user")
-    username: Optional[str] = Field(None, description="Optional username for the user")
+    username: Optional[str] = Field(None, min_length=3, max_length=50, description="Optional username for the user")
 
 
 class UpdateUserRequest(BaseModel):
     """Request schema for updating user details."""
 
-    name: Optional[str] = Field(None, description="Updated full name")
-    mobile: Optional[str] = Field(None, description="Updated mobile number")
-    username: Optional[str] = Field(None, description="Updated username")
+    name: Optional[str] = Field(None, min_length=1, max_length=255, description="Updated full name")
+    mobile: Optional[str] = Field(None, min_length=10, max_length=10, pattern=r"^[0-9]+$", description="Updated 10-digit mobile number")
+    username: Optional[str] = Field(None, min_length=3, max_length=50, description="Updated username")
     is_active: Optional[bool] = Field(None, description="Status of the user (active or not)")
 
 
@@ -49,7 +49,7 @@ class SetupSuperAdminRequest(BaseModel):
 
     username: str = Field(..., description="Username for the superadmin")
     password: str = Field(..., description="Password for the superadmin")
-    mobile: str = Field("0000000000", description="Mobile number for the superadmin")
+    mobile: str = Field("0000000000", min_length=10, max_length=10, pattern=r"^[0-9]+$", description="Mobile number for the superadmin")
 
 
 @router.post("/setup", response_model=MessageResponse)
@@ -60,8 +60,8 @@ async def create_initial_superadmin(
     Creates a superadmin if one does not exist (by username).
     Public endpoint for initial setup.
     """
-    username = decrypt_credentials(request.username)
-    password = decrypt_credentials(request.password)
+    username, _ = decrypt_and_verify_payload(request.username)
+    password, _ = decrypt_and_verify_payload(request.password)
     
     await user_service.create_superadmin_if_not_exists(
         db, username=username, password=password, mobile=request.mobile
@@ -81,8 +81,8 @@ async def create_user(
     Superadmin can create new users with some role.
     """
     # Decrypt sensitive fields
-    username = decrypt_credentials(request.username) if request.username else None
-    password = decrypt_credentials(request.password) if request.password else None
+    username, _ = decrypt_and_verify_payload(request.username) if request.username else (None, None)
+    password, _ = decrypt_and_verify_payload(request.password) if request.password else (None, None)
 
     existing = await user_service.get_user_by_mobile(db, request.mobile)
     if existing:
@@ -120,7 +120,7 @@ async def change_password(
     """
     Superadmin can change the password of a user.
     """
-    password = decrypt_credentials(request.new_password)
+    password, _ = decrypt_and_verify_payload(request.new_password)
     result = await user_service.change_password(
         db, request.user_id, password
     )
@@ -203,6 +203,7 @@ async def delete_user(
                 status_code=400,
                 detail="Cannot delete user: Associated records exist (applications, complaints, etc.). Deactivate the user instead.",
             )
-        raise HTTPException(status_code=500, detail=f"Database error: {error_msg}")
+        # Global handler will mask this if debug=False
+        raise e
 
     return MessageResponse(message="User deleted successfully")

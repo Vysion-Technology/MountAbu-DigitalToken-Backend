@@ -16,7 +16,7 @@ WORKDIR /app
 
 # Install system dependencies & Poetry
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl build-essential libpq-dev \
+    && apt-get install -y --no-install-recommends curl build-essential libpq-dev libmagic1 \
     && curl -sSL https://install.python-poetry.org | python3 - \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
