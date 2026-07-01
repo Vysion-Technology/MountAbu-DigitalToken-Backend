@@ -111,7 +111,23 @@ class ApplicationDAO(BaseDAO):
                     for c in application.comments
                     if c.comment_type == CommentType.DEPT_REVIEW
                 }
+                # Inspection report satisfies the JEN review requirement
+                if len(application.inspections) > 0:
+                    dept_review_roles.add(UserRole.JEN)
+
                 missing_depts = RENOVATION_DEPT_ROLES - dept_review_roles
+                
+                # Check for inspection requirement in FORWARDED state
+                has_inspection = len(application.inspections) > 0
+                if not has_inspection:
+                    flags.append(
+                        ApplicationFlags.RENOVATION_REQUIRES_JEN_FIELD_INSPECTION
+                    )
+                elif not application.materials:
+                    flags.append(
+                        ApplicationFlags.RENOVATION_REQUIRES_JEN_MATERIAL_ENTRY
+                    )
+
                 if missing_depts:
                     flags.append(ApplicationFlags.RENOVATION_REQUIRES_DEPT_COMMENT)
                     # Check overdue (> 7 days since forward)
@@ -130,7 +146,7 @@ class ApplicationDAO(BaseDAO):
                                 if hasattr(ApplicationFlags, flag_name):
                                     flags.append(ApplicationFlags(flag_name))
                 else:
-                    # All depts commented → Commissioner can act
+                    # All depts commented (and JEN inspected/commented) → Commissioner can act
                     flags.append(
                         ApplicationFlags.RENOVATION_REQUIRES_COMMISSIONER_ACTION
                     )
@@ -627,6 +643,8 @@ class ApplicationDAO(BaseDAO):
                 for c in application.comments
                 if c.commenter.role in RENOVATION_DEPT_ROLES
             }
+            if len(application.inspections) > 0:
+                dept_review_roles.add(UserRole.JEN)
             
             missing_depts = RENOVATION_DEPT_ROLES - dept_review_roles
             if missing_depts:
@@ -814,11 +832,18 @@ class ApplicationDAO(BaseDAO):
         application = await self.session.get(Application, application_id)
         if not application:
             raise HTTPException(status_code=404, detail="Application not found")
-        if application.status != ApplicationStatus.APPROVED:
-            raise HTTPException(
-                status_code=400,
-                detail="Inspection is only allowed on APPROVED applications",
-            )
+        if application.type == ApplicationType.RENOVATION:
+            if application.status != ApplicationStatus.FORWARDED:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Inspection is only allowed on FORWARDED applications for renovation",
+                )
+        else:
+            if application.status != ApplicationStatus.APPROVED:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Inspection is only allowed on APPROVED applications",
+                )
 
         self.session.add(
             InspectionReport(

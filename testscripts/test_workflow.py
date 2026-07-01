@@ -358,8 +358,12 @@ def create_naka_entry(base: str, token: str, transport_code: str,
                       material_id: int, quantity: int,
                       vehicle_number: str = None) -> requests.Response:
     payload: dict = {
-        "material_id": material_id,
-        "quantity_brought": quantity,
+        "materials": [
+            {
+                "material_id": material_id,
+                "quantity_brought": quantity,
+            }
+        ]
     }
     if vehicle_number:
         payload["vehicle_number"] = vehicle_number
@@ -608,10 +612,24 @@ def test_renovation_workflow(base: str, citizen_token: str, tokens: dict,
     assert app["status"] == "FORWARDED", f"Expected FORWARDED, got {app['status']}"
     print(f"  status={app['status']}")
 
-    # ── Step 3: Each department adds review comments ──────────────────────
-    print("\n--- Step 3: Department reviews ---")
+    # ── Step 3: JEN inspection & department reviews ──────────────────────
+    print("\n--- Step 3: JEN inspection & department reviews ---")
+    phase_mats = []
+    for phase_num in range(1, 3):
+        for mid in material_ids[:3]:
+            phase_mats.append({
+                "phase": phase_num,
+                "material_id": mid,
+                "quantity": random.randint(20, 60),
+            })
+
+    create_inspection(base, tokens["JEN"], app_id,
+                      remarks="Renovation site inspected. Existing structure is sound.",
+                      recommended_phases=2,
+                      phase_materials=phase_mats)
+    print("  Inspection report created with recommended_phases=2")
+
     dept_comments = [
-        ("JEN",       "Site is suitable for renovation. Structural integrity verified."),
         ("DEPT_ATP",  "ATP clearance: No encroachment detected on adjoining roads."),
         ("DEPT_LAND", "Land records verified. Title is clean."),
         ("DEPT_LEGAL","Legal clearance: No pending disputes on this property."),
@@ -630,25 +648,8 @@ def test_renovation_workflow(base: str, citizen_token: str, tokens: dict,
     assert app["status"] == "APPROVED", f"Expected APPROVED, got {app['status']}"
     print(f"  status={app['status']}")
 
-    # ── Step 5: JEN inspection ────────────────────────────────────────────
-    print("\n--- Step 5: JEN inspection ---")
-    phase_mats = []
-    for phase_num in range(1, 3):
-        for mid in material_ids[:3]:
-            phase_mats.append({
-                "phase": phase_num,
-                "material_id": mid,
-                "quantity": random.randint(20, 60),
-            })
-
-    create_inspection(base, tokens["JEN"], app_id,
-                      remarks="Renovation site inspected. Existing structure is sound.",
-                      recommended_phases=2,
-                      phase_materials=phase_mats)
-    print("  Inspection report created with recommended_phases=2")
-
-    # ── Step 6: Nodal Officer generates tokens (2 phases) ─────────────────
-    print("\n--- Step 6: Nodal Officer generates tokens (2 phases) ---")
+    # ── Step 5: Nodal Officer generates tokens (2 phases) ─────────────────
+    print("\n--- Step 5: Nodal Officer generates tokens (2 phases) ---")
     resp = workflow_action(base, tokens["NODAL_OFFICER"], app_id, "GENERATE_TOKENS",
                            remarks="Generating tokens for renovation (2 phases)",
                            num_stages=2,
