@@ -1,13 +1,13 @@
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.middlewares.auth import get_superadmin
 from backend.database import get_db
 from backend.schemas.base.auth import UserDetails
-from backend.meta import UserRole
+from backend.meta import UserRole, JurisdictionZone
 from backend.schemas.response.meta import MessageResponse, UserCreatedResponse
 from backend.services.user import UserService
 from backend.core.security import decrypt_and_verify_payload
@@ -24,6 +24,23 @@ class CreateUserRequest(BaseModel):
     role: UserRole = Field(..., description="User's role in the system")
     password: Optional[str] = Field(None, description="Optional password for the user")
     username: Optional[str] = Field(None, min_length=3, max_length=50, description="Optional username for the user")
+    jurisdiction_zone: Optional[JurisdictionZone] = Field(None, description="User's jurisdiction zone (ULB / UIT)")
+
+    @model_validator(mode="after")
+    def validate_jurisdiction(self) -> "CreateUserRequest":
+        exempt_roles = {
+            UserRole.SUPERADMIN,
+            UserRole.ADMIN,
+            UserRole.NODAL_OFFICER,
+            UserRole.NAKA_INCHARGE,
+            UserRole.CITIZEN,
+        }
+        if self.role in exempt_roles:
+            self.jurisdiction_zone = None
+        else:
+            if self.jurisdiction_zone is None:
+                raise ValueError(f"Jurisdiction zone is required for role {self.role.value}")
+        return self
 
 
 class UpdateUserRequest(BaseModel):
@@ -33,6 +50,7 @@ class UpdateUserRequest(BaseModel):
     mobile: Optional[str] = Field(None, min_length=10, max_length=10, pattern=r"^[0-9]+$", description="Updated 10-digit mobile number")
     username: Optional[str] = Field(None, min_length=3, max_length=50, description="Updated username")
     is_active: Optional[bool] = Field(None, description="Status of the user (active or not)")
+    jurisdiction_zone: Optional[JurisdictionZone] = Field(None, description="Updated jurisdiction zone (ULB / UIT)")
 
 
 class ChangePasswordRequest(BaseModel):
@@ -106,6 +124,7 @@ async def create_user(
         role=request.role,
         password=password,
         username=username,
+        jurisdiction_zone=request.jurisdiction_zone,
     )
     await db.commit()
     return UserCreatedResponse(message="User created successfully", user_id=new_user.id)
@@ -171,6 +190,7 @@ async def update_user(
         mobile=request.mobile,
         username=request.username,
         is_active=request.is_active,
+        jurisdiction_zone=request.jurisdiction_zone,
     )
     await db.commit()
 

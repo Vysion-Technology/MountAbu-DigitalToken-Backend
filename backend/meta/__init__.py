@@ -146,6 +146,7 @@ class ApplicationFlags(str, PyEnum):
     OBJECTED_CITIZEN_ACTION = (
         "OBJECTED_CITIZEN_ACTION"  # Citizen must respond to objection
     )
+    ALL_DEPT = "ALL_DEPT"
 
     # New Application flags
     NEW_APPLICATION_REQUIRES_NODAL_OFFICER_ACTION = (
@@ -202,3 +203,17 @@ class ApplicationFlags(str, PyEnum):
     # Phase & Naka flags
     PHASE_READY_FOR_NAKA = "PHASE_READY_FOR_NAKA"  # Naka incharge can act
     NAKA_INCHARGE_ACTION = "NAKA_INCHARGE_ACTION"  # Materials to verify
+
+
+class StructureType(str, PyEnum):
+    NONE = "NONE"
+    FENCING = "FENCING"
+    G = "G"
+    G_1 = "G+1"
+    G_2 = "G+2"
+    G_3 = "G+3"
+
+
+class JurisdictionZone(str, PyEnum):
+    ULB = "ULB"
+    UIT = "UIT"

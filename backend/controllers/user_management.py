@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.dao.user import UserDAO
 from backend.database import get_db
-from backend.meta import UserRole
+from backend.meta import UserRole, JurisdictionZone
 from backend.middlewares.auth import get_current_user
 from backend.schemas.base.auth import UserDetails
 
@@ -31,6 +31,7 @@ class UserResponse(BaseModel):
     role: UserRole
     username: Optional[str] = None
     is_active: bool
+    jurisdiction_zone: Optional[JurisdictionZone] = None
 
     class Config:
         from_attributes = True

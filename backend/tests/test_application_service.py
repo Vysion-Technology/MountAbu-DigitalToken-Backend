@@ -4,7 +4,7 @@ from backend.services.application import ApplicationService
 from backend.schemas.request.application import ApplicationCreate
 from backend.schemas.response.application import ApplicationResponse
 from backend.schemas.base.auth import UserDetails
-from backend.meta import UserRole, ApplicationStatus, ApplicationType, PropertyUsageType
+from backend.meta import UserRole, ApplicationStatus, ApplicationType, PropertyUsageType, JurisdictionZone
 
 class TestApplicationService(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
@@ -27,7 +27,7 @@ class TestApplicationService(unittest.IsolatedAsyncioTestCase):
             contractor_name="Contractor",
             is_agriculture_land=False, property_usage=PropertyUsageType.DOMESTIC,
             department_id=1, ward_id=1, status=ApplicationStatus.PENDING, type=ApplicationType.NEW,
-            num_stages=None
+            num_stages=None, jurisdiction_zone=JurisdictionZone.ULB
         )
         self.mock_dao.create_application.return_value = expected_response
 

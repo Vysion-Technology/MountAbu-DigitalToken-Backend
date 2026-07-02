@@ -5,7 +5,7 @@ from sqlalchemy import Enum, Integer, String, DateTime
 from sqlalchemy.orm import mapped_column, Mapped
 
 from backend.database import Base
-from backend.meta import UserRole
+from backend.meta import UserRole, JurisdictionZone
 
 
 class ActiveUserOTP(Base):
@@ -31,3 +31,6 @@ class User(Base):
     password: Mapped[Optional[str]] = mapped_column(String, index=True)
     is_active: Mapped[bool] = mapped_column(default=True)
     token_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    jurisdiction_zone: Mapped[Optional[JurisdictionZone]] = mapped_column(
+        Enum(JurisdictionZone), nullable=True
+    )

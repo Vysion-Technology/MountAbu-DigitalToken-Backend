@@ -40,6 +40,7 @@ from backend.meta import (
     ApplicationType,
     ApplicationPhaseStatus,
     PropertyUsageType,
+    JurisdictionZone,
 )
 from backend.core.workflow import validate_transition, RENOVATION_DEPT_ROLES
 
@@ -168,6 +169,23 @@ class ApplicationDAO(BaseDAO):
 
             elif st == ApplicationStatus.TOKEN_GENERATED:
                 self._add_phase_flags(application, flags)
+
+        # ── ALL_DEPT flag ──────────────────────────────────────────────
+        # NEW application is visible forever under ALL_DEPT if it has ever been APPROVED or TOKEN_GENERATED.
+        # RENOVATION application is visible forever under ALL_DEPT if it has ever been FORWARDED, APPROVED, or TOKEN_GENERATED.
+        is_new_approved = (
+            st in (ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED) or
+            any(log.to_status in (ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED) for log in getattr(application, "action_logs", []))
+        )
+        is_renovation_forwarded = (
+            st in (ApplicationStatus.FORWARDED, ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED) or
+            any(log.to_status in (ApplicationStatus.FORWARDED, ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED) for log in getattr(application, "action_logs", []))
+        )
+
+        if st != ApplicationStatus.PENDING:
+            if (tp == ApplicationType.NEW and is_new_approved) or \
+               (tp == ApplicationType.RENOVATION and is_renovation_forwarded):
+                flags.append(ApplicationFlags.ALL_DEPT)
 
         return flags
 
@@ -305,9 +323,10 @@ class ApplicationDAO(BaseDAO):
         search: Optional[str] = None,
         ward_id: Optional[int] = None,
         property_usage: Optional[PropertyUsageType] = None,
+        jurisdiction_zone: Optional[JurisdictionZone] = None,
     ) -> list[ApplicationResponse]:
         """Get applications, optionally filtered by flag, search and extra criteria."""
-        query = select(Application).options(*_APPLICATION_LOAD_OPTIONS)
+        query = select(Application).options(*_APPLICATION_LOAD_OPTIONS).order_by(Application.created_at.desc())
         
         # ── Global filters ───────────────────────────────────────────────
         if user_id:
@@ -316,6 +335,8 @@ class ApplicationDAO(BaseDAO):
             query = query.where(Application.ward_id == ward_id)
         if property_usage:
             query = query.where(Application.property_usage == property_usage)
+        if jurisdiction_zone:
+            query = query.where(Application.jurisdiction_zone == jurisdiction_zone)
             
         # ── Search logic ──────────────────────────────────────────────────
         if search:
@@ -343,7 +364,9 @@ class ApplicationDAO(BaseDAO):
             
             query = query.where(or_(*search_filters))
 
-        if flag is None:
+        if flag is None or flag == ApplicationFlags.ALL:
+            if flag == ApplicationFlags.ALL:
+                query = query.where(Application.status != ApplicationStatus.PENDING)
             # No flag filter — return paginated results directly
             applications = list(
                 await self.session.scalars(query.offset(offset).limit(limit))

@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.database import get_db
 from backend.services.user import UserService
 from backend.services.sms import sms_service
-from backend.dao.user import UserDAO, UserRole
+from backend.dao.user import UserDAO, UserRole, JurisdictionZone
 from backend.core.security import (
     create_tokens,
     create_access_token,
@@ -68,6 +68,7 @@ class TokenResponse(BaseModel):
     user_id: int
     name: str
     is_new_user: bool = False
+    jurisdiction_zone: Optional[JurisdictionZone] = None
 
 
 class RefreshTokenResponse(BaseModel):
@@ -85,6 +86,7 @@ class MeResponse(BaseModel):
     mobile: str
     role: str
     is_active: bool
+    jurisdiction_zone: Optional[JurisdictionZone] = None
 
 
 # --- Routes ---
@@ -184,6 +186,7 @@ async def login_with_otp(request: LoginRequest, db: AsyncSession = Depends(get_d
         "user_id": user.id,
         "name": user.name,
         "is_new_user": is_new_user,
+        "jurisdiction_zone": user.jurisdiction_zone,
     }
 
 
@@ -220,6 +223,7 @@ async def login_with_password(
         "role": user.role.value,
         "user_id": user.id,
         "name": user.name,
+        "jurisdiction_zone": user.jurisdiction_zone,
     }
 
 
@@ -324,6 +328,7 @@ async def get_me(
         "mobile": user.mobile,
         "role": user.role.value,
         "is_active": user.is_active,
+        "jurisdiction_zone": user.jurisdiction_zone,
     }
 
 

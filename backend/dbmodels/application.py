@@ -11,6 +11,8 @@ from backend.meta import (
     ApplicationType,
     ApplicationPhaseStatus,
     PropertyUsageType,
+    StructureType,
+    JurisdictionZone,
 )
 from backend.dbmodels.user import User
 from backend.dbmodels.master import Ward, Department
@@ -57,6 +59,15 @@ class Application(Base):
     is_agriculture_land: Mapped[bool] = mapped_column(default=False)
     property_usage: Mapped[PropertyUsageType] = mapped_column(
         Enum(PropertyUsageType), default=PropertyUsageType.DOMESTIC
+    )
+    existing_structure: Mapped[Optional[StructureType]] = mapped_column(
+        Enum(StructureType), nullable=True
+    )
+    construction_floor: Mapped[Optional[StructureType]] = mapped_column(
+        Enum(StructureType), nullable=True
+    )
+    jurisdiction_zone: Mapped[JurisdictionZone] = mapped_column(
+        Enum(JurisdictionZone), default=JurisdictionZone.ULB, nullable=False
     )
 
     # Master Data Foreign Keys

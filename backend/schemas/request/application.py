@@ -6,8 +6,10 @@ from backend.meta import (
     PropertyUsageType,
     WorkflowAction,
     ApplicationPhaseStatus,
+    StructureType,
+    JurisdictionZone,
 )
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class PhaseStatusUpdateRequest(BaseModel):
@@ -47,6 +49,9 @@ class ApplicationCreate(BaseModel):
         ..., description="Is property on agriculture land?"
     )
     property_usage: PropertyUsageType = Field(..., description="Property Usage Type")
+    existing_structure: Optional[StructureType] = Field(None, description="Existing Structure Type")
+    construction_floor: Optional[StructureType] = Field(None, description="Construction Floor Level")
+    jurisdiction_zone: JurisdictionZone = Field(JurisdictionZone.ULB, description="Jurisdiction Zone (ULB / UIT)")
     ward_id: int = Field(..., description="Ward/Zone ID")
 
     type: ApplicationType = Field(..., description="Application Type")
@@ -54,6 +59,44 @@ class ApplicationCreate(BaseModel):
     material_requirements: list[ApplicationMaterialRequirements] = Field(
         ..., description="Application Material Requirements"
     )
+
+    @model_validator(mode="after")
+    def validate_structure_and_floor(self) -> "ApplicationCreate":
+        # If either is None, allow (since by default it can be null)
+        if self.existing_structure is None or self.construction_floor is None:
+            return self
+
+        # Application type NEW
+        if self.type == ApplicationType.NEW:
+            expected_floors = []
+            if self.existing_structure == StructureType.NONE:
+                expected_floors = [StructureType.FENCING, StructureType.G]
+            elif self.existing_structure == StructureType.FENCING:
+                expected_floors = [StructureType.G]
+            elif self.existing_structure == StructureType.G:
+                expected_floors = [StructureType.G_1]
+            elif self.existing_structure == StructureType.G_1:
+                expected_floors = [StructureType.G_2]
+            elif self.existing_structure == StructureType.G_2:
+                expected_floors = [StructureType.G_3]
+            elif self.existing_structure == StructureType.G_3:
+                raise ValueError("Cannot request new construction above G+3 structure")
+
+            if self.construction_floor not in expected_floors:
+                raise ValueError(
+                    f"For new construction with existing structure '{self.existing_structure.value}', "
+                    f"the construction floor must be one of: {[f.value for f in expected_floors]}"
+                )
+
+        # Application type RENOVATION
+        elif self.type == ApplicationType.RENOVATION:
+            if self.construction_floor != self.existing_structure:
+                raise ValueError(
+                    f"For renovation/repair, the construction floor must match the existing structure. "
+                    f"Expected '{self.existing_structure.value}', got '{self.construction_floor.value}'"
+                )
+
+        return self
 
 
 class CommentRequest(BaseModel):
