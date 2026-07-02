@@ -88,6 +88,7 @@ class PropertyUsageType(str, PyEnum):
     DOMESTIC = "DOMESTIC"
     COMMERCIAL = "COMMERCIAL"
     HOTEL = "HOTEL"
+    GOVERNMENT = "GOVERNMENT"
 
 
 class DepartmentType(str, PyEnum):
