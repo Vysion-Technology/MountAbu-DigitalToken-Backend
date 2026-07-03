@@ -519,11 +519,11 @@ async def update_phase_materials(
     db: AsyncSession = Depends(get_db),
     user: UserDetails = Depends(get_current_user),
 ) -> SuccessResponse:
-    """JEN or SUPERADMIN updates phase materials for an application."""
-    if user.role not in (UserRole.JEN, UserRole.SUPERADMIN):
+    """JEN, SUPERADMIN, or NODAL_OFFICER updates phase materials for an application."""
+    if user.role not in (UserRole.JEN, UserRole.SUPERADMIN, UserRole.NODAL_OFFICER):
         raise HTTPException(
             status_code=403,
-            detail="Only JEN or SUPERADMIN can update phase materials",
+            detail="Only JEN, SUPERADMIN, or NODAL_OFFICER can update phase materials",
         )
 
     # Pre-fetch for audit
