@@ -78,17 +78,22 @@ class TestApplicationValidators(unittest.TestCase):
         with self.assertRaises(ValidationError):
             ApplicationCreate(**data)
 
-    def test_renovation_requires_matching_floor(self):
+    def test_renovation_allows_equal_or_lesser_floor(self):
         data = self.base_data.copy()
         data["type"] = ApplicationType.RENOVATION
         data["existing_structure"] = StructureType.G_1
-        data["construction_floor"] = StructureType.G_1
         
-        # Matching is valid
+        # Equal (G+1) is valid
+        data["construction_floor"] = StructureType.G_1
         app = ApplicationCreate(**data)
         self.assertEqual(app.construction_floor, StructureType.G_1)
 
-        # Mismatch (G+2 construction on G+1 existing for renovation) is invalid
+        # Less than (G) is valid
+        data["construction_floor"] = StructureType.G
+        app = ApplicationCreate(**data)
+        self.assertEqual(app.construction_floor, StructureType.G)
+
+        # Greater than (G+2) is invalid
         data["construction_floor"] = StructureType.G_2
         with self.assertRaises(ValidationError):
             ApplicationCreate(**data)

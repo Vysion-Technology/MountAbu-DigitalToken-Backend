@@ -90,10 +90,20 @@ class ApplicationCreate(BaseModel):
 
         # Application type RENOVATION
         elif self.type == ApplicationType.RENOVATION:
-            if self.construction_floor != self.existing_structure:
+            structure_order = [
+                StructureType.NONE,
+                StructureType.FENCING,
+                StructureType.G,
+                StructureType.G_1,
+                StructureType.G_2,
+                StructureType.G_3,
+            ]
+            existing_idx = structure_order.index(self.existing_structure)
+            construction_idx = structure_order.index(self.construction_floor)
+            if construction_idx > existing_idx:
                 raise ValueError(
-                    f"For renovation/repair, the construction floor must match the existing structure. "
-                    f"Expected '{self.existing_structure.value}', got '{self.construction_floor.value}'"
+                    f"For renovation/repair, the construction floor cannot exceed the existing structure. "
+                    f"Max permitted is '{self.existing_structure.value}', got '{self.construction_floor.value}'"
                 )
 
         return self
