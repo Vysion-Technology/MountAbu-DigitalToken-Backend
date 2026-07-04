@@ -69,6 +69,7 @@ class Application(Base):
     jurisdiction_zone: Mapped[JurisdictionZone] = mapped_column(
         Enum(JurisdictionZone), default=JurisdictionZone.ULB, nullable=False
     )
+    organization_name: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
 
     # Master Data Foreign Keys
     department_id: Mapped[int] = mapped_column(

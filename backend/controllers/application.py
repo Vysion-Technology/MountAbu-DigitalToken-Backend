@@ -215,6 +215,23 @@ async def get_all_vehicle_entries(
     )
 
 
+@router.get("/applications/organizations", response_model=List[str])
+async def get_organization_suggestions(
+    property_usage: PropertyUsageType = Query(
+        ..., description="Filter suggestions by COMMERCIAL or GOVERNMENT"
+    ),
+    application_service: ApplicationService = Depends(get_application_service),
+    user: UserDetails = Depends(get_current_user),
+) -> List[str]:
+    """Get unique list of organization names for property usage type (COMMERCIAL / GOVERNMENT)."""
+    if property_usage not in (PropertyUsageType.COMMERCIAL, PropertyUsageType.GOVERNMENT):
+        raise HTTPException(
+            status_code=400,
+            detail="Suggestions are only supported for COMMERCIAL or GOVERNMENT property usage types",
+        )
+    return await application_service.get_organization_suggestions(property_usage)
+
+
 @router.get("/applications", response_model=List[ApplicationResponse])
 async def get_applications(
     flag: ApplicationFlags = Query(

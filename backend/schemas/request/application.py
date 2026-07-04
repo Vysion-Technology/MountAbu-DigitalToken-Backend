@@ -53,6 +53,7 @@ class ApplicationCreate(BaseModel):
     construction_floor: Optional[StructureType] = Field(None, description="Construction Floor Level")
     jurisdiction_zone: JurisdictionZone = Field(JurisdictionZone.ULB, description="Jurisdiction Zone (ULB / UIT)")
     ward_id: int = Field(..., description="Ward/Zone ID")
+    organization_name: Optional[str] = Field(None, description="Organization Name")
 
     type: ApplicationType = Field(..., description="Application Type")
     description: Optional[str] = Field(None, description="Application Description")
@@ -62,6 +63,15 @@ class ApplicationCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_structure_and_floor(self) -> "ApplicationCreate":
+        # Property usage organization name validation
+        if self.property_usage in (PropertyUsageType.COMMERCIAL, PropertyUsageType.GOVERNMENT):
+            if not self.organization_name or not self.organization_name.strip():
+                raise ValueError(
+                    f"Organization name is required when property usage is {self.property_usage.value}"
+                )
+        else:
+            self.organization_name = None
+
         # If either is None, allow (since by default it can be null)
         if self.existing_structure is None or self.construction_floor is None:
             return self

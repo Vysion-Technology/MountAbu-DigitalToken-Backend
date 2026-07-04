@@ -492,6 +492,7 @@ class ApplicationResponse(BaseModel):
     existing_structure: Optional[StructureType] = None
     construction_floor: Optional[StructureType] = None
     jurisdiction_zone: JurisdictionZone
+    organization_name: Optional[str] = None
     department_id: Optional[int]
     ward_id: Optional[int]
 

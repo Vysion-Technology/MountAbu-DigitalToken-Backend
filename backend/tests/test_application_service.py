@@ -81,5 +81,18 @@ class TestApplicationService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.current_address, "Real Address")
         self.mock_dao.get_application.assert_called_once_with(app_id)
 
+    async def test_get_organization_suggestions(self):
+        # Setup
+        property_usage = PropertyUsageType.COMMERCIAL
+        expected_suggestions = ["Org A", "Org B"]
+        self.mock_dao.get_organization_suggestions.return_value = expected_suggestions
+
+        # Execute
+        result = await self.service.get_organization_suggestions(property_usage)
+
+        # Verify
+        self.mock_dao.get_organization_suggestions.assert_called_once_with(property_usage)
+        self.assertEqual(result, expected_suggestions)
+
 if __name__ == '__main__':
     unittest.main()

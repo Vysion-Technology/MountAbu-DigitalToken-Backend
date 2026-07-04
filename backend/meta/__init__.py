@@ -50,6 +50,7 @@ class ApplicationDocumentType(str, PyEnum):
     SUPPORTING_DOCUMENTS = "SUPPORTING_DOCUMENTS"
     SITE_INSPECTION = "SITE_INSPECTION"  # JEN geo-tagged inspection photos
     GEO_TAGGED_PHOTO = "GEO_TAGGED_PHOTO"  # Geo-tagged site photos
+    DETAILED_DESIGN_ESTIMATE = "DETAILED_DESIGN_ESTIMATE"
 
 
 class ApplicationPhaseStatus(str, PyEnum):

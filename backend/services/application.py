@@ -99,6 +99,12 @@ class ApplicationService(BaseService):
         """Delete an application by ID."""
         return await self.dao.delete_application(application_id)
 
+    async def get_organization_suggestions(
+        self, property_usage: PropertyUsageType
+    ) -> List[str]:
+        """Fetch unique list of organization names for property usage type (COMMERCIAL / GOVERNMENT)."""
+        return await self.dao.get_organization_suggestions(property_usage)
+
     async def comment_on_application(
         self,
         application_id: int,

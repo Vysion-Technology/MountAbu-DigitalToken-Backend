@@ -452,6 +452,18 @@ class ApplicationDAO(BaseDAO):
         await self.session.commit()
         return SuccessResponse(message=None)
 
+    async def get_organization_suggestions(self, property_usage: PropertyUsageType) -> list[str]:
+        """Fetch unique list of organization names for property usage type (COMMERCIAL / GOVERNMENT)."""
+        stmt = (
+            select(Application.organization_name)
+            .where(Application.property_usage == property_usage)
+            .where(Application.organization_name.isnot(None))
+            .distinct()
+            .order_by(Application.organization_name.asc())
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
     async def withdraw_application(
         self, application_id: int, user_id: int
     ) -> SuccessResponse:

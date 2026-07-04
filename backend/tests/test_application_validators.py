@@ -97,3 +97,44 @@ class TestApplicationValidators(unittest.TestCase):
         data["construction_floor"] = StructureType.G_2
         with self.assertRaises(ValidationError):
             ApplicationCreate(**data)
+
+    def test_domestic_resets_organization_name(self):
+        data = self.base_data.copy()
+        data["property_usage"] = PropertyUsageType.DOMESTIC
+        data["organization_name"] = "My Org"
+        
+        app = ApplicationCreate(**data)
+        self.assertIsNone(app.organization_name)
+
+    def test_commercial_requires_organization_name(self):
+        data = self.base_data.copy()
+        data["property_usage"] = PropertyUsageType.COMMERCIAL
+        
+        # Omitted raises error
+        data["organization_name"] = None
+        with self.assertRaises(ValidationError):
+            ApplicationCreate(**data)
+            
+        # Empty string raises error
+        data["organization_name"] = "  "
+        with self.assertRaises(ValidationError):
+            ApplicationCreate(**data)
+
+        # Valid name passes
+        data["organization_name"] = "ABC Corp"
+        app = ApplicationCreate(**data)
+        self.assertEqual(app.organization_name, "ABC Corp")
+
+    def test_government_requires_organization_name(self):
+        data = self.base_data.copy()
+        data["property_usage"] = PropertyUsageType.GOVERNMENT
+        
+        # Omitted raises error
+        data["organization_name"] = None
+        with self.assertRaises(ValidationError):
+            ApplicationCreate(**data)
+
+        # Valid name passes
+        data["organization_name"] = "Ministry of Transit"
+        app = ApplicationCreate(**data)
+        self.assertEqual(app.organization_name, "Ministry of Transit")
