@@ -5,7 +5,7 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func
 from typing import List, Optional
-from sqlalchemy import insert, select, update, exists, and_, or_, String
+from sqlalchemy import insert, select, update, delete, exists, and_, or_, String
 from sqlalchemy.orm import selectinload, joinedload
 from datetime import datetime, timedelta
 
@@ -820,33 +820,29 @@ class ApplicationDAO(BaseDAO):
         if not application:
             raise HTTPException(status_code=404, detail="Application not found")
 
-        # Check for existing materials to avoid duplicates
-        existing_stmt = select(ApplicationPhaseMaterial).where(
-            ApplicationPhaseMaterial.application_id == application_id
-        )
-        existing_result = await self.session.execute(existing_stmt)
-        existing_materials = {
-            (pm.phase, pm.material_id, pm.custom_name): pm
-            for pm in existing_result.scalars().all()
-        }
+        # Get all unique phases in the incoming payload
+        phases_to_update = {pm_data.phase for pm_data in phase_materials}
 
+        if phases_to_update:
+            # Delete existing phase materials for these phases
+            delete_stmt = delete(ApplicationPhaseMaterial).where(
+                ApplicationPhaseMaterial.application_id == application_id,
+                ApplicationPhaseMaterial.phase.in_(list(phases_to_update))
+            )
+            await self.session.execute(delete_stmt)
+
+        # Insert new/edited phase materials
         for pm_data in phase_materials:
-            key = (pm_data.phase, pm_data.material_id, pm_data.custom_name)
-            if key in existing_materials:
-                # Update quantity
-                existing_materials[key].quantity = pm_data.quantity
-            else:
-                # Insert new
-                self.session.add(
-                    ApplicationPhaseMaterial(
-                        application_id=application_id,
-                        phase=pm_data.phase,
-                        material_id=pm_data.material_id,
-                        custom_name=pm_data.custom_name,
-                        custom_unit=pm_data.custom_unit,
-                        quantity=pm_data.quantity,
-                    )
+            self.session.add(
+                ApplicationPhaseMaterial(
+                    application_id=application_id,
+                    phase=pm_data.phase,
+                    material_id=pm_data.material_id,
+                    custom_name=pm_data.custom_name,
+                    custom_unit=pm_data.custom_unit,
+                    quantity=pm_data.quantity,
                 )
+            )
 
         await self.session.commit()
         return SuccessResponse(message="Phase materials updated successfully")
