@@ -151,9 +151,9 @@ class WorkflowActionRequest(BaseModel):
 
     action: WorkflowAction = Field(..., description="Workflow action to perform")
     remarks: Optional[str] = Field(None, description="Remarks for the action")
-    num_stages: Optional[int] = Field(
+    phase: Optional[int] = Field(
         None,
-        description="Number of phases/stages for token generation (required for GENERATE_TOKENS)",
+        description="Specific phase number to generate (for GENERATE_TOKENS)",
         ge=1,
         le=10,
     )

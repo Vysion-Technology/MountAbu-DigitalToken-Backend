@@ -641,7 +641,7 @@ class ApplicationDAO(BaseDAO):
         user_id: int,
         user_role: UserRole,
         remarks: Optional[str] = None,
-        num_stages: Optional[int] = None,
+        phase: Optional[int] = None,
         phase_materials: Optional[list] = None,
     ) -> SuccessResponse:
         """
@@ -701,10 +701,10 @@ class ApplicationDAO(BaseDAO):
 
         # ── GENERATE_TOKENS specific logic ────────────────────────────────
         if action == WorkflowAction.GENERATE_TOKENS:
-            if not num_stages or num_stages < 1:
+            if not phase or phase < 1:
                 raise HTTPException(
                     status_code=400,
-                    detail="num_stages is required for GENERATE_TOKENS and must be >= 1",
+                    detail="phase is required for GENERATE_TOKENS and must be >= 1",
                 )
             # Require JEN inspection for NEW and RENOVATION flow
             if application.type in (ApplicationType.NEW, ApplicationType.RENOVATION) and not application.inspections:
@@ -712,26 +712,45 @@ class ApplicationDAO(BaseDAO):
                     status_code=400,
                     detail="JEN inspection must be completed before generating tokens",
                 )
-            application.num_stages = num_stages
 
-            # Create phases
-            for phase_num in range(1, num_stages + 1):
-                phase_status = (
-                    ApplicationPhaseStatus.ACTIVE
-                    if phase_num == 1
-                    else ApplicationPhaseStatus.PENDING
+            # Check duplicates
+            existing_phase = next((p for p in application.phases if p.phase == phase), None)
+            if existing_phase:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Phase {phase} has already been generated.",
                 )
-                self.session.add(
-                    ApprovedApplicationPhase(
-                        application_id=application_id,
-                        phase=phase_num,
-                        name=f"Phase {phase_num}",
-                        status=phase_status,
-                        activated_at=datetime.now() if phase_num == 1 else None,
+
+            # Validate sequential generation
+            if phase > 1:
+                prev_phase = next((p for p in application.phases if p.phase == phase - 1), None)
+                if not prev_phase:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Cannot generate Phase {phase}: Phase {phase - 1} has not been generated yet.",
                     )
-                )
+                if prev_phase.status != ApplicationPhaseStatus.COMPLETED:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Cannot generate Phase {phase}: Phase {phase - 1} is '{prev_phase.status.value}', must be COMPLETED.",
+                    )
 
-            # Create phase materials if provided (skip duplicates from JEN inspection)
+            # Update the number of stages on the application
+            if not application.num_stages or phase > application.num_stages:
+                application.num_stages = phase
+
+            # Create the requested phase directly with ACTIVE status
+            self.session.add(
+                ApprovedApplicationPhase(
+                    application_id=application_id,
+                    phase=phase,
+                    name=f"Phase {phase}",
+                    status=ApplicationPhaseStatus.ACTIVE,
+                    activated_at=datetime.now(),
+                )
+            )
+
+            # Create phase materials if provided for this phase
             if phase_materials:
                 existing_pm_stmt = select(ApplicationPhaseMaterial).where(
                     ApplicationPhaseMaterial.application_id == application_id,
@@ -745,6 +764,8 @@ class ApplicationDAO(BaseDAO):
                     for pm in existing_pm_rows
                 }
                 for pm in phase_materials:
+                    if pm.phase != phase:
+                        continue
                     key = (pm.phase, pm.material_id, pm.custom_name)
                     if key in existing_keys:
                         continue  # already created by JEN inspection
@@ -1037,6 +1058,54 @@ class ApplicationDAO(BaseDAO):
                 quantity=float(mat["quantity_brought"]),
             )
             self.session.add(vm)
+
+        await self.session.flush()
+
+        # Check if all allocated materials for the current phase are fully completed (remaining is zero or less)
+        pm_stmt = select(ApplicationPhaseMaterial).where(
+            ApplicationPhaseMaterial.application_id == application_id,
+            ApplicationPhaseMaterial.phase == phase,
+        )
+        pm_result = await self.session.execute(pm_stmt)
+        allocated_materials = pm_result.scalars().all()
+
+        phase_fully_utilized = True
+        for pm in allocated_materials:
+            used_stmt = (
+                select(func.coalesce(func.sum(VehicleMaterial.quantity), 0))
+                .select_from(VehicleEntry)
+                .join(VehicleMaterial)
+                .where(
+                    VehicleEntry.application_id == application_id,
+                    VehicleEntry.phase == phase,
+                    VehicleMaterial.material_id == pm.material_id,
+                    VehicleMaterial.custom_name == pm.custom_name,
+                )
+            )
+            used_result = await self.session.execute(used_stmt)
+            total_brought = used_result.scalar() or 0
+            
+            if total_brought < pm.quantity:
+                phase_fully_utilized = False
+                break
+
+        if phase_fully_utilized:
+            phase_record.status = ApplicationPhaseStatus.COMPLETED
+            phase_record.completed_at = datetime.now()
+
+            # Log the automatic completion log entry
+            self.session.add(
+                ApplicationActionLog(
+                    application_id=application_id,
+                    action=WorkflowAction.APPROVE,
+                    from_status=ApplicationStatus.TOKEN_GENERATED,
+                    to_status=ApplicationStatus.TOKEN_GENERATED,
+                    performed_by=user_id,
+                    performed_at=datetime.now(),
+                    remarks=f"Phase {phase} auto-completed: all materials exhausted",
+                    phase=phase,
+                )
+            )
 
         await self.session.commit()
         return SuccessResponse(message="Naka entry recorded successfully")

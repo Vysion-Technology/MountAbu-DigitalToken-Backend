@@ -195,7 +195,7 @@ class ApplicationService(BaseService):
             user_id=user_id,
             user_role=user_role,
             remarks=request.remarks,
-            num_stages=request.num_stages,
+            phase=request.phase,
             phase_materials=request.phase_materials,
         )
 
