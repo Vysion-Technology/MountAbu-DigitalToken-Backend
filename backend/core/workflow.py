@@ -51,6 +51,11 @@ TRANSITIONS: dict[
         ApplicationStatus.TOKEN_GENERATED,
         [UserRole.NODAL_OFFICER, UserRole.SUPERADMIN],
     ),
+    # 4a. Allow sequential token generation when status is TOKEN_GENERATED
+    (ApplicationStatus.TOKEN_GENERATED, WorkflowAction.GENERATE_TOKENS, ApplicationType.NEW): (
+        ApplicationStatus.TOKEN_GENERATED,
+        [UserRole.NODAL_OFFICER, UserRole.SUPERADMIN],
+    ),
 
     # =====================================================================
     # RENOVATION FLOW
@@ -95,6 +100,11 @@ TRANSITIONS: dict[
     ),
     # 5. After Commissioner approves, Nodal Officer generates tokens
     (ApplicationStatus.APPROVED, WorkflowAction.GENERATE_TOKENS, ApplicationType.RENOVATION): (
+        ApplicationStatus.TOKEN_GENERATED,
+        [UserRole.NODAL_OFFICER, UserRole.SUPERADMIN],
+    ),
+    # 5a. Allow sequential token generation when status is TOKEN_GENERATED
+    (ApplicationStatus.TOKEN_GENERATED, WorkflowAction.GENERATE_TOKENS, ApplicationType.RENOVATION): (
         ApplicationStatus.TOKEN_GENERATED,
         [UserRole.NODAL_OFFICER, UserRole.SUPERADMIN],
     ),

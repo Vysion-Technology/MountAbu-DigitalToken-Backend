@@ -88,7 +88,7 @@ class ApplicationDAO(BaseDAO):
                     flags.append(
                         ApplicationFlags.NEW_APPLICATION_REQUIRES_JEN_INSPECTION
                     )
-                elif not application.materials:
+                elif not application.phase_materials:
                     flags.append(
                         ApplicationFlags.NEW_APPLICATION_REQUIRES_JEN_MATERIAL_ENTRY
                     )
@@ -124,7 +124,7 @@ class ApplicationDAO(BaseDAO):
                     flags.append(
                         ApplicationFlags.RENOVATION_REQUIRES_JEN_FIELD_INSPECTION
                     )
-                elif not application.materials:
+                elif not application.phase_materials:
                     flags.append(
                         ApplicationFlags.RENOVATION_REQUIRES_JEN_MATERIAL_ENTRY
                     )
@@ -158,7 +158,7 @@ class ApplicationDAO(BaseDAO):
                     flags.append(
                         ApplicationFlags.RENOVATION_REQUIRES_JEN_FIELD_INSPECTION
                     )
-                elif not application.materials:
+                elif not application.phase_materials:
                     flags.append(
                         ApplicationFlags.RENOVATION_REQUIRES_JEN_MATERIAL_ENTRY
                     )
@@ -687,6 +687,20 @@ class ApplicationDAO(BaseDAO):
                 raise HTTPException(
                     status_code=400,
                     detail=f"Cannot approve: missing department reviews from: {', '.join(missing_names)}",
+                )
+
+            # Require JEN inspection for RENOVATION flow before approval
+            if len(application.inspections) == 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot approve: JEN field inspection is not completed.",
+                )
+
+            # Require phase materials for RENOVATION flow before approval
+            if len(application.phase_materials) == 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot approve: phase materials have not been entered.",
                 )
 
         # Validate via state machine (raises ValueError on failure)
