@@ -149,6 +149,7 @@ class ApplicationFlags(str, PyEnum):
         "OBJECTED_CITIZEN_ACTION"  # Citizen must respond to objection
     )
     ALL_DEPT = "ALL_DEPT"
+    PENDING_WITH_ME = "PENDING_WITH_ME"
 
     # New Application flags
     NEW_APPLICATION_REQUIRES_NODAL_OFFICER_ACTION = (

@@ -138,3 +138,13 @@ class TestApplicationValidators(unittest.TestCase):
         data["organization_name"] = "Ministry of Transit"
         app = ApplicationCreate(**data)
         self.assertEqual(app.organization_name, "Ministry of Transit")
+
+    def test_renovation_allows_g3(self):
+        data = self.base_data.copy()
+        data["type"] = ApplicationType.RENOVATION
+        data["existing_structure"] = StructureType.G_3
+        data["construction_floor"] = StructureType.G_3
+        
+        app = ApplicationCreate(**data)
+        self.assertEqual(app.existing_structure, StructureType.G_3)
+        self.assertEqual(app.construction_floor, StructureType.G_3)

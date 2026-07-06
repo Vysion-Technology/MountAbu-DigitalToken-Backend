@@ -82,6 +82,7 @@ class ApplicationService(BaseService):
         ward_id: Optional[int] = None,
         property_usage: Optional[PropertyUsageType] = None,
         jurisdiction_zone: Optional[JurisdictionZone] = None,
+        user_role: Optional[UserRole] = None,
     ) -> List[ApplicationResponse]:
         """Get applications filtered by flag, search, and other criteria."""
         return await self.dao.get_applications(
@@ -93,6 +94,7 @@ class ApplicationService(BaseService):
             ward_id=ward_id,
             property_usage=property_usage,
             jurisdiction_zone=jurisdiction_zone,
+            user_role=user_role,
         )
 
     async def delete_application(self, application_id: int) -> SuccessResponse:

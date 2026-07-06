@@ -59,6 +59,14 @@ FLAG_ALLOWED_ROLES: dict[ApplicationFlags, list[UserRole]] = {
         UserRole.DEPT_LAND,
         UserRole.DEPT_LEGAL,
     ],
+    ApplicationFlags.PENDING_WITH_ME: [
+        UserRole.NODAL_OFFICER,
+        UserRole.COMMISSIONER,
+        UserRole.JEN,
+        UserRole.DEPT_ATP,
+        UserRole.DEPT_LAND,
+        UserRole.DEPT_LEGAL,
+    ],
     # ── New Application ───────────────────────────────────────────────────
     ApplicationFlags.NEW_APPLICATION_REQUIRES_NODAL_OFFICER_ACTION: [*_ADMIN_ROLES],
     ApplicationFlags.NEW_APPLICATION_REQUIRES_JEN_INSPECTION: [
@@ -316,6 +324,7 @@ async def get_applications(
         ward_id=current_ward,
         property_usage=current_usage,
         jurisdiction_zone=current_zone,
+        user_role=user.role,
     )
 
 

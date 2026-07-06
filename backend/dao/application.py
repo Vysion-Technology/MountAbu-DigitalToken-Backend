@@ -64,7 +64,7 @@ class ApplicationDAO(BaseDAO):
     """Application DAO."""
 
     # ── Flag computation ──────────────────────────────────────────────────
-    def get_required_flags(self, application: Application) -> list[ApplicationFlags]:
+    def get_required_flags(self, application: Application, user_role: Optional[UserRole] = None) -> list[ApplicationFlags]:
         """Compute which dashboard-flags an application should appear under."""
         flags: list[ApplicationFlags] = []
         st = application.status
@@ -186,6 +186,60 @@ class ApplicationDAO(BaseDAO):
             if (tp == ApplicationType.NEW and is_new_approved) or \
                (tp == ApplicationType.RENOVATION and is_renovation_forwarded):
                 flags.append(ApplicationFlags.ALL_DEPT)
+
+        # ── PENDING_WITH_ME flag ─────────────────────────────────────────
+        if user_role:
+            is_pending_with_me = False
+            if user_role == UserRole.NODAL_OFFICER:
+                # 1. NEW in SUBMITTED (needing approval)
+                # 2. NEW in APPROVED (has inspection + phase materials, needs token generation)
+                # 3. RENOVATION in APPROVED (has inspection + phase materials, needs token generation)
+                if tp == ApplicationType.NEW and st == ApplicationStatus.SUBMITTED:
+                    is_pending_with_me = True
+                elif st == ApplicationStatus.APPROVED and len(application.inspections) > 0 and application.phase_materials:
+                    is_pending_with_me = True
+            
+            elif user_role == UserRole.COMMISSIONER:
+                # 1. RENOVATION in SUBMITTED (needing forwarding)
+                # 2. RENOVATION in FORWARDED where all depts commented and JEN inspected (needing approval)
+                if tp == ApplicationType.RENOVATION:
+                    if st == ApplicationStatus.SUBMITTED:
+                        is_pending_with_me = True
+                    elif st == ApplicationStatus.FORWARDED:
+                        dept_review_roles = {
+                            c.commenter.role
+                            for c in application.comments
+                            if c.comment_type == CommentType.DEPT_REVIEW
+                        }
+                        if len(application.inspections) > 0:
+                            dept_review_roles.add(UserRole.JEN)
+                        
+                        missing_depts = RENOVATION_DEPT_ROLES - dept_review_roles
+                        if not missing_depts:
+                            is_pending_with_me = True
+            
+            elif user_role == UserRole.JEN:
+                # 1. NEW in APPROVED and (no inspection or no phase materials)
+                # 2. RENOVATION in FORWARDED and (no inspection or no phase materials)
+                if tp == ApplicationType.NEW and st == ApplicationStatus.APPROVED:
+                    if len(application.inspections) == 0 or not application.phase_materials:
+                        is_pending_with_me = True
+                elif tp == ApplicationType.RENOVATION and st == ApplicationStatus.FORWARDED:
+                    if len(application.inspections) == 0 or not application.phase_materials:
+                        is_pending_with_me = True
+            
+            elif user_role in (UserRole.DEPT_ATP, UserRole.DEPT_LAND, UserRole.DEPT_LEGAL):
+                # RENOVATION in FORWARDED and has NOT commented yet with DEPT_REVIEW
+                if tp == ApplicationType.RENOVATION and st == ApplicationStatus.FORWARDED:
+                    has_commented = any(
+                        c.commenter.role == user_role and c.comment_type == CommentType.DEPT_REVIEW
+                        for c in application.comments
+                    )
+                    if not has_commented:
+                        is_pending_with_me = True
+
+            if is_pending_with_me:
+                flags.append(ApplicationFlags.PENDING_WITH_ME)
 
         return flags
 
@@ -324,6 +378,7 @@ class ApplicationDAO(BaseDAO):
         ward_id: Optional[int] = None,
         property_usage: Optional[PropertyUsageType] = None,
         jurisdiction_zone: Optional[JurisdictionZone] = None,
+        user_role: Optional[UserRole] = None,
     ) -> list[ApplicationResponse]:
         """Get applications, optionally filtered by flag, search and extra criteria."""
         query = select(Application).options(*_APPLICATION_LOAD_OPTIONS).order_by(Application.created_at.desc())
@@ -406,7 +461,7 @@ class ApplicationDAO(BaseDAO):
         # Flag filter — load all matching apps, compute flags, then paginate in Python
         all_applications = list((await self.session.scalars(query)).all())
         matched_apps = [
-            app for app in all_applications if flag in self.get_required_flags(app)
+            app for app in all_applications if flag in self.get_required_flags(app, user_role)
         ]
         paginated = matched_apps[offset : offset + limit]
         responses = [ApplicationResponse.model_validate(app) for app in paginated]
