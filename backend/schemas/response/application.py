@@ -8,6 +8,8 @@ from backend.meta import (
     CommentType,
     PropertyUsageType,
     WorkflowAction,
+    StructureType,
+    JurisdictionZone,
 )
 from pydantic import BaseModel, ConfigDict, model_validator
 
@@ -485,9 +487,12 @@ class ApplicationResponse(BaseModel):
     work_description: str
     contractor_name: Optional[str]
 
-    # Classification
     is_agriculture_land: bool
     property_usage: PropertyUsageType
+    existing_structure: Optional[StructureType] = None
+    construction_floor: Optional[StructureType] = None
+    jurisdiction_zone: JurisdictionZone
+    organization_name: Optional[str] = None
     department_id: Optional[int]
     ward_id: Optional[int]
 

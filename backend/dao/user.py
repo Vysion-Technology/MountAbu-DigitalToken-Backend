@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.dbmodels.user import User, ActiveUserOTP
-from backend.meta import UserRole
+from backend.meta import UserRole, JurisdictionZone
 
 
 class UserDAO:
@@ -32,9 +32,15 @@ class UserDAO:
         name: str = "",
         password: Optional[str] = None,
         username: Optional[str] = None,
+        jurisdiction_zone: Optional[JurisdictionZone] = None,
     ) -> User:
         user = User(
-            mobile=mobile, role=role, name=name, password=password, username=username
+            mobile=mobile,
+            role=role,
+            name=name,
+            password=password,
+            username=username,
+            jurisdiction_zone=jurisdiction_zone,
         )
         session.add(user)
         # Flush to get ID, but commit should be handled by service/controller

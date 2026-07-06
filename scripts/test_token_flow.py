@@ -267,7 +267,7 @@ def main():
         json={
             "action": "GENERATE_TOKENS",
             "remarks": "Tokens generated after JEN inspection",
-            "num_stages": 2,
+            "phase": 1,
             "phase_materials": [
                 {"phase": 1, "material_id": ids["mat1_id"], "quantity": 100},
                 {"phase": 1, "material_id": ids["mat2_id"], "quantity": 10},
@@ -482,8 +482,28 @@ def main():
             pct = detail.get("remaining_quantity_pct")
             report("remaining_quantity_pct < 100", pct is not None and pct < 100,
                    f"pct={pct}")
-        else:
-            report("GET token detail after entries", False, f"status={resp.status_code}")
+    # ── 15b. Complete Phase 1 & Generate Phase 2 ──────────────────────
+    print("\n─── Complete Phase 1 & Generate Phase 2 ───────────────")
+    resp = client.put(
+        f"/api/applications/{app_id}/phases/1/complete",
+        headers=hdr(nodal_token)
+    )
+    report("Complete Phase 1", resp.status_code == 200, f"{resp.status_code}")
+    if resp.status_code != 200:
+        print(f"  ERROR: {resp.text}")
+
+    resp = client.put(
+        f"/api/applications/{app_id}/action",
+        json={
+            "action": "GENERATE_TOKENS",
+            "remarks": "Generating Phase 2",
+            "phase": 2,
+        },
+        headers=hdr(nodal_token)
+    )
+    report("Generate Phase 2", resp.status_code == 200, f"{resp.status_code}")
+    if resp.status_code != 200:
+        print(f"  ERROR: {resp.text}")
 
     # ── 16. GET /api/applications/{id}/tokens ─────────────────────────
     print("\n─── GET /api/applications/{id}/tokens ────────────────")

@@ -6,8 +6,10 @@ from backend.meta import (
     PropertyUsageType,
     WorkflowAction,
     ApplicationPhaseStatus,
+    StructureType,
+    JurisdictionZone,
 )
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class PhaseStatusUpdateRequest(BaseModel):
@@ -47,13 +49,74 @@ class ApplicationCreate(BaseModel):
         ..., description="Is property on agriculture land?"
     )
     property_usage: PropertyUsageType = Field(..., description="Property Usage Type")
+    existing_structure: Optional[StructureType] = Field(None, description="Existing Structure Type")
+    construction_floor: Optional[StructureType] = Field(None, description="Construction Floor Level")
+    jurisdiction_zone: JurisdictionZone = Field(JurisdictionZone.ULB, description="Jurisdiction Zone (ULB / UIT)")
     ward_id: int = Field(..., description="Ward/Zone ID")
+    organization_name: Optional[str] = Field(None, description="Organization Name")
 
     type: ApplicationType = Field(..., description="Application Type")
     description: Optional[str] = Field(None, description="Application Description")
     material_requirements: list[ApplicationMaterialRequirements] = Field(
         ..., description="Application Material Requirements"
     )
+
+    @model_validator(mode="after")
+    def validate_structure_and_floor(self) -> "ApplicationCreate":
+        # Property usage organization name validation
+        if self.property_usage in (PropertyUsageType.COMMERCIAL, PropertyUsageType.GOVERNMENT):
+            if not self.organization_name or not self.organization_name.strip():
+                raise ValueError(
+                    f"Organization name is required when property usage is {self.property_usage.value}"
+                )
+        else:
+            self.organization_name = None
+
+        # If either is None, allow (since by default it can be null)
+        if self.existing_structure is None or self.construction_floor is None:
+            return self
+
+        # Application type NEW
+        if self.type == ApplicationType.NEW:
+            expected_floors = []
+            if self.existing_structure == StructureType.NONE:
+                expected_floors = [StructureType.FENCING, StructureType.G]
+            elif self.existing_structure == StructureType.FENCING:
+                expected_floors = [StructureType.G]
+            elif self.existing_structure == StructureType.G:
+                expected_floors = [StructureType.G_1]
+            elif self.existing_structure == StructureType.G_1:
+                expected_floors = [StructureType.G_2]
+            elif self.existing_structure == StructureType.G_2:
+                expected_floors = [StructureType.G_3]
+            elif self.existing_structure == StructureType.G_3:
+                raise ValueError("Cannot request new construction above G+3 structure")
+
+            if self.construction_floor not in expected_floors:
+                raise ValueError(
+                    f"For new construction with existing structure '{self.existing_structure.value}', "
+                    f"the construction floor must be one of: {[f.value for f in expected_floors]}"
+                )
+
+        # Application type RENOVATION
+        elif self.type == ApplicationType.RENOVATION:
+            structure_order = [
+                StructureType.NONE,
+                StructureType.FENCING,
+                StructureType.G,
+                StructureType.G_1,
+                StructureType.G_2,
+                StructureType.G_3,
+            ]
+            existing_idx = structure_order.index(self.existing_structure)
+            construction_idx = structure_order.index(self.construction_floor)
+            if construction_idx > existing_idx:
+                raise ValueError(
+                    f"For renovation/repair, the construction floor cannot exceed the existing structure. "
+                    f"Max permitted is '{self.existing_structure.value}', got '{self.construction_floor.value}'"
+                )
+
+        return self
 
 
 class CommentRequest(BaseModel):
@@ -88,9 +151,9 @@ class WorkflowActionRequest(BaseModel):
 
     action: WorkflowAction = Field(..., description="Workflow action to perform")
     remarks: Optional[str] = Field(None, description="Remarks for the action")
-    num_stages: Optional[int] = Field(
+    phase: Optional[int] = Field(
         None,
-        description="Number of phases/stages for token generation (required for GENERATE_TOKENS)",
+        description="Specific phase number to generate (for GENERATE_TOKENS)",
         ge=1,
         le=10,
     )

@@ -5,7 +5,7 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func
 from typing import List, Optional
-from sqlalchemy import insert, select, update, exists, and_, or_, String
+from sqlalchemy import insert, select, update, delete, exists, and_, or_, String
 from sqlalchemy.orm import selectinload, joinedload
 from datetime import datetime, timedelta
 
@@ -40,6 +40,7 @@ from backend.meta import (
     ApplicationType,
     ApplicationPhaseStatus,
     PropertyUsageType,
+    JurisdictionZone,
 )
 from backend.core.workflow import validate_transition, RENOVATION_DEPT_ROLES
 
@@ -63,7 +64,7 @@ class ApplicationDAO(BaseDAO):
     """Application DAO."""
 
     # ── Flag computation ──────────────────────────────────────────────────
-    def get_required_flags(self, application: Application) -> list[ApplicationFlags]:
+    def get_required_flags(self, application: Application, user_role: Optional[UserRole] = None) -> list[ApplicationFlags]:
         """Compute which dashboard-flags an application should appear under."""
         flags: list[ApplicationFlags] = []
         st = application.status
@@ -87,7 +88,7 @@ class ApplicationDAO(BaseDAO):
                     flags.append(
                         ApplicationFlags.NEW_APPLICATION_REQUIRES_JEN_INSPECTION
                     )
-                elif not application.materials:
+                elif not application.phase_materials:
                     flags.append(
                         ApplicationFlags.NEW_APPLICATION_REQUIRES_JEN_MATERIAL_ENTRY
                     )
@@ -111,7 +112,23 @@ class ApplicationDAO(BaseDAO):
                     for c in application.comments
                     if c.comment_type == CommentType.DEPT_REVIEW
                 }
+                # Inspection report satisfies the JEN review requirement
+                if len(application.inspections) > 0:
+                    dept_review_roles.add(UserRole.JEN)
+
                 missing_depts = RENOVATION_DEPT_ROLES - dept_review_roles
+                
+                # Check for inspection requirement in FORWARDED state
+                has_inspection = len(application.inspections) > 0
+                if not has_inspection:
+                    flags.append(
+                        ApplicationFlags.RENOVATION_REQUIRES_JEN_FIELD_INSPECTION
+                    )
+                elif not application.phase_materials:
+                    flags.append(
+                        ApplicationFlags.RENOVATION_REQUIRES_JEN_MATERIAL_ENTRY
+                    )
+
                 if missing_depts:
                     flags.append(ApplicationFlags.RENOVATION_REQUIRES_DEPT_COMMENT)
                     # Check overdue (> 7 days since forward)
@@ -130,7 +147,7 @@ class ApplicationDAO(BaseDAO):
                                 if hasattr(ApplicationFlags, flag_name):
                                     flags.append(ApplicationFlags(flag_name))
                 else:
-                    # All depts commented → Commissioner can act
+                    # All depts commented (and JEN inspected/commented) → Commissioner can act
                     flags.append(
                         ApplicationFlags.RENOVATION_REQUIRES_COMMISSIONER_ACTION
                     )
@@ -141,7 +158,7 @@ class ApplicationDAO(BaseDAO):
                     flags.append(
                         ApplicationFlags.RENOVATION_REQUIRES_JEN_FIELD_INSPECTION
                     )
-                elif not application.materials:
+                elif not application.phase_materials:
                     flags.append(
                         ApplicationFlags.RENOVATION_REQUIRES_JEN_MATERIAL_ENTRY
                     )
@@ -152,6 +169,77 @@ class ApplicationDAO(BaseDAO):
 
             elif st == ApplicationStatus.TOKEN_GENERATED:
                 self._add_phase_flags(application, flags)
+
+        # ── ALL_DEPT flag ──────────────────────────────────────────────
+        # NEW application is visible forever under ALL_DEPT if it has ever been APPROVED or TOKEN_GENERATED.
+        # RENOVATION application is visible forever under ALL_DEPT if it has ever been FORWARDED, APPROVED, or TOKEN_GENERATED.
+        is_new_approved = (
+            st in (ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED) or
+            any(log.to_status in (ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED) for log in getattr(application, "action_logs", []))
+        )
+        is_renovation_forwarded = (
+            st in (ApplicationStatus.FORWARDED, ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED) or
+            any(log.to_status in (ApplicationStatus.FORWARDED, ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED) for log in getattr(application, "action_logs", []))
+        )
+
+        if st != ApplicationStatus.PENDING:
+            if (tp == ApplicationType.NEW and is_new_approved) or \
+               (tp == ApplicationType.RENOVATION and is_renovation_forwarded):
+                flags.append(ApplicationFlags.ALL_DEPT)
+
+        # ── PENDING_WITH_ME flag ─────────────────────────────────────────
+        if user_role:
+            is_pending_with_me = False
+            if user_role == UserRole.NODAL_OFFICER:
+                # 1. NEW in SUBMITTED (needing approval)
+                # 2. NEW in APPROVED (has inspection + phase materials, needs token generation)
+                # 3. RENOVATION in APPROVED (has inspection + phase materials, needs token generation)
+                if tp == ApplicationType.NEW and st == ApplicationStatus.SUBMITTED:
+                    is_pending_with_me = True
+                elif st == ApplicationStatus.APPROVED and len(application.inspections) > 0 and application.phase_materials:
+                    is_pending_with_me = True
+            
+            elif user_role == UserRole.COMMISSIONER:
+                # 1. RENOVATION in SUBMITTED (needing forwarding)
+                # 2. RENOVATION in FORWARDED where all depts commented and JEN inspected (needing approval)
+                if tp == ApplicationType.RENOVATION:
+                    if st == ApplicationStatus.SUBMITTED:
+                        is_pending_with_me = True
+                    elif st == ApplicationStatus.FORWARDED:
+                        dept_review_roles = {
+                            c.commenter.role
+                            for c in application.comments
+                            if c.comment_type == CommentType.DEPT_REVIEW
+                        }
+                        if len(application.inspections) > 0:
+                            dept_review_roles.add(UserRole.JEN)
+                        
+                        missing_depts = RENOVATION_DEPT_ROLES - dept_review_roles
+                        if not missing_depts:
+                            is_pending_with_me = True
+            
+            elif user_role == UserRole.JEN:
+                # 1. NEW in APPROVED and (no inspection or no phase materials)
+                # 2. RENOVATION in FORWARDED and (no inspection or no phase materials)
+                if tp == ApplicationType.NEW and st == ApplicationStatus.APPROVED:
+                    if len(application.inspections) == 0 or not application.phase_materials:
+                        is_pending_with_me = True
+                elif tp == ApplicationType.RENOVATION and st == ApplicationStatus.FORWARDED:
+                    if len(application.inspections) == 0 or not application.phase_materials:
+                        is_pending_with_me = True
+            
+            elif user_role in (UserRole.DEPT_ATP, UserRole.DEPT_LAND, UserRole.DEPT_LEGAL):
+                # RENOVATION in FORWARDED and has NOT commented yet with DEPT_REVIEW
+                if tp == ApplicationType.RENOVATION and st == ApplicationStatus.FORWARDED:
+                    has_commented = any(
+                        c.commenter.role == user_role and c.comment_type == CommentType.DEPT_REVIEW
+                        for c in application.comments
+                    )
+                    if not has_commented:
+                        is_pending_with_me = True
+
+            if is_pending_with_me:
+                flags.append(ApplicationFlags.PENDING_WITH_ME)
 
         return flags
 
@@ -289,9 +377,11 @@ class ApplicationDAO(BaseDAO):
         search: Optional[str] = None,
         ward_id: Optional[int] = None,
         property_usage: Optional[PropertyUsageType] = None,
+        jurisdiction_zone: Optional[JurisdictionZone] = None,
+        user_role: Optional[UserRole] = None,
     ) -> list[ApplicationResponse]:
         """Get applications, optionally filtered by flag, search and extra criteria."""
-        query = select(Application).options(*_APPLICATION_LOAD_OPTIONS)
+        query = select(Application).options(*_APPLICATION_LOAD_OPTIONS).order_by(Application.created_at.desc())
         
         # ── Global filters ───────────────────────────────────────────────
         if user_id:
@@ -300,6 +390,8 @@ class ApplicationDAO(BaseDAO):
             query = query.where(Application.ward_id == ward_id)
         if property_usage:
             query = query.where(Application.property_usage == property_usage)
+        if jurisdiction_zone:
+            query = query.where(Application.jurisdiction_zone == jurisdiction_zone)
             
         # ── Search logic ──────────────────────────────────────────────────
         if search:
@@ -327,7 +419,9 @@ class ApplicationDAO(BaseDAO):
             
             query = query.where(or_(*search_filters))
 
-        if flag is None:
+        if flag is None or flag == ApplicationFlags.ALL:
+            if flag == ApplicationFlags.ALL:
+                query = query.where(Application.status != ApplicationStatus.PENDING)
             # No flag filter — return paginated results directly
             applications = list(
                 await self.session.scalars(query.offset(offset).limit(limit))
@@ -367,7 +461,7 @@ class ApplicationDAO(BaseDAO):
         # Flag filter — load all matching apps, compute flags, then paginate in Python
         all_applications = list((await self.session.scalars(query)).all())
         matched_apps = [
-            app for app in all_applications if flag in self.get_required_flags(app)
+            app for app in all_applications if flag in self.get_required_flags(app, user_role)
         ]
         paginated = matched_apps[offset : offset + limit]
         responses = [ApplicationResponse.model_validate(app) for app in paginated]
@@ -412,6 +506,18 @@ class ApplicationDAO(BaseDAO):
         await self.session.delete(application)
         await self.session.commit()
         return SuccessResponse(message=None)
+
+    async def get_organization_suggestions(self, property_usage: PropertyUsageType) -> list[str]:
+        """Fetch unique list of organization names for property usage type (COMMERCIAL / GOVERNMENT)."""
+        stmt = (
+            select(Application.organization_name)
+            .where(Application.property_usage == property_usage)
+            .where(Application.organization_name.isnot(None))
+            .distinct()
+            .order_by(Application.organization_name.asc())
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
 
     async def withdraw_application(
         self, application_id: int, user_id: int
@@ -590,7 +696,7 @@ class ApplicationDAO(BaseDAO):
         user_id: int,
         user_role: UserRole,
         remarks: Optional[str] = None,
-        num_stages: Optional[int] = None,
+        phase: Optional[int] = None,
         phase_materials: Optional[list] = None,
     ) -> SuccessResponse:
         """
@@ -627,6 +733,8 @@ class ApplicationDAO(BaseDAO):
                 for c in application.comments
                 if c.commenter.role in RENOVATION_DEPT_ROLES
             }
+            if len(application.inspections) > 0:
+                dept_review_roles.add(UserRole.JEN)
             
             missing_depts = RENOVATION_DEPT_ROLES - dept_review_roles
             if missing_depts:
@@ -634,6 +742,20 @@ class ApplicationDAO(BaseDAO):
                 raise HTTPException(
                     status_code=400,
                     detail=f"Cannot approve: missing department reviews from: {', '.join(missing_names)}",
+                )
+
+            # Require JEN inspection for RENOVATION flow before approval
+            if len(application.inspections) == 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot approve: JEN field inspection is not completed.",
+                )
+
+            # Require phase materials for RENOVATION flow before approval
+            if len(application.phase_materials) == 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot approve: phase materials have not been entered.",
                 )
 
         # Validate via state machine (raises ValueError on failure)
@@ -648,10 +770,10 @@ class ApplicationDAO(BaseDAO):
 
         # ── GENERATE_TOKENS specific logic ────────────────────────────────
         if action == WorkflowAction.GENERATE_TOKENS:
-            if not num_stages or num_stages < 1:
+            if not phase or phase < 1:
                 raise HTTPException(
                     status_code=400,
-                    detail="num_stages is required for GENERATE_TOKENS and must be >= 1",
+                    detail="phase is required for GENERATE_TOKENS and must be >= 1",
                 )
             # Require JEN inspection for NEW and RENOVATION flow
             if application.type in (ApplicationType.NEW, ApplicationType.RENOVATION) and not application.inspections:
@@ -659,26 +781,45 @@ class ApplicationDAO(BaseDAO):
                     status_code=400,
                     detail="JEN inspection must be completed before generating tokens",
                 )
-            application.num_stages = num_stages
 
-            # Create phases
-            for phase_num in range(1, num_stages + 1):
-                phase_status = (
-                    ApplicationPhaseStatus.ACTIVE
-                    if phase_num == 1
-                    else ApplicationPhaseStatus.PENDING
+            # Check duplicates
+            existing_phase = next((p for p in application.phases if p.phase == phase), None)
+            if existing_phase:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Phase {phase} has already been generated.",
                 )
-                self.session.add(
-                    ApprovedApplicationPhase(
-                        application_id=application_id,
-                        phase=phase_num,
-                        name=f"Phase {phase_num}",
-                        status=phase_status,
-                        activated_at=datetime.now() if phase_num == 1 else None,
+
+            # Validate sequential generation
+            if phase > 1:
+                prev_phase = next((p for p in application.phases if p.phase == phase - 1), None)
+                if not prev_phase:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Cannot generate Phase {phase}: Phase {phase - 1} has not been generated yet.",
                     )
-                )
+                if prev_phase.status != ApplicationPhaseStatus.COMPLETED:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Cannot generate Phase {phase}: Phase {phase - 1} is '{prev_phase.status.value}', must be COMPLETED.",
+                    )
 
-            # Create phase materials if provided (skip duplicates from JEN inspection)
+            # Update the number of stages on the application
+            if not application.num_stages or phase > application.num_stages:
+                application.num_stages = phase
+
+            # Create the requested phase directly with ACTIVE status
+            self.session.add(
+                ApprovedApplicationPhase(
+                    application_id=application_id,
+                    phase=phase,
+                    name=f"Phase {phase}",
+                    status=ApplicationPhaseStatus.ACTIVE,
+                    activated_at=datetime.now(),
+                )
+            )
+
+            # Create phase materials if provided for this phase
             if phase_materials:
                 existing_pm_stmt = select(ApplicationPhaseMaterial).where(
                     ApplicationPhaseMaterial.application_id == application_id,
@@ -692,6 +833,8 @@ class ApplicationDAO(BaseDAO):
                     for pm in existing_pm_rows
                 }
                 for pm in phase_materials:
+                    if pm.phase != phase:
+                        continue
                     key = (pm.phase, pm.material_id, pm.custom_name)
                     if key in existing_keys:
                         continue  # already created by JEN inspection
@@ -767,33 +910,29 @@ class ApplicationDAO(BaseDAO):
         if not application:
             raise HTTPException(status_code=404, detail="Application not found")
 
-        # Check for existing materials to avoid duplicates
-        existing_stmt = select(ApplicationPhaseMaterial).where(
-            ApplicationPhaseMaterial.application_id == application_id
-        )
-        existing_result = await self.session.execute(existing_stmt)
-        existing_materials = {
-            (pm.phase, pm.material_id, pm.custom_name): pm
-            for pm in existing_result.scalars().all()
-        }
+        # Get all unique phases in the incoming payload
+        phases_to_update = {pm_data.phase for pm_data in phase_materials}
 
+        if phases_to_update:
+            # Delete existing phase materials for these phases
+            delete_stmt = delete(ApplicationPhaseMaterial).where(
+                ApplicationPhaseMaterial.application_id == application_id,
+                ApplicationPhaseMaterial.phase.in_(list(phases_to_update))
+            )
+            await self.session.execute(delete_stmt)
+
+        # Insert new/edited phase materials
         for pm_data in phase_materials:
-            key = (pm_data.phase, pm_data.material_id, pm_data.custom_name)
-            if key in existing_materials:
-                # Update quantity
-                existing_materials[key].quantity = pm_data.quantity
-            else:
-                # Insert new
-                self.session.add(
-                    ApplicationPhaseMaterial(
-                        application_id=application_id,
-                        phase=pm_data.phase,
-                        material_id=pm_data.material_id,
-                        custom_name=pm_data.custom_name,
-                        custom_unit=pm_data.custom_unit,
-                        quantity=pm_data.quantity,
-                    )
+            self.session.add(
+                ApplicationPhaseMaterial(
+                    application_id=application_id,
+                    phase=pm_data.phase,
+                    material_id=pm_data.material_id,
+                    custom_name=pm_data.custom_name,
+                    custom_unit=pm_data.custom_unit,
+                    quantity=pm_data.quantity,
                 )
+            )
 
         await self.session.commit()
         return SuccessResponse(message="Phase materials updated successfully")
@@ -814,11 +953,18 @@ class ApplicationDAO(BaseDAO):
         application = await self.session.get(Application, application_id)
         if not application:
             raise HTTPException(status_code=404, detail="Application not found")
-        if application.status != ApplicationStatus.APPROVED:
-            raise HTTPException(
-                status_code=400,
-                detail="Inspection is only allowed on APPROVED applications",
-            )
+        if application.type == ApplicationType.RENOVATION:
+            if application.status != ApplicationStatus.FORWARDED:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Inspection is only allowed on FORWARDED applications for renovation",
+                )
+        else:
+            if application.status != ApplicationStatus.APPROVED:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Inspection is only allowed on APPROVED applications",
+                )
 
         self.session.add(
             InspectionReport(
@@ -981,6 +1127,54 @@ class ApplicationDAO(BaseDAO):
                 quantity=float(mat["quantity_brought"]),
             )
             self.session.add(vm)
+
+        await self.session.flush()
+
+        # Check if all allocated materials for the current phase are fully completed (remaining is zero or less)
+        pm_stmt = select(ApplicationPhaseMaterial).where(
+            ApplicationPhaseMaterial.application_id == application_id,
+            ApplicationPhaseMaterial.phase == phase,
+        )
+        pm_result = await self.session.execute(pm_stmt)
+        allocated_materials = pm_result.scalars().all()
+
+        phase_fully_utilized = True
+        for pm in allocated_materials:
+            used_stmt = (
+                select(func.coalesce(func.sum(VehicleMaterial.quantity), 0))
+                .select_from(VehicleEntry)
+                .join(VehicleMaterial)
+                .where(
+                    VehicleEntry.application_id == application_id,
+                    VehicleEntry.phase == phase,
+                    VehicleMaterial.material_id == pm.material_id,
+                    VehicleMaterial.custom_name == pm.custom_name,
+                )
+            )
+            used_result = await self.session.execute(used_stmt)
+            total_brought = used_result.scalar() or 0
+            
+            if total_brought < pm.quantity:
+                phase_fully_utilized = False
+                break
+
+        if phase_fully_utilized:
+            phase_record.status = ApplicationPhaseStatus.COMPLETED
+            phase_record.completed_at = datetime.now()
+
+            # Log the automatic completion log entry
+            self.session.add(
+                ApplicationActionLog(
+                    application_id=application_id,
+                    action=WorkflowAction.APPROVE,
+                    from_status=ApplicationStatus.TOKEN_GENERATED,
+                    to_status=ApplicationStatus.TOKEN_GENERATED,
+                    performed_by=user_id,
+                    performed_at=datetime.now(),
+                    remarks=f"Phase {phase} auto-completed: all materials exhausted",
+                    phase=phase,
+                )
+            )
 
         await self.session.commit()
         return SuccessResponse(message="Naka entry recorded successfully")

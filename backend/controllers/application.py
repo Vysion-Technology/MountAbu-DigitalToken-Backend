@@ -8,6 +8,7 @@ from backend.meta import (
     UserRole,
     CommentType,
     PropertyUsageType,
+    JurisdictionZone,
 )
 
 from backend.middlewares.auth import get_current_user_id, get_current_user
@@ -51,6 +52,21 @@ FLAG_ALLOWED_ROLES: dict[ApplicationFlags, list[UserRole]] = {
     ApplicationFlags.ALL: [*_ADMIN_ROLES],
     ApplicationFlags.CITIZEN: [UserRole.CITIZEN],
     ApplicationFlags.OBJECTED_CITIZEN_ACTION: [*_ADMIN_ROLES, UserRole.CITIZEN],
+    ApplicationFlags.ALL_DEPT: [
+        *_ADMIN_ROLES,
+        UserRole.JEN,
+        UserRole.DEPT_ATP,
+        UserRole.DEPT_LAND,
+        UserRole.DEPT_LEGAL,
+    ],
+    ApplicationFlags.PENDING_WITH_ME: [
+        UserRole.NODAL_OFFICER,
+        UserRole.COMMISSIONER,
+        UserRole.JEN,
+        UserRole.DEPT_ATP,
+        UserRole.DEPT_LAND,
+        UserRole.DEPT_LEGAL,
+    ],
     # ── New Application ───────────────────────────────────────────────────
     ApplicationFlags.NEW_APPLICATION_REQUIRES_NODAL_OFFICER_ACTION: [*_ADMIN_ROLES],
     ApplicationFlags.NEW_APPLICATION_REQUIRES_JEN_INSPECTION: [
@@ -207,6 +223,23 @@ async def get_all_vehicle_entries(
     )
 
 
+@router.get("/applications/organizations", response_model=List[str])
+async def get_organization_suggestions(
+    property_usage: PropertyUsageType = Query(
+        ..., description="Filter suggestions by COMMERCIAL or GOVERNMENT"
+    ),
+    application_service: ApplicationService = Depends(get_application_service),
+    user: UserDetails = Depends(get_current_user),
+) -> List[str]:
+    """Get unique list of organization names for property usage type (COMMERCIAL / GOVERNMENT)."""
+    if property_usage not in (PropertyUsageType.COMMERCIAL, PropertyUsageType.GOVERNMENT):
+        raise HTTPException(
+            status_code=400,
+            detail="Suggestions are only supported for COMMERCIAL or GOVERNMENT property usage types",
+        )
+    return await application_service.get_organization_suggestions(property_usage)
+
+
 @router.get("/applications", response_model=List[ApplicationResponse])
 async def get_applications(
     flag: ApplicationFlags = Query(
@@ -220,6 +253,9 @@ async def get_applications(
     ward_id: Optional[int] = Query(None, description="Filter by ward/zone"),
     property_usage: Optional[PropertyUsageType] = Query(
         None, description="Filter by property usage"
+    ),
+    jurisdiction_zone: Optional[str] = Query(
+        None, description="Filter by jurisdiction zone (ALL / ULB / UIT)"
     ),
     citizen_user_id: Optional[int] = Query(
         None, description="Citizen user ID (required when flag=CITIZEN)"
@@ -247,6 +283,12 @@ async def get_applications(
     current_search = search if is_authority else None
     current_ward = ward_id if is_authority else None
     current_usage = property_usage if is_authority else None
+    
+    current_zone = None
+    if is_authority and jurisdiction_zone:
+        jz_upper = jurisdiction_zone.upper()
+        if jz_upper in ("ULB", "UIT"):
+            current_zone = JurisdictionZone(jz_upper)
 
     # CITIZEN flag: citizen sees their own applications
     if flag == ApplicationFlags.CITIZEN:
@@ -260,16 +302,17 @@ async def get_applications(
             flag=None, offset=offset, limit=limit, user_id=user.user_id
         )
 
-    # ALL flag: returns all applications without flag filtering
+    # ALL flag: returns all applications without flag filtering (excluding PENDING)
     if flag == ApplicationFlags.ALL:
         return await application_service.get_applications(
-            flag=None,
+            flag=flag,
             offset=offset,
             limit=limit,
             user_id=citizen_user_id,  # optionally scope to a specific citizen
             search=current_search,
             ward_id=current_ward,
             property_usage=current_usage,
+            jurisdiction_zone=current_zone,
         )
 
     # Workflow flag: filter by computed flag
@@ -280,6 +323,8 @@ async def get_applications(
         search=current_search,
         ward_id=current_ward,
         property_usage=current_usage,
+        jurisdiction_zone=current_zone,
+        user_role=user.role,
     )
 
 
@@ -500,11 +545,11 @@ async def update_phase_materials(
     db: AsyncSession = Depends(get_db),
     user: UserDetails = Depends(get_current_user),
 ) -> SuccessResponse:
-    """JEN or SUPERADMIN updates phase materials for an application."""
-    if user.role not in (UserRole.JEN, UserRole.SUPERADMIN):
+    """JEN, SUPERADMIN, or NODAL_OFFICER updates phase materials for an application."""
+    if user.role not in (UserRole.JEN, UserRole.SUPERADMIN, UserRole.NODAL_OFFICER):
         raise HTTPException(
             status_code=403,
-            detail="Only JEN or SUPERADMIN can update phase materials",
+            detail="Only JEN, SUPERADMIN, or NODAL_OFFICER can update phase materials",
         )
 
     # Pre-fetch for audit

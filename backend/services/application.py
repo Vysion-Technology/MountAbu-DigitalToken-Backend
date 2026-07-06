@@ -15,6 +15,7 @@ from backend.meta import (
     UserRole,
     ApplicationPhaseStatus,
     PropertyUsageType,
+    JurisdictionZone,
 )
 from backend.schemas.base.auth import UserDetails
 from backend.schemas.request.application import (
@@ -80,6 +81,8 @@ class ApplicationService(BaseService):
         search: Optional[str] = None,
         ward_id: Optional[int] = None,
         property_usage: Optional[PropertyUsageType] = None,
+        jurisdiction_zone: Optional[JurisdictionZone] = None,
+        user_role: Optional[UserRole] = None,
     ) -> List[ApplicationResponse]:
         """Get applications filtered by flag, search, and other criteria."""
         return await self.dao.get_applications(
@@ -90,11 +93,19 @@ class ApplicationService(BaseService):
             search=search,
             ward_id=ward_id,
             property_usage=property_usage,
+            jurisdiction_zone=jurisdiction_zone,
+            user_role=user_role,
         )
 
     async def delete_application(self, application_id: int) -> SuccessResponse:
         """Delete an application by ID."""
         return await self.dao.delete_application(application_id)
+
+    async def get_organization_suggestions(
+        self, property_usage: PropertyUsageType
+    ) -> List[str]:
+        """Fetch unique list of organization names for property usage type (COMMERCIAL / GOVERNMENT)."""
+        return await self.dao.get_organization_suggestions(property_usage)
 
     async def comment_on_application(
         self,
@@ -186,7 +197,7 @@ class ApplicationService(BaseService):
             user_id=user_id,
             user_role=user_role,
             remarks=request.remarks,
-            num_stages=request.num_stages,
+            phase=request.phase,
             phase_materials=request.phase_materials,
         )
 

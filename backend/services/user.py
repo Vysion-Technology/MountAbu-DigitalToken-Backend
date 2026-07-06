@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.core.security import get_password_hash
 from backend.dao.user import UserDAO
 from backend.dbmodels.user import User
-from backend.meta import UserRole
+from backend.meta import UserRole, JurisdictionZone
 
 
 class UserService:
@@ -20,6 +20,7 @@ class UserService:
         name: str = "",
         password: Optional[str] = None,
         username: Optional[str] = None,
+        jurisdiction_zone: Optional[JurisdictionZone] = None,
     ) -> User:
         hashed_password = get_password_hash(password) if password else None
         user = await self.user_dao.create_user(
@@ -29,6 +30,7 @@ class UserService:
             role=role,
             password=hashed_password,
             username=username,
+            jurisdiction_zone=jurisdiction_zone,
         )
         # We might want to commit here if this is a standalone action, or let the caller (API) commit.
         # Assuming API handles commit via dependency or middleware, but explicit flush was done.
@@ -43,6 +45,7 @@ class UserService:
         mobile: Optional[str] = None,
         username: Optional[str] = None,
         is_active: Optional[bool] = None,
+        jurisdiction_zone: Optional[JurisdictionZone] = None,
     ) -> Optional[User]:
         user = await self.user_dao.get_by_id(session, user_id)
         if not user:
@@ -56,6 +59,8 @@ class UserService:
             user.username = username
         if is_active is not None:
             user.is_active = is_active
+        if jurisdiction_zone is not None:
+            user.jurisdiction_zone = jurisdiction_zone
 
         session.add(user)
         return user

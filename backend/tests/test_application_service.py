@@ -4,7 +4,7 @@ from backend.services.application import ApplicationService
 from backend.schemas.request.application import ApplicationCreate
 from backend.schemas.response.application import ApplicationResponse
 from backend.schemas.base.auth import UserDetails
-from backend.meta import UserRole, ApplicationStatus, ApplicationType, PropertyUsageType
+from backend.meta import UserRole, ApplicationStatus, ApplicationType, PropertyUsageType, JurisdictionZone
 
 class TestApplicationService(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
@@ -27,7 +27,7 @@ class TestApplicationService(unittest.IsolatedAsyncioTestCase):
             contractor_name="Contractor",
             is_agriculture_land=False, property_usage=PropertyUsageType.DOMESTIC,
             department_id=1, ward_id=1, status=ApplicationStatus.PENDING, type=ApplicationType.NEW,
-            num_stages=None
+            num_stages=None, jurisdiction_zone=JurisdictionZone.ULB
         )
         self.mock_dao.create_application.return_value = expected_response
 
@@ -80,6 +80,19 @@ class TestApplicationService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.email, "test@test.com")
         self.assertEqual(result.current_address, "Real Address")
         self.mock_dao.get_application.assert_called_once_with(app_id)
+
+    async def test_get_organization_suggestions(self):
+        # Setup
+        property_usage = PropertyUsageType.COMMERCIAL
+        expected_suggestions = ["Org A", "Org B"]
+        self.mock_dao.get_organization_suggestions.return_value = expected_suggestions
+
+        # Execute
+        result = await self.service.get_organization_suggestions(property_usage)
+
+        # Verify
+        self.mock_dao.get_organization_suggestions.assert_called_once_with(property_usage)
+        self.assertEqual(result, expected_suggestions)
 
 if __name__ == '__main__':
     unittest.main()
