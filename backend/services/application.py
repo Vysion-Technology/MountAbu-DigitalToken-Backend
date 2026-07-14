@@ -23,6 +23,7 @@ from backend.schemas.request.application import (
     ApplicationMaterialCreate,
     ApplicationMaterialRequirements,
     InspectionReportCreate,
+    InspectionReportUpdate,
     NakaEntryCreate,
     WorkflowActionRequest,
     PhaseStatusUpdateRequest,
@@ -224,6 +225,23 @@ class ApplicationService(BaseService):
             media_paths=report.media_paths,
             recommended_phases=report.recommended_phases,
             phase_materials=report.phase_materials,
+        )
+
+    async def update_inspection_report(
+        self,
+        application_id: int,
+        report: InspectionReportUpdate,
+        user_id: int,
+    ) -> SuccessResponse:
+        """Update an existing inspection report."""
+        return await self.dao.update_inspection_report(
+            application_id=application_id,
+            user_id=user_id,
+            latitude=report.latitude,
+            longitude=report.longitude,
+            remarks=report.remarks,
+            media_paths=report.media_paths,
+            recommended_phases=report.recommended_phases,
         )
 
     # ── Naka entry ────────────────────────────────────────────────────────

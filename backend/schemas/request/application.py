@@ -181,6 +181,21 @@ class InspectionReportCreate(BaseModel):
     )
 
 
+class InspectionReportUpdate(BaseModel):
+    """JEN updates an inspection report."""
+
+    latitude: Optional[float] = Field(None, description="GPS Latitude")
+    longitude: Optional[float] = Field(None, description="GPS Longitude")
+    remarks: Optional[str] = Field(None, min_length=5, description="Inspection remarks")
+    media_paths: Optional[List[str]] = Field(
+        None, description="Media/photo paths from inspection"
+    )
+    recommended_phases: Optional[int] = Field(
+        None, ge=1, le=10, description="JEN's recommended number of phases"
+    )
+
+
+
 class NakaMaterialItem(BaseModel):
     """Single material + quantity in a naka entry."""
 

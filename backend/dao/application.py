@@ -1012,6 +1012,61 @@ class ApplicationDAO(BaseDAO):
         await self.session.commit()
         return SuccessResponse(message="Inspection report created successfully")
 
+    async def update_inspection_report(
+        self,
+        application_id: int,
+        user_id: int,
+        latitude: Optional[float] = None,
+        longitude: Optional[float] = None,
+        remarks: Optional[str] = None,
+        media_paths: Optional[list] = None,
+        recommended_phases: Optional[int] = None,
+    ) -> SuccessResponse:
+        """Update an existing site inspection report by JEN."""
+        application = await self.session.get(Application, application_id)
+        if not application:
+            raise HTTPException(status_code=404, detail="Application not found")
+
+        if application.type == ApplicationType.RENOVATION:
+            if application.status != ApplicationStatus.FORWARDED:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Inspection update is only allowed on FORWARDED applications for renovation",
+                )
+        else:
+            if application.status != ApplicationStatus.APPROVED:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Inspection update is only allowed on APPROVED applications",
+                )
+
+        stmt = (
+            select(InspectionReport)
+            .where(InspectionReport.application_id == application_id)
+            .order_by(InspectionReport.id.desc())
+        )
+        result = await self.session.execute(stmt)
+        inspection = result.scalars().first()
+        if not inspection:
+            raise HTTPException(status_code=404, detail="Inspection report not found")
+
+        if latitude is not None:
+            inspection.latitude = latitude
+        if longitude is not None:
+            inspection.longitude = longitude
+        if remarks is not None:
+            inspection.remarks = remarks
+        if media_paths is not None:
+            inspection.media_paths = media_paths
+        if recommended_phases is not None:
+            inspection.recommended_phases = recommended_phases
+
+        inspection.inspected_by = user_id
+        inspection.inspected_at = datetime.now()
+
+        await self.session.commit()
+        return SuccessResponse(message="Inspection report updated successfully")
+
     # ── Naka checkpoint entry ─────────────────────────────────────────────
     async def create_naka_entry(
         self,
