@@ -182,7 +182,7 @@ class ApplicationDAO(BaseDAO):
             any(log.to_status in (ApplicationStatus.FORWARDED, ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED) for log in getattr(application, "action_logs", []))
         )
 
-        if st != ApplicationStatus.PENDING:
+        if st not in (ApplicationStatus.PENDING, ApplicationStatus.WITHDRAWN):
             if (tp == ApplicationType.NEW and is_new_approved) or \
                (tp == ApplicationType.RENOVATION and is_renovation_forwarded):
                 flags.append(ApplicationFlags.ALL_DEPT)
@@ -421,7 +421,12 @@ class ApplicationDAO(BaseDAO):
 
         if flag is None or flag == ApplicationFlags.ALL:
             if flag == ApplicationFlags.ALL:
-                query = query.where(Application.status != ApplicationStatus.PENDING)
+                query = query.where(
+                    and_(
+                        Application.status != ApplicationStatus.PENDING,
+                        Application.status != ApplicationStatus.WITHDRAWN,
+                    )
+                )
             # No flag filter — return paginated results directly
             applications = list(
                 await self.session.scalars(query.offset(offset).limit(limit))

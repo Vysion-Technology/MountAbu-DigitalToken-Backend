@@ -1,6 +1,6 @@
 import unittest
 from backend.core.workflow import validate_transition
-from backend.meta import ApplicationStatus, ApplicationType, UserRole, WorkflowAction
+from backend.meta import ApplicationStatus, ApplicationType, UserRole, WorkflowAction, PropertyUsageType, JurisdictionZone
 
 class TestNewTransitions(unittest.TestCase):
     def test_new_construction_approved_to_rejected(self):
@@ -64,3 +64,51 @@ class TestNewTransitions(unittest.TestCase):
                 app_type=ApplicationType.RENOVATION,
                 user_role=UserRole.CITIZEN
             )
+
+    def test_rejection_remarks_serialization(self):
+        """ApplicationResponse should extract the latest REJECT action remarks."""
+        from backend.schemas.response.application import ApplicationResponse
+        from datetime import datetime, timedelta
+
+        # Mocking application data as a dictionary
+        app_data = {
+            "id": 1,
+            "user_id": 10,
+            "applicant_name": "John Doe",
+            "father_name": "Sr Doe",
+            "mobile": "1234567890",
+            "email": "john@doe.com",
+            "current_address": "Addr 1",
+            "property_address": "Addr 2",
+            "title": "Renovation Title",
+            "work_description": "Paint",
+            "contractor_name": None,
+            "department_id": None,
+            "ward_id": None,
+            "is_agriculture_land": False,
+            "property_usage": PropertyUsageType.DOMESTIC,
+            "jurisdiction_zone": JurisdictionZone.ULB,
+            "status": ApplicationStatus.REJECTED,
+            "type": ApplicationType.RENOVATION,
+            "num_stages": 3,
+            "action_logs": [
+                {
+                    "action": WorkflowAction.OBJECT,
+                    "remarks": "Missing documents",
+                    "performed_at": datetime.now() - timedelta(hours=2)
+                },
+                {
+                    "action": WorkflowAction.REJECT,
+                    "remarks": "Fake documents, rejected",
+                    "performed_at": datetime.now() - timedelta(hours=1)
+                },
+                {
+                    "action": WorkflowAction.APPROVE,
+                    "remarks": "Not a reject action",
+                    "performed_at": datetime.now()
+                }
+            ]
+        }
+
+        response = ApplicationResponse.model_validate(app_data)
+        self.assertEqual(response.rejection_remarks, "Fake documents, rejected")
