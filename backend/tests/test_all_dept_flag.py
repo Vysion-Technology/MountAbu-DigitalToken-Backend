@@ -80,7 +80,7 @@ class TestAllDeptFlag(unittest.TestCase):
         flags = self.dao.get_required_flags(app)
         self.assertIn(ApplicationFlags.ALL_DEPT, flags)
 
-    def test_new_construction_once_approved_now_withdrawn_has_all_dept_flag(self):
+    def test_new_construction_once_approved_now_withdrawn_does_not_have_all_dept_flag(self):
         app = MagicMock()
         app.type = ApplicationType.NEW
         app.status = ApplicationStatus.WITHDRAWN
@@ -90,7 +90,7 @@ class TestAllDeptFlag(unittest.TestCase):
         app.action_logs = [log]
         
         flags = self.dao.get_required_flags(app)
-        self.assertIn(ApplicationFlags.ALL_DEPT, flags)
+        self.assertNotIn(ApplicationFlags.ALL_DEPT, flags)
 
     def test_renovation_once_forwarded_now_withheld_has_all_dept_flag(self):
         app = MagicMock()

@@ -509,24 +509,83 @@ class ApplicationResponse(BaseModel):
     comments: List[CommentResponse] = []
     inspections: List[InspectionReportResponse] = []
     tokens: List[TokenResponse] = []
+    rejection_remarks: Optional[str] = None
 
     model_config = ConfigDict(extra="ignore", from_attributes=True)
 
     @model_validator(mode="before")
     @classmethod
     def extract_ward_name(cls, data):
-        """Extract ward name from relationship for ward_zone field."""
+        """Extract ward name and rejection remarks."""
+        ward_name = None
+        rejection_remarks = None
+
+        # Extract ward name
         if hasattr(data, "ward_rel") and data.ward_rel:
             ward_name = getattr(data.ward_rel, "name", None)
-            if hasattr(data, "__dict__"):
-                # It's an ORM object, we can't easily set attributes on it that aren't in the model
-                # but model_validate will pick it up if we return a dict or if it's already there.
-                # Since ward_zone is Optional[str] = None in schema, we return a dict.
-                d = {k: getattr(data, k, None) for k in data.__dict__.keys() if not k.startswith("_")}
-                d["ward_zone"] = ward_name
-                return d
-            elif isinstance(data, dict):
-                data["ward_zone"] = ward_name
+
+        # Extract rejection remarks from action_logs if present
+        if hasattr(data, "action_logs") and data.action_logs:
+            sorted_logs = sorted(
+                data.action_logs,
+                key=lambda x: getattr(x, "performed_at", None) or datetime.min,
+                reverse=True
+            )
+            for log in sorted_logs:
+                action_val = getattr(log, "action", None)
+                if (
+                    action_val == WorkflowAction.REJECT
+                    or (hasattr(action_val, "value") and action_val.value == "REJECT")
+                    or action_val == "REJECT"
+                ):
+                    rejection_remarks = getattr(log, "remarks", None)
+                    break
+        elif isinstance(data, dict):
+            ward_rel = data.get("ward_rel")
+            if ward_rel:
+                ward_name = getattr(ward_rel, "name", None) if not isinstance(ward_rel, dict) else ward_rel.get("name")
+            
+            action_logs = data.get("action_logs", [])
+            if action_logs:
+                sorted_logs = []
+                for log in action_logs:
+                    if isinstance(log, dict):
+                        performed_at = log.get("performed_at") or datetime.min
+                        sorted_logs.append((performed_at, log))
+                    else:
+                        performed_at = getattr(log, "performed_at", None) or datetime.min
+                        sorted_logs.append((performed_at, log))
+                sorted_logs.sort(key=lambda x: x[0], reverse=True)
+                for _, log in sorted_logs:
+                    if isinstance(log, dict):
+                        action = log.get("action")
+                        remarks = log.get("remarks")
+                    else:
+                        action = getattr(log, "action", None)
+                        remarks = getattr(log, "remarks", None)
+                    
+                    if (
+                        action == WorkflowAction.REJECT
+                        or action == "REJECT"
+                        or (hasattr(action, "value") and action.value == "REJECT")
+                    ):
+                        rejection_remarks = remarks
+                        break
+
+        # Return dict or updated dict
+        if hasattr(data, "__dict__"):
+            d = {k: getattr(data, k, None) for k in data.__dict__.keys() if not k.startswith("_")}
+            d["ward_zone"] = ward_name
+            d["rejection_remarks"] = rejection_remarks
+            # Copy other attributes that may be descriptors/properties
+            for field in cls.model_fields.keys():
+                if field not in d and hasattr(data, field):
+                    d[field] = getattr(data, field)
+            return d
+        elif isinstance(data, dict):
+            data["ward_zone"] = ward_name
+            data["rejection_remarks"] = rejection_remarks
+            return data
         return data
 
 

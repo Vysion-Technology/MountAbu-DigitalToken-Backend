@@ -23,6 +23,7 @@ from backend.schemas.request.application import (
     ApplicationMaterialRequirements,
     WorkflowActionRequest,
     InspectionReportCreate,
+    InspectionReportUpdate,
     PhaseMaterialEntry,
     PhaseStatusUpdateRequest,
 )
@@ -600,6 +601,38 @@ async def create_inspection(
         db,
         "INSPECTION_REPORT",
         AuditAction.CREATED,
+        user.user_id,
+        new_state=report.model_dump(mode="json"),
+    )
+    await db.commit()
+    return response
+
+
+@router.put(
+    "/applications/{application_id}/inspection", response_model=SuccessResponse
+)
+async def update_inspection(
+    application_id: int,
+    report: InspectionReportUpdate,
+    application_service: ApplicationService = Depends(get_application_service),
+    db: AsyncSession = Depends(get_db),
+    user: UserDetails = Depends(get_current_user),
+) -> SuccessResponse:
+    """JEN updates a site inspection report."""
+    if user.role not in (UserRole.JEN, UserRole.SUPERADMIN):
+        raise HTTPException(
+            status_code=403,
+            detail="Only JEN or SUPERADMIN can update inspection reports",
+        )
+    response = await application_service.update_inspection_report(
+        application_id=application_id,
+        report=report,
+        user_id=user.user_id,
+    )
+    await audit_service.log(
+        db,
+        "INSPECTION_REPORT",
+        AuditAction.CHANGED,
         user.user_id,
         new_state=report.model_dump(mode="json"),
     )
