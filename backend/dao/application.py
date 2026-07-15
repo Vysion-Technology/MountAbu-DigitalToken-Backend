@@ -1033,16 +1033,16 @@ class ApplicationDAO(BaseDAO):
             raise HTTPException(status_code=404, detail="Application not found")
 
         if application.type == ApplicationType.RENOVATION:
-            if application.status != ApplicationStatus.FORWARDED:
+            if application.status not in (ApplicationStatus.FORWARDED, ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED):
                 raise HTTPException(
                     status_code=400,
-                    detail="Inspection update is only allowed on FORWARDED applications for renovation",
+                    detail="Inspection update is only allowed on FORWARDED, APPROVED, or TOKEN_GENERATED applications for renovation",
                 )
         else:
-            if application.status != ApplicationStatus.APPROVED:
+            if application.status not in (ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED):
                 raise HTTPException(
                     status_code=400,
-                    detail="Inspection update is only allowed on APPROVED applications",
+                    detail="Inspection update is only allowed on APPROVED or TOKEN_GENERATED applications",
                 )
 
         stmt = (

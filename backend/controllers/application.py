@@ -619,10 +619,10 @@ async def update_inspection(
     user: UserDetails = Depends(get_current_user),
 ) -> SuccessResponse:
     """JEN updates a site inspection report."""
-    if user.role not in (UserRole.JEN, UserRole.SUPERADMIN):
+    if user.role not in (UserRole.JEN, UserRole.NODAL_OFFICER, UserRole.SUPERADMIN):
         raise HTTPException(
             status_code=403,
-            detail="Only JEN or SUPERADMIN can update inspection reports",
+            detail="Only JEN, NODAL_OFFICER or SUPERADMIN can update inspection reports",
         )
     response = await application_service.update_inspection_report(
         application_id=application_id,
