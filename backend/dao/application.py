@@ -803,10 +803,10 @@ class ApplicationDAO(BaseDAO):
                         status_code=400,
                         detail=f"Cannot generate Phase {phase}: Phase {phase - 1} has not been generated yet.",
                     )
-                if prev_phase.status != ApplicationPhaseStatus.COMPLETED:
+                if prev_phase.status not in (ApplicationPhaseStatus.COMPLETED, ApplicationPhaseStatus.TERMINATED):
                     raise HTTPException(
                         status_code=400,
-                        detail=f"Cannot generate Phase {phase}: Phase {phase - 1} is '{prev_phase.status.value}', must be COMPLETED.",
+                        detail=f"Cannot generate Phase {phase}: Phase {phase - 1} is '{prev_phase.status.value}', must be COMPLETED or TERMINATED.",
                     )
 
             # Update the number of stages on the application
@@ -919,6 +919,20 @@ class ApplicationDAO(BaseDAO):
         phases_to_update = {pm_data.phase for pm_data in phase_materials}
 
         if phases_to_update:
+            # Check if any of these phases have already been generated/approved
+            generated_phases_stmt = select(ApprovedApplicationPhase.phase).where(
+                ApprovedApplicationPhase.application_id == application_id,
+                ApprovedApplicationPhase.phase.in_(list(phases_to_update))
+            )
+            generated_phases_result = await self.session.execute(generated_phases_stmt)
+            generated_phases = generated_phases_result.scalars().all()
+            if generated_phases:
+                phases_str = ", ".join(map(str, sorted(generated_phases)))
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Cannot update materials for Phase(s) {phases_str} because token(s) have already been generated.",
+                )
+
             # Delete existing phase materials for these phases
             delete_stmt = delete(ApplicationPhaseMaterial).where(
                 ApplicationPhaseMaterial.application_id == application_id,
