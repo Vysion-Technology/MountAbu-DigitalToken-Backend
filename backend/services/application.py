@@ -200,6 +200,7 @@ class ApplicationService(BaseService):
             remarks=request.remarks,
             phase=request.phase,
             phase_materials=request.phase_materials,
+            objection_to_role=request.objection_to_role,
         )
 
     async def update_phase_materials(

@@ -8,6 +8,7 @@ from backend.meta import (
     ApplicationPhaseStatus,
     StructureType,
     JurisdictionZone,
+    UserRole,
 )
 from pydantic import BaseModel, Field, model_validator
 
@@ -160,6 +161,10 @@ class WorkflowActionRequest(BaseModel):
     phase_materials: Optional[List[PhaseMaterialEntry]] = Field(
         None,
         description="Materials per phase (required for GENERATE_TOKENS)",
+    )
+    objection_to_role: Optional[UserRole] = Field(
+        None,
+        description="Specific role to redirect the objection to (required for WorkflowAction.OBJECT)",
     )
 
 

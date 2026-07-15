@@ -510,6 +510,7 @@ class ApplicationResponse(BaseModel):
     inspections: List[InspectionReportResponse] = []
     tokens: List[TokenResponse] = []
     rejection_remarks: Optional[str] = None
+    objection_to_role: Optional[str] = None
 
     model_config = ConfigDict(extra="ignore", from_attributes=True)
 

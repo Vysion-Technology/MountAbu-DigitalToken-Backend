@@ -1,5 +1,5 @@
 from datetime import datetime
-from backend.meta import ApplicationDocumentType, CommentType, WorkflowAction
+from backend.meta import ApplicationDocumentType, CommentType, WorkflowAction, UserRole
 from typing import Optional
 
 from sqlalchemy import Boolean, Enum, Float, Integer, String, ForeignKey, DateTime, JSON
@@ -83,7 +83,10 @@ class Application(Base):
 
     description: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     status: Mapped[ApplicationStatus] = mapped_column(
-        Enum(ApplicationStatus), index=True, default=ApplicationStatus.PENDING
+         Enum(ApplicationStatus), index=True, default=ApplicationStatus.PENDING
+     )
+    objection_to_role: Mapped[Optional[UserRole]] = mapped_column(
+        Enum(UserRole), nullable=True
     )
     type: Mapped[ApplicationType] = mapped_column(
         Enum(ApplicationType), index=True, default=ApplicationType.NEW

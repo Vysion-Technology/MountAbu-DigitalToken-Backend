@@ -72,8 +72,8 @@ class ApplicationDAO(BaseDAO):
 
         # ── OBJECTED (both flows) ─────────────────────────────────────
         if st == ApplicationStatus.OBJECTED:
-            flags.append(ApplicationFlags.OBJECTED_CITIZEN_ACTION)
-            return flags
+            if not application.objection_to_role or application.objection_to_role == UserRole.CITIZEN:
+                flags.append(ApplicationFlags.OBJECTED_CITIZEN_ACTION)
 
         # ── NEW flow ──────────────────────────────────────────────────
         if tp == ApplicationType.NEW:
@@ -190,53 +190,59 @@ class ApplicationDAO(BaseDAO):
         # ── PENDING_WITH_ME flag ─────────────────────────────────────────
         if user_role:
             is_pending_with_me = False
-            if user_role == UserRole.NODAL_OFFICER:
-                # 1. NEW in SUBMITTED (needing approval)
-                # 2. NEW in APPROVED (has inspection + phase materials, needs token generation)
-                # 3. RENOVATION in APPROVED (has inspection + phase materials, needs token generation)
-                if tp == ApplicationType.NEW and st == ApplicationStatus.SUBMITTED:
+            if st == ApplicationStatus.OBJECTED:
+                if application.objection_to_role == user_role:
                     is_pending_with_me = True
-                elif st == ApplicationStatus.APPROVED and len(application.inspections) > 0 and application.phase_materials:
+                elif not application.objection_to_role and user_role == UserRole.CITIZEN:
                     is_pending_with_me = True
-            
-            elif user_role == UserRole.COMMISSIONER:
-                # 1. RENOVATION in SUBMITTED (needing forwarding)
-                # 2. RENOVATION in FORWARDED where all depts commented and JEN inspected (needing approval)
-                if tp == ApplicationType.RENOVATION:
-                    if st == ApplicationStatus.SUBMITTED:
+            else:
+                if user_role == UserRole.NODAL_OFFICER:
+                    # 1. NEW in SUBMITTED (needing approval)
+                    # 2. NEW in APPROVED (has inspection + phase materials, needs token generation)
+                    # 3. RENOVATION in APPROVED (has inspection + phase materials, needs token generation)
+                    if tp == ApplicationType.NEW and st == ApplicationStatus.SUBMITTED:
                         is_pending_with_me = True
-                    elif st == ApplicationStatus.FORWARDED:
-                        dept_review_roles = {
-                            c.commenter.role
-                            for c in application.comments
-                            if c.comment_type == CommentType.DEPT_REVIEW
-                        }
-                        if len(application.inspections) > 0:
-                            dept_review_roles.add(UserRole.JEN)
-                        
-                        missing_depts = RENOVATION_DEPT_ROLES - dept_review_roles
-                        if not missing_depts:
+                    elif st == ApplicationStatus.APPROVED and len(application.inspections) > 0 and application.phase_materials:
+                        is_pending_with_me = True
+                
+                elif user_role == UserRole.COMMISSIONER:
+                    # 1. RENOVATION in SUBMITTED (needing forwarding)
+                    # 2. RENOVATION in FORWARDED where all depts commented and JEN inspected (needing approval)
+                    if tp == ApplicationType.RENOVATION:
+                        if st == ApplicationStatus.SUBMITTED:
                             is_pending_with_me = True
-            
-            elif user_role == UserRole.JEN:
-                # 1. NEW in APPROVED and (no inspection or no phase materials)
-                # 2. RENOVATION in FORWARDED and (no inspection or no phase materials)
-                if tp == ApplicationType.NEW and st == ApplicationStatus.APPROVED:
-                    if len(application.inspections) == 0 or not application.phase_materials:
-                        is_pending_with_me = True
-                elif tp == ApplicationType.RENOVATION and st == ApplicationStatus.FORWARDED:
-                    if len(application.inspections) == 0 or not application.phase_materials:
-                        is_pending_with_me = True
-            
-            elif user_role in (UserRole.DEPT_ATP, UserRole.DEPT_LAND, UserRole.DEPT_LEGAL):
-                # RENOVATION in FORWARDED and has NOT commented yet with DEPT_REVIEW
-                if tp == ApplicationType.RENOVATION and st == ApplicationStatus.FORWARDED:
-                    has_commented = any(
-                        c.commenter.role == user_role and c.comment_type == CommentType.DEPT_REVIEW
-                        for c in application.comments
-                    )
-                    if not has_commented:
-                        is_pending_with_me = True
+                        elif st == ApplicationStatus.FORWARDED:
+                            dept_review_roles = {
+                                c.commenter.role
+                                for c in application.comments
+                                if c.comment_type == CommentType.DEPT_REVIEW
+                            }
+                            if len(application.inspections) > 0:
+                                dept_review_roles.add(UserRole.JEN)
+                            
+                            missing_depts = RENOVATION_DEPT_ROLES - dept_review_roles
+                            if not missing_depts:
+                                is_pending_with_me = True
+                
+                elif user_role == UserRole.JEN:
+                    # 1. NEW in APPROVED and (no inspection or no phase materials)
+                    # 2. RENOVATION in FORWARDED and (no inspection or no phase materials)
+                    if tp == ApplicationType.NEW and st == ApplicationStatus.APPROVED:
+                        if len(application.inspections) == 0 or not application.phase_materials:
+                            is_pending_with_me = True
+                    elif tp == ApplicationType.RENOVATION and st == ApplicationStatus.FORWARDED:
+                        if len(application.inspections) == 0 or not application.phase_materials:
+                            is_pending_with_me = True
+                
+                elif user_role in (UserRole.DEPT_ATP, UserRole.DEPT_LAND, UserRole.DEPT_LEGAL):
+                    # RENOVATION in FORWARDED and has NOT commented yet with DEPT_REVIEW
+                    if tp == ApplicationType.RENOVATION and st == ApplicationStatus.FORWARDED:
+                        has_commented = any(
+                            c.commenter.role == user_role and c.comment_type == CommentType.DEPT_REVIEW
+                            for c in application.comments
+                        )
+                        if not has_commented:
+                            is_pending_with_me = True
 
             if is_pending_with_me:
                 flags.append(ApplicationFlags.PENDING_WITH_ME)
@@ -703,6 +709,7 @@ class ApplicationDAO(BaseDAO):
         remarks: Optional[str] = None,
         phase: Optional[int] = None,
         phase_materials: Optional[list] = None,
+        objection_to_role: Optional[UserRole] = None,
     ) -> SuccessResponse:
         """
         Execute a workflow action on an application.
@@ -853,6 +860,30 @@ class ApplicationDAO(BaseDAO):
                             quantity=pm.quantity,
                         )
                     )
+
+        # Handle objection redirection validation and assignment
+        if action == WorkflowAction.OBJECT:
+            if not objection_to_role:
+                raise HTTPException(
+                    status_code=400,
+                    detail="objection_to_role is required when raising an objection",
+                )
+            if application.type == ApplicationType.NEW:
+                if objection_to_role not in (UserRole.JEN, UserRole.CITIZEN):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="For new construction, objections can only be redirected to JEN or CITIZEN",
+                    )
+            elif application.type == ApplicationType.RENOVATION:
+                if objection_to_role not in (UserRole.DEPT_LAND, UserRole.DEPT_LEGAL, UserRole.DEPT_ATP, UserRole.JEN, UserRole.CITIZEN):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="For renovation, objections can only be redirected to DEPT_LAND, DEPT_LEGAL, DEPT_ATP, JEN, or CITIZEN",
+                    )
+            application.objection_to_role = objection_to_role
+        else:
+            # Clear target role for other actions
+            application.objection_to_role = None
 
         # Update application status
         application.status = next_status
