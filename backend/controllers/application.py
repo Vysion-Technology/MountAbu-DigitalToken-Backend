@@ -300,7 +300,7 @@ async def get_applications(
                 detail="Only users with CITIZEN role can query with CITIZEN flag",
             )
         return await application_service.get_applications(
-            flag=None, offset=offset, limit=limit, user_id=user.user_id
+            flag=None, offset=offset, limit=limit, user_id=user.user_id, caller_role=user.role
         )
 
     # ALL flag: returns all applications without flag filtering (excluding PENDING)
@@ -314,6 +314,7 @@ async def get_applications(
             ward_id=current_ward,
             property_usage=current_usage,
             jurisdiction_zone=current_zone,
+            caller_role=user.role,
         )
 
     # Workflow flag: filter by computed flag
@@ -326,6 +327,7 @@ async def get_applications(
         property_usage=current_usage,
         jurisdiction_zone=current_zone,
         user_role=user.role,
+        caller_role=user.role,
     )
 
 
@@ -794,7 +796,7 @@ async def get_application_comments(
     user: UserDetails = Depends(get_current_user),
 ) -> List[CommentResponse]:
     """Get all comments for an application."""
-    comments = await application_service.get_application_comments(application_id)
+    comments = await application_service.get_application_comments(application_id, user.role)
     return [CommentResponse.model_validate(c) for c in comments]
 
 

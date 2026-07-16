@@ -65,11 +65,16 @@ class ApplicationService(BaseService):
 
         application = await self.dao.get_application(application_id)
 
-        if application and user.role == UserRole.NAKA_INCHARGE:
-            # Sanitize user details for NAKA_INCHARGE
-            application.mobile = "******"
-            application.email = "******"
-            application.current_address = "******"
+        if application:
+            if user.role == UserRole.CITIZEN:
+                application.comments = [
+                    c for c in application.comments if c.comment_type != CommentType.DEPT_REVIEW
+                ]
+            elif user.role == UserRole.NAKA_INCHARGE:
+                # Sanitize user details for NAKA_INCHARGE
+                application.mobile = "******"
+                application.email = "******"
+                application.current_address = "******"
 
         return application
 
@@ -84,9 +89,10 @@ class ApplicationService(BaseService):
         property_usage: Optional[PropertyUsageType] = None,
         jurisdiction_zone: Optional[JurisdictionZone] = None,
         user_role: Optional[UserRole] = None,
+        caller_role: Optional[UserRole] = None,
     ) -> List[ApplicationResponse]:
         """Get applications filtered by flag, search, and other criteria."""
-        return await self.dao.get_applications(
+        apps = await self.dao.get_applications(
             flag=flag,
             offset=offset,
             limit=limit,
@@ -97,6 +103,12 @@ class ApplicationService(BaseService):
             jurisdiction_zone=jurisdiction_zone,
             user_role=user_role,
         )
+        if caller_role == UserRole.CITIZEN:
+            for app in apps:
+                app.comments = [
+                    c for c in app.comments if c.comment_type != CommentType.DEPT_REVIEW
+                ]
+        return apps
 
     async def delete_application(self, application_id: int) -> SuccessResponse:
         """Delete an application by ID."""
@@ -121,9 +133,14 @@ class ApplicationService(BaseService):
             application_id, comment, user_id, comment_type, media_paths
         )
 
-    async def get_application_comments(self, application_id: int) -> list:
+    async def get_application_comments(
+        self, application_id: int, caller_role: Optional[UserRole] = None
+    ) -> list:
         """Get comments for an application."""
-        return await self.dao.get_comments(application_id)
+        comments = await self.dao.get_comments(application_id)
+        if caller_role == UserRole.CITIZEN:
+            comments = [c for c in comments if c.comment_type != CommentType.DEPT_REVIEW]
+        return comments
 
     async def upload_document(
         self,
