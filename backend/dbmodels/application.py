@@ -88,6 +88,9 @@ class Application(Base):
     objection_to_role: Mapped[Optional[UserRole]] = mapped_column(
         Enum(UserRole), nullable=True
     )
+    objected_from_status: Mapped[Optional[ApplicationStatus]] = mapped_column(
+        Enum(ApplicationStatus), nullable=True
+    )
     type: Mapped[ApplicationType] = mapped_column(
         Enum(ApplicationType), index=True, default=ApplicationType.NEW
     )

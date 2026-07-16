@@ -863,6 +863,9 @@ class ApplicationDAO(BaseDAO):
 
         # Handle objection redirection validation and assignment
         if action == WorkflowAction.OBJECT:
+            # Save the pre-objection status
+            application.objected_from_status = application.status
+
             if not objection_to_role:
                 raise HTTPException(
                     status_code=400,
@@ -881,6 +884,25 @@ class ApplicationDAO(BaseDAO):
                         detail="For renovation, objections can only be redirected to DEPT_LAND, DEPT_LEGAL, DEPT_ATP, JEN, or CITIZEN",
                     )
             application.objection_to_role = objection_to_role
+        elif action == WorkflowAction.CLEAR_OBJECTION:
+            if application.objected_from_status:
+                next_status = application.objected_from_status
+            else:
+                # Fallback logic for backward compatibility
+                if application.type == ApplicationType.NEW:
+                    if len(application.inspections) > 0 and application.phase_materials:
+                        next_status = ApplicationStatus.APPROVED
+                    else:
+                        next_status = ApplicationStatus.SUBMITTED
+                else:
+                    if len(application.inspections) > 0 or len(application.comments) > 0:
+                        next_status = ApplicationStatus.FORWARDED
+                    else:
+                        next_status = ApplicationStatus.SUBMITTED
+            
+            # Reset state tracking fields
+            application.objected_from_status = None
+            application.objection_to_role = None
         else:
             # Clear target role for other actions
             application.objection_to_role = None

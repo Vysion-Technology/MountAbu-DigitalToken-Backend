@@ -73,6 +73,7 @@ class WorkflowAction(str, PyEnum):
     FORWARD = "FORWARD"  # Commissioner forwards renovation to depts
     GENERATE_TOKENS = "GENERATE_TOKENS"
     WITHDRAW = "WITHDRAW"  # Application Withdrawn by Applicant
+    CLEAR_OBJECTION = "CLEAR_OBJECTION"
 
 
 class CommentType(str, PyEnum):

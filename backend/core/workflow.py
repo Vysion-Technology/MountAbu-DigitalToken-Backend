@@ -136,6 +136,15 @@ TRANSITIONS: dict[
         ApplicationStatus.OBJECTED,
         [UserRole.NODAL_OFFICER, UserRole.SUPERADMIN],
     ),
+    # 6. CLEAR_OBJECTION transitions (restores pre-objection status)
+    (ApplicationStatus.OBJECTED, WorkflowAction.CLEAR_OBJECTION, ApplicationType.NEW): (
+        ApplicationStatus.APPROVED,  # Default fallback, dynamic resolution in DAO
+        [UserRole.NODAL_OFFICER, UserRole.SUPERADMIN],
+    ),
+    (ApplicationStatus.OBJECTED, WorkflowAction.CLEAR_OBJECTION, ApplicationType.RENOVATION): (
+        ApplicationStatus.APPROVED,  # Default fallback, dynamic resolution in DAO
+        [UserRole.COMMISSIONER, UserRole.NODAL_OFFICER, UserRole.SUPERADMIN],
+    ),
 }
 
 
