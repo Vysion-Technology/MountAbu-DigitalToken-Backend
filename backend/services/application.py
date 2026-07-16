@@ -66,7 +66,7 @@ class ApplicationService(BaseService):
         application = await self.dao.get_application(application_id)
 
         if application:
-            if user.role == UserRole.CITIZEN:
+            if user.role == UserRole.CITIZEN and hasattr(application, "comments") and application.comments is not None:
                 application.comments = [
                     c for c in application.comments if c.comment_type != CommentType.DEPT_REVIEW
                 ]

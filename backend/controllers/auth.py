@@ -51,6 +51,29 @@ class PasswordLoginRequest(BaseModel):
     password: str
 
 
+class LoginPasswordResponse(BaseModel):
+    otp_required: bool = False
+    masked_mobile: Optional[str] = None
+    username: Optional[str] = None
+    nonce: Optional[str] = None
+
+    # Optional fields for backward compatibility/token output
+    access_token: Optional[str] = None
+    refresh_token: Optional[str] = None
+    token_type: Optional[str] = None
+    role: Optional[str] = None
+    user_id: Optional[int] = None
+    name: Optional[str] = None
+    is_new_user: bool = False
+    jurisdiction_zone: Optional[JurisdictionZone] = None
+
+
+class VerifyLoginOTPRequest(BaseModel):
+    username: str
+    otp: str
+    nonce: Optional[str] = None
+
+
 
 
 
@@ -94,6 +117,14 @@ class MeResponse(BaseModel):
 
 @router.post("/send-otp", response_model=MessageResponse)
 async def send_otp(request: OTPRequest, db: AsyncSession = Depends(get_db)):
+    # Restrict to citizens: check if mobile belongs to an authority
+    user = await user_service.get_user_by_mobile(db, request.mobile)
+    if user and user.role != UserRole.CITIZEN:
+        raise HTTPException(
+            status_code=403,
+            detail="Authority logins are restricted from this request",
+        )
+
     # Check for existing OTP record (valid or not, to check cooldown)
     latest_otp = await user_dao.get_otp_record(db, request.mobile)
     
@@ -174,6 +205,11 @@ async def login_with_otp(request: LoginRequest, db: AsyncSession = Depends(get_d
         is_new_user = True
     elif not user.is_active:
         raise HTTPException(status_code=403, detail="User account is inactive")
+    elif user.role != UserRole.CITIZEN:
+        raise HTTPException(
+            status_code=403,
+            detail="Authority login must use password-based authentication",
+        )
 
     # 3. Generate Tokens (access + refresh)
     access_token, refresh_token = create_tokens(user.id, user.role.value, user.token_version, nonce=nonce)
@@ -190,7 +226,7 @@ async def login_with_otp(request: LoginRequest, db: AsyncSession = Depends(get_d
     }
 
 
-@router.post("/login/password", response_model=TokenResponse)
+@router.post("/login/password", response_model=LoginPasswordResponse)
 async def login_with_password(
     request: PasswordLoginRequest, db: AsyncSession = Depends(get_db)
 ):
@@ -213,7 +249,80 @@ async def login_with_password(
     if not verify_password(password, user.password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    # Generate Tokens (access + refresh)
+    # If the user is a citizen, they must use mobile login instead
+    if user.role == UserRole.CITIZEN:
+        raise HTTPException(
+            status_code=403,
+            detail="Citizen accounts are restricted from this login path"
+        )
+
+    # Authority logins require OTP verification
+    if not user.mobile:
+        raise HTTPException(
+            status_code=400,
+            detail="User mobile number not configured for OTP verification"
+        )
+
+    # Generate OTP
+    if settings.USE_REAL_OTP:
+        otp_value = "".join(secrets.choice(string.digits) for _ in range(6))
+    else:
+        otp_value = "123456"
+
+    # Store OTP in DB
+    await user_dao.create_otp(db, user.mobile, otp_value)
+
+    print("========================================")
+    print(f"SENT NEW AUTHORITY OTP {otp_value} TO {user.mobile}")
+    print("========================================")
+
+    # Trigger SMS delivery
+    await sms_service.send_otp(user.mobile, otp_value)
+
+    return {
+        "otp_required": True,
+        "masked_mobile": f"******{user.mobile[-4:]}",
+        "username": request.username,  # Pass back the encrypted username
+        "nonce": nonce,
+    }
+
+
+@router.post("/verify-login-otp", response_model=TokenResponse)
+async def verify_login_otp(
+    request: VerifyLoginOTPRequest, db: AsyncSession = Depends(get_db)
+):
+    # Decrypt credentials and verify timestamp
+    username, nonce_user = decrypt_and_verify_payload(request.username)
+    otp, _ = decrypt_and_verify_payload(request.otp)
+
+    nonce = request.nonce or nonce_user
+
+    user = await user_service.get_user_by_username(db, username)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid credentials or session expired")
+
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="User account is inactive")
+
+    if not user.mobile:
+        raise HTTPException(
+            status_code=400,
+            detail="User mobile number not configured for OTP verification"
+        )
+
+    # 1. Verify OTP
+    otp_record = await user_dao.get_otp_record(db, user.mobile)
+    if not otp_record or otp_record.otp != otp:
+        raise HTTPException(status_code=400, detail="Invalid OTP")
+
+    # Check expiry
+    if otp_record.valid_till < datetime.now():
+        raise HTTPException(status_code=400, detail="OTP Expired")
+
+    # 2. OTP is valid, delete it to prevent reuse
+    await user_dao.delete_otp_records(db, user.mobile)
+
+    # 3. Generate Tokens (access + refresh)
     access_token, refresh_token = create_tokens(user.id, user.role.value, user.token_version, nonce=nonce)
 
     return {
@@ -223,6 +332,7 @@ async def login_with_password(
         "role": user.role.value,
         "user_id": user.id,
         "name": user.name,
+        "is_new_user": False,
         "jurisdiction_zone": user.jurisdiction_zone,
     }
 
