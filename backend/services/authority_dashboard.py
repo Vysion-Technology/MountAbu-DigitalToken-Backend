@@ -61,10 +61,10 @@ class AuthorityDashboardService(BaseService):
                 since, ward_id, assigned_to_id=user_id, role=role
             )
         elif role == UserRole.NODAL_OFFICER:
-            return await self._nodal_officer(since)
+            return await self._superadmin(since, prev_start, prev_end, ward_id, department_id, role=role)
         else:
             # DEPT_LAND / DEPT_LEGAL / DEPT_ATP → same as superadmin (read-only overview)
-            return await self._superadmin(since, prev_start, prev_end, ward_id, department_id)
+            return await self._superadmin(since, prev_start, prev_end, ward_id, department_id, role=role)
 
     # ── builders ──────────────────────────────────────────────────────────
 
@@ -75,6 +75,7 @@ class AuthorityDashboardService(BaseService):
         prev_end: datetime,
         ward_id: Optional[int],
         department_id: Optional[int],
+        role: UserRole = UserRole.SUPERADMIN,
     ) -> AuthorityDashboardResponse:
         kpis_raw = await self.dao.superadmin_kpis(since, prev_start, prev_end, ward_id, department_id)
         status_raw = await self.dao.application_status_breakdown(since, ward_id, department_id)
@@ -82,7 +83,7 @@ class AuthorityDashboardService(BaseService):
         ward_raw = await self.dao.ward_activity(since, department_id)
 
         return AuthorityDashboardResponse(
-            role=UserRole.SUPERADMIN.value,
+            role=role.value,
             kpis=[KpiCard(**k) for k in kpis_raw],
             application_status_breakdown=[StatusCount(**s) for s in status_raw],
             complaints_by_category=[CategoryCount(**c) for c in category_raw],
