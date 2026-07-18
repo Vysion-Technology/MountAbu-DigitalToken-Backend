@@ -326,6 +326,7 @@ class ApplicationService(BaseService):
             UserRole.SUPERADMIN,
             UserRole.NODAL_OFFICER,
             UserRole.NAKA_INCHARGE,
+            UserRole.COLLECTOR,
         ]
 
         if user.role not in allowed_authority_roles:

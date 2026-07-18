@@ -45,7 +45,7 @@ router = APIRouter()
 audit_service = AuditService()
 
 # Roles that can access every flag
-_ADMIN_ROLES = [UserRole.SUPERADMIN, UserRole.NODAL_OFFICER, UserRole.COMMISSIONER]
+_ADMIN_ROLES = [UserRole.SUPERADMIN, UserRole.NODAL_OFFICER, UserRole.COMMISSIONER, UserRole.COLLECTOR]
 
 # Mapping of flag -> allowed roles that can query with that flag
 FLAG_ALLOWED_ROLES: dict[ApplicationFlags, list[UserRole]] = {
@@ -206,6 +206,7 @@ async def get_all_vehicle_entries(
         UserRole.SUPERADMIN,
         UserRole.NODAL_OFFICER,
         UserRole.NAKA_INCHARGE,
+        UserRole.COLLECTOR,
     ]:
         raise HTTPException(
             status_code=403,
@@ -858,6 +859,7 @@ async def list_tokens(
         UserRole.CITIZEN,
         UserRole.SUPERADMIN,
         UserRole.NODAL_OFFICER,
+        UserRole.COLLECTOR,
     ):
         raise HTTPException(
             status_code=403,
