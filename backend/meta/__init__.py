@@ -15,6 +15,7 @@ class UserRole(str, PyEnum):
     AEN = "AEN"
     RIN = "RIN"
     SIN = "SIN"
+    COLLECTOR = "COLLECTOR"
 
 
 class ApplicationStatus(str, PyEnum):

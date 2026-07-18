@@ -32,6 +32,7 @@ AUTHORITY_ROLES = {
     UserRole.AEN,
     UserRole.RIN,
     UserRole.SIN,
+    UserRole.COLLECTOR,
 }
 
 

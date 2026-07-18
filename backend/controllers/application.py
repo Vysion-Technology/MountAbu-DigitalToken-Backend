@@ -741,6 +741,12 @@ async def comment_on_application(
     user: UserDetails = Depends(get_current_user),
 ) -> SuccessResponse:
     """Add a comment to an application. Any authority or the applicant can comment."""
+    if user.role == UserRole.COLLECTOR:
+        raise HTTPException(
+            status_code=403,
+            detail="Collectors have read-only access and cannot post comments",
+        )
+
     # Restriction for OBJECTION_COMMENT: Only NODAL_OFFICER and COMMISSIONER can call this type
     if comment_request.comment_type == CommentType.OBJECTION_COMMENT:
         if user.role not in (
