@@ -492,11 +492,12 @@ class ApplicationObjectionResponse(BaseModel):
     @classmethod
     def populate_names(cls, data):
         if hasattr(data, "__dict__"):
-            d = {k: getattr(data, k, None) for k in data.__dict__.keys() if not k.startswith("_")}
-            if hasattr(data, "objected_by_user") and data.objected_by_user:
-                d["objected_by_name"] = getattr(data.objected_by_user, "name", None)
-            if hasattr(data, "resolved_by_user") and data.resolved_by_user:
-                d["resolved_by_name"] = getattr(data.resolved_by_user, "name", None)
+            dict_keys = set(data.__dict__.keys())
+            d = {k: data.__dict__[k] for k in dict_keys if not k.startswith("_")}
+            if "objected_by_user" in dict_keys and data.__dict__["objected_by_user"]:
+                d["objected_by_name"] = getattr(data.__dict__["objected_by_user"], "name", None)
+            if "resolved_by_user" in dict_keys and data.__dict__["resolved_by_user"]:
+                d["resolved_by_name"] = getattr(data.__dict__["resolved_by_user"], "name", None)
             return d
         return data
 
