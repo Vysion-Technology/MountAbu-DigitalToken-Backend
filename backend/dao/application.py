@@ -726,13 +726,7 @@ class ApplicationDAO(BaseDAO):
         stmt = (
             select(Application)
             .where(Application.id == application_id)
-            .options(
-                selectinload(Application.inspections),
-                selectinload(Application.materials),
-                selectinload(Application.phases),
-                selectinload(Application.phase_materials),
-                selectinload(Application.comments).selectinload(ApplicationComment.commenter),
-            )
+            .options(*_APPLICATION_LOAD_OPTIONS)
         )
         result = await self.session.execute(stmt)
         application = result.scalar_one_or_none()
