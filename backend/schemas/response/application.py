@@ -102,6 +102,7 @@ class CommentResponse(BaseModel):
     comment: str
     comment_by: int
     commenter_name: Optional[str] = None
+    commenter_role: Optional[str] = None
     comment_type: Optional[CommentType] = CommentType.GENERAL
     media_paths: Optional[list] = None
     created_at: Optional[datetime] = None
@@ -113,12 +114,16 @@ class CommentResponse(BaseModel):
     def extract_commenter_name(cls, data):
         """Extract commenter name from the relationship."""
         if hasattr(data, "commenter") and data.commenter:
+            role_val = getattr(data.commenter, "role", None)
+            if hasattr(role_val, "value"):
+                role_val = role_val.value
             data = dict(
                 id=data.id,
                 application_id=data.application_id,
                 comment=data.comment,
                 comment_by=data.comment_by,
                 commenter_name=data.commenter.name,
+                commenter_role=str(role_val) if role_val else None,
                 comment_type=getattr(data, "comment_type", CommentType.GENERAL),
                 media_paths=getattr(data, "media_paths", None),
                 created_at=getattr(data, "created_at", None),
