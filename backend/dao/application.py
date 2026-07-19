@@ -713,6 +713,10 @@ class ApplicationDAO(BaseDAO):
         phase: Optional[int] = None,
         phase_materials: Optional[list] = None,
         objection_to_role: Optional[UserRole] = None,
+        objection_to_roles: Optional[list[UserRole]] = None,
+        role_remarks: Optional[dict] = None,
+        reverted_document_url: Optional[str] = None,
+        clear_objection_role: Optional[UserRole] = None,
     ) -> SuccessResponse:
         """
         Execute a workflow action on an application.
