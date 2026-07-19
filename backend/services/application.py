@@ -66,10 +66,15 @@ class ApplicationService(BaseService):
         application = await self.dao.get_application(application_id)
 
         if application:
-            if user.role == UserRole.CITIZEN and hasattr(application, "comments") and application.comments is not None:
-                application.comments = [
-                    c for c in application.comments if c.comment_type != CommentType.DEPT_REVIEW
-                ]
+            if user.role == UserRole.CITIZEN:
+                if hasattr(application, "comments") and application.comments is not None:
+                    application.comments = [
+                        c for c in application.comments if c.comment_type != CommentType.DEPT_REVIEW
+                    ]
+                if hasattr(application, "objections") and application.objections is not None:
+                    application.objections = [
+                        o for o in application.objections if str(getattr(o, "objected_to_role", "")) == "CITIZEN" or getattr(o, "objected_to_role", None) == UserRole.CITIZEN
+                    ]
             elif user.role == UserRole.NAKA_INCHARGE:
                 # Sanitize user details for NAKA_INCHARGE
                 application.mobile = "******"
@@ -105,9 +110,14 @@ class ApplicationService(BaseService):
         )
         if caller_role == UserRole.CITIZEN:
             for app in apps:
-                app.comments = [
-                    c for c in app.comments if c.comment_type != CommentType.DEPT_REVIEW
-                ]
+                if hasattr(app, "comments") and app.comments is not None:
+                    app.comments = [
+                        c for c in app.comments if c.comment_type != CommentType.DEPT_REVIEW
+                    ]
+                if hasattr(app, "objections") and app.objections is not None:
+                    app.objections = [
+                        o for o in app.objections if str(getattr(o, "objected_to_role", "")) == "CITIZEN" or getattr(o, "objected_to_role", None) == UserRole.CITIZEN
+                    ]
         return apps
 
     async def delete_application(self, application_id: int) -> SuccessResponse:
@@ -218,6 +228,10 @@ class ApplicationService(BaseService):
             phase=request.phase,
             phase_materials=request.phase_materials,
             objection_to_role=request.objection_to_role,
+            objection_to_roles=request.objection_to_roles,
+            role_remarks=request.role_remarks,
+            reverted_document_url=request.reverted_document_url,
+            clear_objection_role=request.clear_objection_role,
         )
 
     async def update_phase_materials(

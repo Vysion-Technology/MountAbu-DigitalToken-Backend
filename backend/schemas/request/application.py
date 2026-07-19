@@ -164,7 +164,23 @@ class WorkflowActionRequest(BaseModel):
     )
     objection_to_role: Optional[UserRole] = Field(
         None,
-        description="Specific role to redirect the objection to (required for WorkflowAction.OBJECT)",
+        description="Specific role to redirect the objection to",
+    )
+    objection_to_roles: Optional[List[UserRole]] = Field(
+        None,
+        description="List of roles to direct objections to",
+    )
+    role_remarks: Optional[dict] = Field(
+        None,
+        description="Per-role objection remarks mapping (role -> remark string)",
+    )
+    reverted_document_url: Optional[str] = Field(
+        None,
+        description="URL of uploaded Objection Reverted Data PDF",
+    )
+    clear_objection_role: Optional[UserRole] = Field(
+        None,
+        description="Specific objection role being cleared by Nodal/Commissioner/Superadmin",
     )
 
 

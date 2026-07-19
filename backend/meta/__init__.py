@@ -87,6 +87,11 @@ class CommentType(str, PyEnum):
     INSPECTION_REMARK = "INSPECTION_REMARK"  # JEN inspection remarks
 
 
+class ObjectionStatus(str, PyEnum):
+    PENDING = "PENDING"
+    RESOLVED = "RESOLVED"
+
+
 class PropertyUsageType(str, PyEnum):
     DOMESTIC = "DOMESTIC"
     COMMERCIAL = "COMMERCIAL"

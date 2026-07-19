@@ -20,7 +20,7 @@ from backend.dbmodels.application import (
     VehicleEntryDumpingPhoto,
 )
 from backend.dao.base import BaseDAO
-from backend.meta import ApplicationStatus, CommentType, WorkflowAction
+from backend.meta import ApplicationStatus, CommentType, WorkflowAction, ObjectionStatus, UserRole, ApplicationFlags, ApplicationType, ApplicationPhaseStatus, PropertyUsageType
 from backend.schemas.request.application import ApplicationCreate
 from backend.schemas.response.application import ApplicationResponse
 from backend.schemas.response.meta import SuccessResponse
@@ -32,6 +32,7 @@ from backend.dbmodels.application import (
     ApplicationPhaseMaterial,
     ApprovedApplicationPhase,
     Material,
+    ApplicationObjection,
 )
 from backend.meta import (
     ApplicationDocumentType,
@@ -794,6 +795,12 @@ class ApplicationDAO(BaseDAO):
                     detail="JEN inspection must be completed before generating tokens",
                 )
 
+            if not phase:
+                raise HTTPException(
+                    status_code=400,
+                    detail="phase is required for GENERATE_TOKENS action",
+                )
+
             # Check duplicates
             existing_phase = next((p for p in application.phases if p.phase == phase), None)
             if existing_phase:
@@ -816,7 +823,6 @@ class ApplicationDAO(BaseDAO):
                         detail=f"Cannot generate Phase {phase}: Phase {phase - 1} is '{prev_phase.status.value}', must be COMPLETED or TERMINATED.",
                     )
 
-            # Update the number of stages on the application
             if not application.num_stages or phase > application.num_stages:
                 application.num_stages = phase
 
@@ -863,46 +869,123 @@ class ApplicationDAO(BaseDAO):
 
         # Handle objection redirection validation and assignment
         if action == WorkflowAction.OBJECT:
-            # Save the pre-objection status
-            application.objected_from_status = application.status
+            # Save the pre-objection status if not already saved
+            if not application.objected_from_status:
+                application.objected_from_status = application.status
 
-            if not objection_to_role:
+            # Consolidate target roles
+            target_roles: list[UserRole] = []
+            if objection_to_roles:
+                target_roles = [r for r in objection_to_roles if r]
+            elif objection_to_role:
+                target_roles = [objection_to_role]
+
+            if not target_roles:
                 raise HTTPException(
                     status_code=400,
-                    detail="objection_to_role is required when raising an objection",
+                    detail="objection_to_roles is required when raising an objection",
                 )
-            if application.type == ApplicationType.NEW:
-                if objection_to_role not in (UserRole.JEN, UserRole.CITIZEN):
-                    raise HTTPException(
-                        status_code=400,
-                        detail="For new construction, objections can only be redirected to JEN or CITIZEN",
-                    )
-            elif application.type == ApplicationType.RENOVATION:
-                if objection_to_role not in (UserRole.DEPT_LAND, UserRole.DEPT_LEGAL, UserRole.DEPT_ATP, UserRole.JEN, UserRole.CITIZEN):
-                    raise HTTPException(
-                        status_code=400,
-                        detail="For renovation, objections can only be redirected to DEPT_LAND, DEPT_LEGAL, DEPT_ATP, JEN, or CITIZEN",
-                    )
-            application.objection_to_role = objection_to_role
-        elif action == WorkflowAction.CLEAR_OBJECTION:
-            if application.objected_from_status:
-                next_status = application.objected_from_status
-            else:
-                # Fallback logic for backward compatibility
-                if application.type == ApplicationType.NEW:
-                    if len(application.inspections) > 0 and application.phase_materials:
-                        next_status = ApplicationStatus.APPROVED
-                    else:
-                        next_status = ApplicationStatus.SUBMITTED
+
+            # Rule 6.1: In New Construction at SUBMITTED state (before inspection), Nodal Officer can ONLY object to CITIZEN
+            if application.type == ApplicationType.NEW and application.status == ApplicationStatus.SUBMITTED:
+                for r in target_roles:
+                    if r != UserRole.CITIZEN:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="For new construction in submitted state, objection can only be sent to CITIZEN before inspection.",
+                        )
+
+            # Rule 6.8 & 6.9: In Renovation workflow, Commissioner can only object to lower authorities who have commented or inspected
+            if application.type == ApplicationType.RENOVATION and user_role == UserRole.COMMISSIONER:
+                participated_roles = {
+                    c.commenter.role for c in application.comments if c.commenter and c.commenter.role
+                }
+                for insp in application.inspections:
+                    if hasattr(insp, "inspector") and insp.inspector and hasattr(insp.inspector, "role"):
+                        participated_roles.add(insp.inspector.role)
+                
+                for r in target_roles:
+                    if r != UserRole.CITIZEN and r not in participated_roles:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Cannot object to {r.value} because they have not commented or inspected yet.",
+                        )
+
+            application.objection_to_role = target_roles[0]
+
+            # Process each target role in application_objections table
+            for role in target_roles:
+                r_remark = (role_remarks or {}).get(role.value) or (role_remarks or {}).get(str(role)) or remarks
+                
+                # Check for existing pending objection for this role
+                existing_obj = next(
+                    (o for o in application.objections if o.objected_to_role == role and o.status == ObjectionStatus.PENDING),
+                    None
+                )
+                if existing_obj:
+                    existing_obj.remarks = r_remark
+                    if role == UserRole.CITIZEN and reverted_document_url:
+                        existing_obj.reverted_document_url = reverted_document_url
                 else:
-                    if len(application.inspections) > 0 or len(application.comments) > 0:
-                        next_status = ApplicationStatus.FORWARDED
-                    else:
-                        next_status = ApplicationStatus.SUBMITTED
-            
-            # Reset state tracking fields
-            application.objected_from_status = None
-            application.objection_to_role = None
+                    self.session.add(
+                        ApplicationObjection(
+                            application_id=application_id,
+                            objected_by_id=user_id,
+                            objected_by_role=user_role,
+                            objected_to_role=role,
+                            remarks=r_remark,
+                            reverted_document_url=reverted_document_url if role == UserRole.CITIZEN else None,
+                            status=ObjectionStatus.PENDING,
+                            created_at=datetime.now(),
+                        )
+                    )
+
+            # Rule 6.3: If CITIZEN is in target_roles and reverted_document_url is provided, create OBJECTION_COMMENT
+            if UserRole.CITIZEN in target_roles and reverted_document_url:
+                self.session.add(
+                    ApplicationComment(
+                        application_id=application_id,
+                        comment=remarks or "Objection Reverted Data Attached",
+                        comment_by=user_id,
+                        comment_type=CommentType.OBJECTION_COMMENT,
+                        media_paths=[reverted_document_url],
+                        created_at=datetime.now(),
+                    )
+                )
+
+        elif action == WorkflowAction.CLEAR_OBJECTION:
+            # Rule 6.13: Only Nodal Officer, Commissioner, and Superadmin can clear objections
+            if user_role not in (UserRole.NODAL_OFFICER, UserRole.COMMISSIONER, UserRole.SUPERADMIN):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Only Nodal Officer, Commissioner, or Superadmin can verify and clear objections.",
+                )
+
+            # Mark matching pending objections as RESOLVED
+            pending_objs = [o for o in application.objections if o.status == ObjectionStatus.PENDING]
+            if clear_objection_role:
+                pending_objs = [o for o in pending_objs if o.objected_to_role == clear_objection_role]
+
+            for obj in pending_objs:
+                obj.status = ObjectionStatus.RESOLVED
+                obj.resolved_at = datetime.now()
+                obj.resolved_by_id = user_id
+                obj.resolved_by_role = user_role
+                obj.resolution_remarks = remarks or f"Objection cleared by {user_role.value}"
+
+            # Check if any pending objections remain
+            remaining_pending = [o for o in application.objections if o.status == ObjectionStatus.PENDING and o not in pending_objs]
+            if not remaining_pending:
+                if application.objected_from_status:
+                    next_status = application.objected_from_status
+                else:
+                    next_status = ApplicationStatus.FORWARDED if application.type == ApplicationType.RENOVATION else ApplicationStatus.SUBMITTED
+                
+                application.objected_from_status = None
+                application.objection_to_role = None
+            else:
+                next_status = ApplicationStatus.OBJECTED
+                application.objection_to_role = remaining_pending[0].objected_to_role
         else:
             # Clear target role for other actions
             application.objection_to_role = None

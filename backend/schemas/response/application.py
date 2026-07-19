@@ -10,6 +10,7 @@ from backend.meta import (
     WorkflowAction,
     StructureType,
     JurisdictionZone,
+    UserRole,
 )
 from pydantic import BaseModel, ConfigDict, model_validator
 
@@ -468,30 +469,56 @@ class ActionLogResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class ApplicationResponse(BaseModel):
-    """Application Response Schema."""
-
+class ApplicationObjectionResponse(BaseModel):
     id: int
+    application_id: int
+    objected_by_id: int
+    objected_by_name: Optional[str] = None
+    objected_by_role: str
+    objected_to_role: str
+    remarks: Optional[str] = None
+    reverted_document_url: Optional[str] = None
+    status: str
+    created_at: Optional[datetime] = None
+    resolved_at: Optional[datetime] = None
+    resolved_by_id: Optional[int] = None
+    resolved_by_name: Optional[str] = None
+    resolved_by_role: Optional[str] = None
+    resolution_remarks: Optional[str] = None
+
+    model_config = ConfigDict(extra="ignore", from_attributes=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def populate_names(cls, data):
+        if hasattr(data, "__dict__"):
+            d = {k: getattr(data, k, None) for k in data.__dict__.keys() if not k.startswith("_")}
+            if hasattr(data, "objected_by_user") and data.objected_by_user:
+                d["objected_by_name"] = getattr(data.objected_by_user, "name", None)
+            if hasattr(data, "resolved_by_user") and data.resolved_by_user:
+                d["resolved_by_name"] = getattr(data.resolved_by_user, "name", None)
+            return d
+        return data
+
+
+class ApplicationResponse(BaseModel):
+    id: int
+    applicant_id: Optional[int] = 0
     user_id: int
+    assigned_role: Optional[UserRole] = None
 
-    # Applicant Details
     applicant_name: str
-    father_name: str
+    father_name: Optional[str] = None
     mobile: str
-    email: Optional[str]
-    current_address: str
-
-    # Property & Work Details
+    email: Optional[str] = None
     property_address: str
-    title: str
-    work_description: str
-    contractor_name: Optional[str]
-
+    current_address: Optional[str] = None
     is_agriculture_land: bool
     property_usage: PropertyUsageType
     existing_structure: Optional[StructureType] = None
     construction_floor: Optional[StructureType] = None
     jurisdiction_zone: JurisdictionZone
+
     organization_name: Optional[str] = None
     department_id: Optional[int]
     ward_id: Optional[int]
@@ -509,6 +536,7 @@ class ApplicationResponse(BaseModel):
     comments: List[CommentResponse] = []
     inspections: List[InspectionReportResponse] = []
     tokens: List[TokenResponse] = []
+    objections: List[ApplicationObjectionResponse] = []
     rejection_remarks: Optional[str] = None
     objection_to_role: Optional[str] = None
 
@@ -693,3 +721,6 @@ class VehicleEntryDetailResponse(BaseModel):
     dumping_photos: List[DumpingPhotoResponse] = []
 
     model_config = ConfigDict(from_attributes=True)
+
+
+ApplicationResponse.model_rebuild()
