@@ -940,15 +940,20 @@ class ApplicationDAO(BaseDAO):
                         )
                     )
 
-            # Rule 6.3: If CITIZEN is in target_roles and reverted_document_url is provided, create OBJECTION_COMMENT
-            if UserRole.CITIZEN in target_roles and reverted_document_url:
+            # Rule 6.2 & 6.3: Log comment with proper privacy type
+            if remarks:
+                if UserRole.CITIZEN in target_roles:
+                    c_type = CommentType.OBJECTION_COMMENT
+                else:
+                    c_type = CommentType.DEPT_REVIEW  # Hidden from CITIZEN
+
                 self.session.add(
                     ApplicationComment(
                         application_id=application_id,
-                        comment=remarks or "Objection Reverted Data Attached",
+                        comment=f"Objection [{', '.join([r.value for r in target_roles])}]: {remarks}",
                         comment_by=user_id,
-                        comment_type=CommentType.OBJECTION_COMMENT,
-                        media_paths=[reverted_document_url],
+                        comment_type=c_type,
+                        media_paths=[reverted_document_url] if (UserRole.CITIZEN in target_roles and reverted_document_url) else None,
                         created_at=datetime.now(),
                     )
                 )
