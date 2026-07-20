@@ -474,8 +474,8 @@ class ApplicationDAO(BaseDAO):
                     if app.type == ApplicationType.NEW and app.status == ApplicationStatus.SUBMITTED:
                         is_pending_for_role = True
                         pending_start_ts = app.created_at
-                    elif app.status in (ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED):
-                        # Pending token generation
+                    elif app.status in (ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED) and app.phase_materials and len(app.phase_materials) > 0:
+                        # Pending token generation (only when phase materials have been submitted by JEN)
                         is_pending_for_role = True
                         insp_ts = [i.inspected_at for i in app.inspections if i.inspected_at]
                         pending_start_ts = max(insp_ts) if insp_ts else _get_app_last_updated_at(app)
@@ -498,7 +498,7 @@ class ApplicationDAO(BaseDAO):
                             pending_start_ts = _get_app_last_updated_at(app)
 
                 elif authority_role == UserRole.JEN:
-                    if app.status in (ApplicationStatus.SUBMITTED, ApplicationStatus.FORWARDED) and (not app.inspections or not app.phase_materials):
+                    if app.status in (ApplicationStatus.SUBMITTED, ApplicationStatus.FORWARDED, ApplicationStatus.APPROVED) and (not app.inspections or not app.phase_materials):
                         is_pending_for_role = True
                         pending_start_ts = _get_app_last_updated_at(app)
                     elif app.status == ApplicationStatus.OBJECTED:
