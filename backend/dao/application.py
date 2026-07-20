@@ -498,7 +498,7 @@ class ApplicationDAO(BaseDAO):
                             pending_start_ts = _get_app_last_updated_at(app)
 
                 elif authority_role == UserRole.JEN:
-                    if app.status in (ApplicationStatus.SUBMITTED, ApplicationStatus.FORWARDED) and not app.inspections:
+                    if app.status in (ApplicationStatus.SUBMITTED, ApplicationStatus.FORWARDED) and (not app.inspections or not app.phase_materials):
                         is_pending_for_role = True
                         pending_start_ts = _get_app_last_updated_at(app)
                     elif app.status == ApplicationStatus.OBJECTED:
@@ -537,7 +537,7 @@ class ApplicationDAO(BaseDAO):
                         if any(log.performer and log.performer.role == authority_role for log in app.action_logs if hasattr(log, "performer")):
                             is_completed_by_role = True
                 elif authority_role == UserRole.JEN:
-                    if app.inspections and len(app.inspections) > 0:
+                    if app.inspections and len(app.inspections) > 0 and app.phase_materials and len(app.phase_materials) > 0:
                         is_completed_by_role = True
                 elif authority_role in (UserRole.DEPT_LAND, UserRole.DEPT_LEGAL, UserRole.DEPT_ATP):
                     if app.comments:
