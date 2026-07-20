@@ -9,6 +9,8 @@ from backend.meta import (
     CommentType,
     PropertyUsageType,
     JurisdictionZone,
+    ApplicationType,
+    ApplicationStatus,
 )
 
 from backend.middlewares.auth import get_current_user_id, get_current_user
@@ -29,6 +31,7 @@ from backend.schemas.request.application import (
 )
 from backend.schemas.response.application import (
     ApplicationResponse,
+    ApplicationPaginatedResponse,
     CommentResponse,
     PhaseResponse,
     TokenResponse,
