@@ -385,102 +385,169 @@ class ApplicationDAO(BaseDAO):
         user_id: Optional[int] = None,
         search: Optional[str] = None,
         ward_id: Optional[int] = None,
+        ward_ids: Optional[list[int]] = None,
         property_usage: Optional[PropertyUsageType] = None,
         jurisdiction_zone: Optional[JurisdictionZone] = None,
         user_role: Optional[UserRole] = None,
-    ) -> list[ApplicationResponse]:
-        """Get applications, optionally filtered by flag, search and extra criteria."""
+        primary_tab: Optional[str] = None,  # "PENDING", "COMPLETED", "SUBMISSION_DAYS"
+        authority_role: Optional[UserRole] = None,
+        action_name: Optional[str] = None,
+        pending_days: Optional[int] = None,
+        submitted_days: Optional[int] = None,
+        app_type: Optional[ApplicationType] = None,
+        app_status: Optional[ApplicationStatus] = None,
+    ) -> tuple[list[ApplicationResponse], int]:
+        """Get applications with primary workflow filters, secondary filters, pagination, and total count."""
         query = select(Application).options(*_APPLICATION_LOAD_OPTIONS).order_by(Application.created_at.desc())
         
-        # ── Global filters ───────────────────────────────────────────────
+        # ── Global & Secondary filters ───────────────────────────────────
         if user_id:
             query = query.where(Application.user_id == user_id)
-        if ward_id:
+        if ward_ids and len(ward_ids) > 0:
+            query = query.where(Application.ward_id.in_(ward_ids))
+        elif ward_id:
             query = query.where(Application.ward_id == ward_id)
         if property_usage:
             query = query.where(Application.property_usage == property_usage)
         if jurisdiction_zone:
             query = query.where(Application.jurisdiction_zone == jurisdiction_zone)
+        if app_type:
+            query = query.where(Application.type == app_type)
+        if app_status:
+            query = query.where(Application.status == app_status)
             
         # ── Search logic ──────────────────────────────────────────────────
         if search:
             search_filters = []
-            
-            # 1. Applicant Name (Partial match)
             search_filters.append(Application.applicant_name.ilike(f"%{search}%"))
-            
-            # 2. Mobile (Partial match)
             search_filters.append(Application.mobile.ilike(f"%{search}%"))
-            
-            # 3. Application ID / Number
-            # If search is a plain number like '123'
             if search.isdigit():
                 search_filters.append(Application.id == int(search))
-            # If search is 'APP-2026-00001'
             elif search.upper().startswith("APP-"):
                 try:
-                    # Extract last part: APP-2026-00123 -> 123
                     parts = search.split("-")
                     app_id = int(parts[-1])
                     search_filters.append(Application.id == app_id)
                 except (ValueError, IndexError):
                     pass
-            
             query = query.where(or_(*search_filters))
 
-        if flag is None or flag == ApplicationFlags.ALL:
-            if flag == ApplicationFlags.ALL:
-                query = query.where(
-                    and_(
-                        Application.status != ApplicationStatus.PENDING,
-                        Application.status != ApplicationStatus.WITHDRAWN,
-                    )
+        # ── Primary Tab C: SUBMISSION_DAYS ────────────────────────────────
+        if primary_tab == "SUBMISSION_DAYS" and submitted_days is not None:
+            cutoff = datetime.now() - timedelta(days=submitted_days)
+            query = query.where(
+                and_(
+                    Application.created_at <= cutoff,
+                    Application.status != ApplicationStatus.TOKEN_GENERATED,
+                    Application.status != ApplicationStatus.WITHDRAWN,
+                    Application.status != ApplicationStatus.REJECTED,
                 )
-            # No flag filter — return paginated results directly
-            applications = list(
-                await self.session.scalars(query.offset(offset).limit(limit))
             )
-            responses = [
-                ApplicationResponse.model_validate(app) for app in applications
-            ]
-            # Attach tokens for applications that have phases
-            apps_with_phases = [app for app in applications if app.phases]
-            if apps_with_phases:
-                from backend.schemas.response.application import TokenResponse
-                from backend.core.transport_code import encode_transport_code
 
-                all_phases = [p for app in apps_with_phases for p in app.phases]
-                token_dicts = await self._build_token_list_dicts(all_phases)
-                
-                tc_to_app: dict[str, int] = {}
-                for app in apps_with_phases:
-                    for p in app.phases:
-                        tc = encode_transport_code(p.application_id, p.phase)
-                        tc_to_app[tc] = p.application_id
-                
-                tokens_by_app: dict[int, list] = {}
-                for td in token_dicts:
-                    app_id = tc_to_app.get(td["transport_code"])
-                    if app_id:
-                        tokens_by_app.setdefault(app_id, []).append(td)
-                
-                for resp in responses:
-                    if resp.id in tokens_by_app:
-                        resp.tokens = [
-                            TokenResponse.model_validate(t)
-                            for t in tokens_by_app[resp.id]
-                        ]
-            return responses
+        # Execute base query to get all candidate applications
+        all_applications = list((await self.session.scalars(query)).unique().all())
 
-        # Flag filter — load all matching apps, compute flags, then paginate in Python
-        all_applications = list((await self.session.scalars(query)).all())
-        matched_apps = [
-            app for app in all_applications if flag in self.get_required_flags(app, user_role)
-        ]
-        paginated = matched_apps[offset : offset + limit]
-        responses = [ApplicationResponse.model_validate(app) for app in paginated]
-        # Attach tokens
-        apps_with_phases = [app for app in paginated if app.phases]
+        # ── Primary Tab Filtering ─────────────────────────────────────────
+        matched_apps = []
+        now = datetime.now()
+
+        for app in all_applications:
+            # Legacy flag filter if present
+            if flag and flag != ApplicationFlags.ALL and flag not in self.get_required_flags(app, user_role):
+                continue
+
+            # Primary Tab A: PENDING with Authority
+            if primary_tab == "PENDING" and authority_role:
+                is_pending_for_role = False
+                pending_start_ts: Optional[datetime] = None
+
+                # Rule 6.2/Workflow check for role
+                if authority_role == UserRole.NODAL_OFFICER:
+                    if app.type == ApplicationType.NEW and app.status == ApplicationStatus.SUBMITTED:
+                        is_pending_for_role = True
+                        pending_start_ts = app.created_at
+                    elif app.status in (ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED):
+                        # Pending token generation
+                        is_pending_for_role = True
+                        insp_ts = [i.inspected_at for i in app.inspections if i.inspected_at]
+                        pending_start_ts = max(insp_ts) if insp_ts else app.updated_at
+                    elif app.status == ApplicationStatus.OBJECTED:
+                        pending_objs = [o for o in app.objections if o.status == ObjectionStatus.PENDING and o.objected_to_role in (UserRole.CITIZEN, UserRole.JEN)]
+                        if pending_objs:
+                            is_pending_for_role = True
+                            pending_start_ts = min([o.created_at for o in pending_objs if o.created_at])
+
+                elif authority_role == UserRole.COMMISSIONER:
+                    if app.type == ApplicationType.RENOVATION:
+                        if app.status == ApplicationStatus.SUBMITTED:
+                            is_pending_for_role = True
+                            pending_start_ts = app.created_at
+                        elif app.status == ApplicationStatus.FORWARDED:
+                            is_pending_for_role = True
+                            pending_start_ts = app.updated_at
+                        elif app.status == ApplicationStatus.OBJECTED:
+                            is_pending_for_role = True
+                            pending_start_ts = app.updated_at
+
+                elif authority_role == UserRole.JEN:
+                    if app.status in (ApplicationStatus.SUBMITTED, ApplicationStatus.FORWARDED) and not app.inspections:
+                        is_pending_for_role = True
+                        pending_start_ts = app.updated_at
+                    elif app.status == ApplicationStatus.OBJECTED:
+                        pending_objs = [o for o in app.objections if o.status == ObjectionStatus.PENDING and o.objected_to_role == UserRole.JEN]
+                        if pending_objs:
+                            is_pending_for_role = True
+                            pending_start_ts = min([o.created_at for o in pending_objs if o.created_at])
+
+                elif authority_role in (UserRole.DEPT_LAND, UserRole.DEPT_LEGAL, UserRole.DEPT_ATP):
+                    if app.type == ApplicationType.RENOVATION and app.status == ApplicationStatus.FORWARDED:
+                        commented_roles = {c.commenter.role for c in app.comments if c.commenter and c.commenter.role}
+                        if authority_role not in commented_roles:
+                            is_pending_for_role = True
+                            pending_start_ts = app.updated_at
+                    elif app.status == ApplicationStatus.OBJECTED:
+                        pending_objs = [o for o in app.objections if o.status == ObjectionStatus.PENDING and o.objected_to_role == authority_role]
+                        if pending_objs:
+                            is_pending_for_role = True
+                            pending_start_ts = min([o.created_at for o in pending_objs if o.created_at])
+
+                if not is_pending_for_role:
+                    continue
+
+                # Filter by pending_days if provided
+                if pending_days is not None and pending_days > 0 and pending_start_ts:
+                    days_elapsed = (now - pending_start_ts).days
+                    if days_elapsed < pending_days:
+                        continue
+
+            # Primary Tab B: COMPLETED by Authority
+            elif primary_tab == "COMPLETED" and authority_role:
+                is_completed_by_role = False
+                if authority_role in (UserRole.NODAL_OFFICER, UserRole.COMMISSIONER):
+                    # Check action logs / approvals
+                    if hasattr(app, "action_logs") and app.action_logs:
+                        if any(log.performer and log.performer.role == authority_role for log in app.action_logs if hasattr(log, "performer")):
+                            is_completed_by_role = True
+                elif authority_role == UserRole.JEN:
+                    if app.inspections and len(app.inspections) > 0:
+                        is_completed_by_role = True
+                elif authority_role in (UserRole.DEPT_LAND, UserRole.DEPT_LEGAL, UserRole.DEPT_ATP):
+                    if app.comments:
+                        if any(c.commenter and c.commenter.role == authority_role for c in app.comments if hasattr(c, "commenter")):
+                            is_completed_by_role = True
+
+                if not is_completed_by_role:
+                    continue
+
+            matched_apps.append(app)
+
+        total_count = len(matched_apps)
+        paginated_apps = matched_apps[offset : offset + limit]
+
+        responses = [ApplicationResponse.model_validate(app) for app in paginated_apps]
+
+        # Attach tokens for applications that have phases
+        apps_with_phases = [app for app in paginated_apps if app.phases]
         if apps_with_phases:
             from backend.schemas.response.application import TokenResponse
             from backend.core.transport_code import encode_transport_code as _enc
@@ -501,7 +568,8 @@ class ApplicationDAO(BaseDAO):
                     resp.tokens = [
                         TokenResponse.model_validate(t) for t in tokens_by_app[resp.id]
                     ]
-        return responses
+
+        return responses, total_count
 
     async def approve_application(self, application_id: int) -> SuccessResponse:
         """Approve an Application (legacy simple path, use perform_workflow_action instead)."""

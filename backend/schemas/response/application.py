@@ -726,6 +726,16 @@ class VehicleEntryDetailResponse(BaseModel):
     entry_proof: List[str] = []  # List of signed URLs
     dumping_photos: List[DumpingPhotoResponse] = []
 
+
+class ApplicationPaginatedResponse(BaseModel):
+    """Paginated applications list response with total count."""
+
+    applications: List[ApplicationResponse]
+    total: int
+    offset: int = 0
+    limit: int = 10
+
+
     model_config = ConfigDict(from_attributes=True)
 
 

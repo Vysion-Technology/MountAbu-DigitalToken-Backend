@@ -85,28 +85,44 @@ class ApplicationService(BaseService):
 
     async def get_applications(
         self,
-        flag: Optional[ApplicationFlags],
-        offset: int,
-        limit: int,
+        flag: Optional[ApplicationFlags] = None,
+        offset: int = 0,
+        limit: int = 10,
         user_id: Optional[int] = None,
         search: Optional[str] = None,
         ward_id: Optional[int] = None,
+        ward_ids: Optional[list[int]] = None,
         property_usage: Optional[PropertyUsageType] = None,
         jurisdiction_zone: Optional[JurisdictionZone] = None,
         user_role: Optional[UserRole] = None,
         caller_role: Optional[UserRole] = None,
-    ) -> List[ApplicationResponse]:
-        """Get applications filtered by flag, search, and other criteria."""
-        apps = await self.dao.get_applications(
+        primary_tab: Optional[str] = None,
+        authority_role: Optional[UserRole] = None,
+        action_name: Optional[str] = None,
+        pending_days: Optional[int] = None,
+        submitted_days: Optional[int] = None,
+        app_type: Optional[ApplicationType] = None,
+        app_status: Optional[ApplicationStatus] = None,
+    ) -> ApplicationPaginatedResponse:
+        """Get applications filtered by flag, primary tab, search, and other criteria."""
+        apps, total = await self.dao.get_applications(
             flag=flag,
             offset=offset,
             limit=limit,
             user_id=user_id,
             search=search,
             ward_id=ward_id,
+            ward_ids=ward_ids,
             property_usage=property_usage,
             jurisdiction_zone=jurisdiction_zone,
             user_role=user_role,
+            primary_tab=primary_tab,
+            authority_role=authority_role,
+            action_name=action_name,
+            pending_days=pending_days,
+            submitted_days=submitted_days,
+            app_type=app_type,
+            app_status=app_status,
         )
         if caller_role == UserRole.CITIZEN:
             for app in apps:
@@ -118,7 +134,7 @@ class ApplicationService(BaseService):
                     app.objections = [
                         o for o in app.objections if str(getattr(o, "objected_to_role", "")) == "CITIZEN" or getattr(o, "objected_to_role", None) == UserRole.CITIZEN
                     ]
-        return apps
+        return ApplicationPaginatedResponse(applications=apps, total=total, offset=offset, limit=limit)
 
     async def delete_application(self, application_id: int) -> SuccessResponse:
         """Delete an application by ID."""
