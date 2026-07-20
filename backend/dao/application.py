@@ -470,7 +470,7 @@ class ApplicationDAO(BaseDAO):
                         # Pending token generation
                         is_pending_for_role = True
                         insp_ts = [i.inspected_at for i in app.inspections if i.inspected_at]
-                        pending_start_ts = max(insp_ts) if insp_ts else app.updated_at
+                        pending_start_ts = max(insp_ts) if insp_ts else _get_app_last_updated_at(app)
                     elif app.status == ApplicationStatus.OBJECTED:
                         pending_objs = [o for o in app.objections if o.status == ObjectionStatus.PENDING and o.objected_to_role in (UserRole.CITIZEN, UserRole.JEN)]
                         if pending_objs:
@@ -484,15 +484,15 @@ class ApplicationDAO(BaseDAO):
                             pending_start_ts = app.created_at
                         elif app.status == ApplicationStatus.FORWARDED:
                             is_pending_for_role = True
-                            pending_start_ts = app.updated_at
+                            pending_start_ts = _get_app_last_updated_at(app)
                         elif app.status == ApplicationStatus.OBJECTED:
                             is_pending_for_role = True
-                            pending_start_ts = app.updated_at
+                            pending_start_ts = _get_app_last_updated_at(app)
 
                 elif authority_role == UserRole.JEN:
                     if app.status in (ApplicationStatus.SUBMITTED, ApplicationStatus.FORWARDED) and not app.inspections:
                         is_pending_for_role = True
-                        pending_start_ts = app.updated_at
+                        pending_start_ts = _get_app_last_updated_at(app)
                     elif app.status == ApplicationStatus.OBJECTED:
                         pending_objs = [o for o in app.objections if o.status == ObjectionStatus.PENDING and o.objected_to_role == UserRole.JEN]
                         if pending_objs:
@@ -504,7 +504,7 @@ class ApplicationDAO(BaseDAO):
                         commented_roles = {c.commenter.role for c in app.comments if c.commenter and c.commenter.role}
                         if authority_role not in commented_roles:
                             is_pending_for_role = True
-                            pending_start_ts = app.updated_at
+                            pending_start_ts = _get_app_last_updated_at(app)
                     elif app.status == ApplicationStatus.OBJECTED:
                         pending_objs = [o for o in app.objections if o.status == ObjectionStatus.PENDING and o.objected_to_role == authority_role]
                         if pending_objs:
