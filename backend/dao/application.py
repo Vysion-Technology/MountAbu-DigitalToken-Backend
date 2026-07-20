@@ -63,6 +63,14 @@ _APPLICATION_LOAD_OPTIONS = [
 ]
 
 
+def _get_app_last_updated_at(app: Application) -> datetime:
+    if hasattr(app, "action_logs") and app.action_logs:
+        log_ts = [log.performed_at for log in app.action_logs if log.performed_at]
+        if log_ts:
+            return max(log_ts)
+    return app.created_at
+
+
 class ApplicationDAO(BaseDAO):
     """Application DAO."""
 
