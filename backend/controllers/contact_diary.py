@@ -17,8 +17,9 @@ from backend.schemas.response.contact_diary import (
     ContactDiaryResponse,
     PaginatedContactDiaryResponse,
 )
-from backend.middlewares.auth import get_current_user
+from backend.middlewares.auth import get_current_user, get_optional_user
 from backend.schemas.base.auth import UserDetails
+from backend.meta import UserRole
 
 router = APIRouter()
 
@@ -44,7 +45,7 @@ async def get_contact_diaries(
     status: Optional[bool] = None,
     page: int = Query(1, ge=1),
     size: int = Query(10, ge=1, le=100),
-    current_user: UserDetails = Depends(get_current_user),
+    current_user: Optional[UserDetails] = Depends(get_optional_user),
     service: ContactDiaryService = Depends(get_contact_diary_service),
 ):
     """Retrieve contact diary entries."""
@@ -56,9 +57,28 @@ async def get_contact_diaries(
         page=page,
         size=size,
     )
+    
+    is_authority = current_user and current_user.role in (
+        UserRole.SUPERADMIN,
+        UserRole.NODAL_OFFICER,
+        UserRole.COMMISSIONER,
+        UserRole.ADMIN,
+    )
+
+    masked_contacts = []
+    for contact in contacts:
+        contact_data = ContactDiaryResponse.model_validate(contact)
+        if not is_authority:
+            # Mask sensitive fields for citizens or unauthenticated users
+            contact_data.office_department = "********"
+            contact_data.phone_number = "********"
+            contact_data.email_address = "********"
+            contact_data.created_by = None
+        masked_contacts.append(contact_data)
+
     pages = math.ceil(total / size) if size else 0
     return PaginatedContactDiaryResponse(
-        items=contacts, total=total, page=page, size=size, pages=pages
+        items=masked_contacts, total=total, page=page, size=size, pages=pages
     )
 
 
@@ -66,14 +86,29 @@ async def get_contact_diaries(
 async def get_contact_diary(
     id: int,
     session: AsyncSession = Depends(get_db),
-    current_user: UserDetails = Depends(get_current_user),
+    current_user: Optional[UserDetails] = Depends(get_optional_user),
     service: ContactDiaryService = Depends(get_contact_diary_service),
 ):
     """Get contact diary entry by ID."""
     contact = await service.get(session, id=id)
     if not contact:
         raise HTTPException(status_code=404, detail="Contact not found")
-    return contact
+    
+    is_authority = current_user and current_user.role in (
+        UserRole.SUPERADMIN,
+        UserRole.NODAL_OFFICER,
+        UserRole.COMMISSIONER,
+        UserRole.ADMIN,
+    )
+
+    contact_data = ContactDiaryResponse.model_validate(contact)
+    if not is_authority:
+        contact_data.office_department = "********"
+        contact_data.phone_number = "********"
+        contact_data.email_address = "********"
+        contact_data.created_by = None
+
+    return contact_data
 
 
 @router.put("/{id}", response_model=ContactDiaryResponse)

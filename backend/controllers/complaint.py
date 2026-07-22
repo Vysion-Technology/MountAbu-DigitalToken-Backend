@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, File, UploadFile, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func as sa_func
 from sqlalchemy.orm import selectinload
-from typing import Optional
+from typing import Optional, List
+from uuid import uuid4
 
 from backend.database import get_db
 from backend.dbmodels.complaint import Complaint, ComplaintMedia, ComplaintComment
@@ -11,12 +12,15 @@ from backend.schemas.request.complaint import (
     ComplaintCreateRequest,
     CommentCreateRequest,
     ComplaintMediaAddRequest,
+    ComplaintResolveRequest,
 )
 from backend.schemas.response.complaint import ComplaintResponse, ComplaintListResponse
 from backend.middlewares.auth import get_current_user, get_current_user_id
 from backend.schemas.base.auth import UserDetails
 from backend.services.audit import AuditService
+from backend.services.sms import sms_service
 from backend.meta.audit import AuditAction
+from backend.services.storage import get_storage_service
 
 router = APIRouter()
 audit_service = AuditService()
@@ -26,7 +30,11 @@ async def get_complaint_or_404(db: AsyncSession, complaint_id: int):
     stmt = (
         select(Complaint)
         .where(Complaint.id == complaint_id)
-        .options(selectinload(Complaint.media), selectinload(Complaint.comments))
+        .options(
+            selectinload(Complaint.media),
+            selectinload(Complaint.comments),
+            selectinload(Complaint.assigned_to),
+        )
     )
     result = await db.execute(stmt)
     complaint = result.scalars().first()
@@ -62,7 +70,11 @@ async def get_my_complaints(
     stmt = (
         select(Complaint)
         .where(Complaint.user_id == user_id)
-        .options(selectinload(Complaint.media), selectinload(Complaint.comments))
+        .options(
+            selectinload(Complaint.media),
+            selectinload(Complaint.comments),
+            selectinload(Complaint.assigned_to),
+        )
         .order_by(Complaint.created_at.desc())
         .offset(offset)
         .limit(limit)
@@ -110,6 +122,10 @@ async def get_all_complaints(
     if category_id is not None:
         base_where.append(Complaint.category_id == category_id)
 
+    # Filter by assigned user for specific roles
+    if user.role in (UserRole.JEN, UserRole.AEN, UserRole.RIN, UserRole.SIN):
+        base_where.append(Complaint.assigned_to_id == user.user_id)
+
     # Count total
     count_stmt = select(sa_func.count(Complaint.id))
     if department_id is not None:
@@ -125,7 +141,11 @@ async def get_all_complaints(
     # Fetch items
     stmt = (
         select(Complaint)
-        .options(selectinload(Complaint.media), selectinload(Complaint.comments))
+        .options(
+            selectinload(Complaint.media),
+            selectinload(Complaint.comments),
+            selectinload(Complaint.assigned_to),
+        )
         .order_by(Complaint.created_at.desc())
         .offset(offset)
         .limit(limit)
@@ -156,6 +176,21 @@ async def create_complaint(
     db: AsyncSession = Depends(get_db),
 ):
     # Create Complaint
+    # 1. Look up the department for this category
+    from backend.dbmodels.master import ComplaintCategory, Department
+
+    stmt = (
+        select(ComplaintCategory)
+        .where(ComplaintCategory.id == request.category_id)
+        .options(selectinload(ComplaintCategory.department))
+    )
+    res = await db.execute(stmt)
+    category_obj = res.scalar_one_or_none()
+
+    assigned_to_id = None
+    if category_obj and category_obj.department:
+        assigned_to_id = category_obj.department.jen_id
+
     new_complaint = Complaint(
         user_id=user_id,
         title=request.title,
@@ -167,6 +202,7 @@ async def create_complaint(
         latitude=request.latitude,
         longitude=request.longitude,
         location_address=request.location_address,
+        assigned_to_id=assigned_to_id,
     )
     db.add(new_complaint)
     await db.flush()  # Generate ID
@@ -185,6 +221,16 @@ async def create_complaint(
     await db.commit()
     await db.refresh(new_complaint)
 
+    # Trigger SMS
+    try:
+        await sms_service.send_complaint_sms(
+            mobile=new_complaint.applicant_mobile,
+            complaint_id=f"CMP-{new_complaint.id}",
+            status="raised successfully"
+        )
+    except Exception as e:
+        print(f"Error sending complaint creation SMS: {e}")
+
     # Reload with relations for response
     response = await get_complaint_or_404(db, new_complaint.id)
     await audit_service.log(
@@ -192,7 +238,7 @@ async def create_complaint(
         "COMPLAINT",
         AuditAction.CREATED,
         user_id,
-        new_state=response.model_dump() if hasattr(response, "model_dump") else None,
+        new_state=response.model_dump(mode="json") if hasattr(response, "model_dump") else None,
     )
     await db.commit()
     return response
@@ -317,5 +363,97 @@ async def withdraw_complaint(
     )
     await db.commit()
     await db.refresh(complaint)
+
+    return await get_complaint_or_404(db, id)
+
+
+@router.post("/complaints/{id}/resolve", response_model=ComplaintResponse)
+async def resolve_complaint(
+    id: int,
+    remarks: Optional[str] = Form(None),
+    images: List[UploadFile] = File([]),
+    user: UserDetails = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Resolve a complaint. Only assigned JEN, AEN, RIN, or SIN can resolve."""
+    allowed_roles = (UserRole.JEN, UserRole.AEN, UserRole.RIN, UserRole.SIN)
+    if user.role not in allowed_roles:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Only roles {', '.join(allowed_roles)} can resolve complaints",
+        )
+
+    complaint = await get_complaint_or_404(db, id)
+
+    if complaint.assigned_to_id != user.user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="You can only resolve complaints assigned to you",
+        )
+
+    if complaint.status not in (ComplaintStatus.PENDING, ComplaintStatus.IN_PROGRESS):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot resolve complaint in '{complaint.status.value}' status. Only PENDING or IN_PROGRESS complaints can be resolved.",
+        )
+
+    complaint.status = ComplaintStatus.RESOLVED
+
+    # Add resolution remarks as a comment
+    if remarks:
+        comment = ComplaintComment(
+            complaint_id=id,
+            comment=remarks,
+            comment_by=user.user_id,
+        )
+        db.add(comment)
+
+    # Handle direct image uploads
+    if images:
+        storage = get_storage_service()
+        if not storage:
+            raise HTTPException(status_code=500, detail="Storage service unavailable")
+
+        for img in images:
+            if not img.filename:
+                continue
+                
+            # Create object key: complaints/{id}/resolution/{uuid}_{filename}
+            uid = uuid4()
+            clean_filename = img.filename.replace(" ", "_")
+            object_key = f"complaints/{id}/resolution/{uid}_{clean_filename}"
+            
+            # Upload
+            content = await img.read()
+            storage.upload_bytes(object_key, content, img.content_type)
+            
+            # Save media record
+            media = ComplaintMedia(
+                complaint_id=id,
+                media_path=object_key,
+                media_type=img.content_type or "image/jpeg",
+                uploaded_by=user.user_id,
+                is_initial=False,
+            )
+            db.add(media)
+
+    await audit_service.log(
+        db,
+        "COMPLAINT",
+        AuditAction.CHANGED,
+        user.user_id,
+        new_state={"status": "RESOLVED", "id": id},
+    )
+    await db.commit()
+
+    # Trigger SMS
+    try:
+        await sms_service.send_complaint_sms(
+            mobile=complaint.applicant_mobile,
+            complaint_id=f"CMP-{complaint.id:04d}",
+            status="resolved"
+        )
+    except Exception as e:
+        print(f"Error sending complaint resolution SMS: {e}")
 
     return await get_complaint_or_404(db, id)

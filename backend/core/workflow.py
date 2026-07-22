@@ -46,9 +46,28 @@ TRANSITIONS: dict[
         ApplicationStatus.REJECTED,
         [UserRole.NODAL_OFFICER, UserRole.SUPERADMIN],
     ),
+    (ApplicationStatus.OBJECTED, WorkflowAction.OBJECT, ApplicationType.NEW): (
+        ApplicationStatus.OBJECTED,
+        [UserRole.NODAL_OFFICER, UserRole.SUPERADMIN],
+    ),
     # 4. After JEN inspection + material entry, Nodal generates tokens
     (ApplicationStatus.APPROVED, WorkflowAction.GENERATE_TOKENS, ApplicationType.NEW): (
         ApplicationStatus.TOKEN_GENERATED,
+        [UserRole.NODAL_OFFICER, UserRole.SUPERADMIN],
+    ),
+    # 4a. Allow sequential token generation when status is TOKEN_GENERATED
+    (ApplicationStatus.TOKEN_GENERATED, WorkflowAction.GENERATE_TOKENS, ApplicationType.NEW): (
+        ApplicationStatus.TOKEN_GENERATED,
+        [UserRole.NODAL_OFFICER, UserRole.SUPERADMIN],
+    ),
+    # 4b. Nodal Officer can also reject at this stage
+    (ApplicationStatus.APPROVED, WorkflowAction.REJECT, ApplicationType.NEW): (
+        ApplicationStatus.REJECTED,
+        [UserRole.NODAL_OFFICER, UserRole.SUPERADMIN],
+    ),
+    # 4c. Nodal Officer can object at this stage
+    (ApplicationStatus.APPROVED, WorkflowAction.OBJECT, ApplicationType.NEW): (
+        ApplicationStatus.OBJECTED,
         [UserRole.NODAL_OFFICER, UserRole.SUPERADMIN],
     ),
 
@@ -80,6 +99,10 @@ TRANSITIONS: dict[
         ApplicationStatus.REJECTED,
         [UserRole.COMMISSIONER, UserRole.SUPERADMIN],
     ),
+    (ApplicationStatus.OBJECTED, WorkflowAction.OBJECT, ApplicationType.RENOVATION): (
+        ApplicationStatus.OBJECTED,
+        [UserRole.COMMISSIONER, UserRole.SUPERADMIN],
+    ),
     # 4. After all 4 depts comment, Commissioner approves/rejects/objects
     (ApplicationStatus.FORWARDED, WorkflowAction.APPROVE, ApplicationType.RENOVATION): (
         ApplicationStatus.APPROVED,
@@ -98,6 +121,11 @@ TRANSITIONS: dict[
         ApplicationStatus.TOKEN_GENERATED,
         [UserRole.NODAL_OFFICER, UserRole.SUPERADMIN],
     ),
+    # 5a. Allow sequential token generation when status is TOKEN_GENERATED
+    (ApplicationStatus.TOKEN_GENERATED, WorkflowAction.GENERATE_TOKENS, ApplicationType.RENOVATION): (
+        ApplicationStatus.TOKEN_GENERATED,
+        [UserRole.NODAL_OFFICER, UserRole.SUPERADMIN],
+    ),
     # 5a. Nodal Officer can also reject at this stage
     (ApplicationStatus.APPROVED, WorkflowAction.REJECT, ApplicationType.RENOVATION): (
         ApplicationStatus.REJECTED,
@@ -107,6 +135,15 @@ TRANSITIONS: dict[
     (ApplicationStatus.APPROVED, WorkflowAction.OBJECT, ApplicationType.RENOVATION): (
         ApplicationStatus.OBJECTED,
         [UserRole.NODAL_OFFICER, UserRole.SUPERADMIN],
+    ),
+    # 6. CLEAR_OBJECTION transitions (restores pre-objection status)
+    (ApplicationStatus.OBJECTED, WorkflowAction.CLEAR_OBJECTION, ApplicationType.NEW): (
+        ApplicationStatus.APPROVED,  # Default fallback, dynamic resolution in DAO
+        [UserRole.NODAL_OFFICER, UserRole.SUPERADMIN],
+    ),
+    (ApplicationStatus.OBJECTED, WorkflowAction.CLEAR_OBJECTION, ApplicationType.RENOVATION): (
+        ApplicationStatus.APPROVED,  # Default fallback, dynamic resolution in DAO
+        [UserRole.COMMISSIONER, UserRole.NODAL_OFFICER, UserRole.SUPERADMIN],
     ),
 }
 

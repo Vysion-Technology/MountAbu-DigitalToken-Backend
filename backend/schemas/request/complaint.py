@@ -21,7 +21,7 @@ class ComplaintCreateRequest(BaseModel):
 
     applicant_name: str = Field(..., description="Name of applicant")
     applicant_mobile: str = Field(
-        ..., pattern=r"^\+?[1-9]\d{1,14}$", description="Mobile number"
+        ..., min_length=10, max_length=10, pattern=r"^[0-9]+$", description="10-digit mobile number"
     )
 
     latitude: Optional[float] = None
@@ -43,4 +43,11 @@ class CommentCreateRequest(BaseModel):
 class ComplaintMediaAddRequest(BaseModel):
     media_keys: List[str] = Field(
         ..., min_length=1, description="List of media keys to add"
+    )
+
+
+class ComplaintResolveRequest(BaseModel):
+    remarks: Optional[str] = Field(None, description="Resolution remarks")
+    media_keys: List[str] = Field(
+        default_factory=list, description="Proof/evidence media keys"
     )

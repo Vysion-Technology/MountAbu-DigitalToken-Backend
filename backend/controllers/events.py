@@ -1,14 +1,17 @@
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.database import get_db
-from backend.middlewares.auth import get_admin_or_nodal
+from backend.middlewares.auth import get_admin_or_nodal, get_optional_user
 from backend.schemas.base.auth import UserDetails
 from backend.services.events import EventsService, get_events_service
 from backend.schemas.request.event import EventCreate, EventUpdate
 from backend.schemas.response.event import EventResponse, EventsListResponse
 from backend.schemas.response.meta import SuccessResponse
+from backend.meta import TenderStatus
 from backend.services.audit import AuditService
 from backend.meta.audit import AuditAction
+from datetime import datetime
 
 router = APIRouter()
 audit_service = AuditService()
@@ -16,18 +19,32 @@ audit_service = AuditService()
 
 @router.post("/events", response_model=EventResponse, status_code=201)
 async def create_event(
-    payload: EventCreate,
+    title: str = Form(...),
+    event_type: str | None = Form(None),
+    date: datetime | None = Form(None),
+    venue: str | None = Form(None),
+    description: str | None = Form(None),
+    status: TenderStatus | None = Form(TenderStatus.ACTIVE),
+    image: UploadFile | None = File(None),
     db: AsyncSession = Depends(get_db),
     current_user: UserDetails = Depends(get_admin_or_nodal),
     service: EventsService = Depends(get_events_service),
 ):
-    response = await service.create_event(db, payload, current_user.user_id)
+    payload = EventCreate(
+        title=title,
+        event_type=event_type,
+        date=date,
+        venue=venue,
+        description=description,
+        status=status,
+    )
+    response = await service.create_event(db, payload, current_user.user_id, image=image)
     await audit_service.log(
         db,
         "EVENT",
         AuditAction.CREATED,
         current_user.user_id,
-        new_state=response.model_dump() if hasattr(response, "model_dump") else None,
+        new_state=response.model_dump(mode="json") if hasattr(response, "model_dump") else None,
     )
     await db.commit()
     return response
@@ -38,35 +55,52 @@ async def list_events(
     limit: int = 50,
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
+    user: Optional[UserDetails] = Depends(get_optional_user),
     service: EventsService = Depends(get_events_service),
 ):
-    return await service.list_events(db, limit=limit, offset=offset)
+    return await service.list_events(db, limit=limit, offset=offset, user=user)
 
 
 @router.get("/events/{event_id}", response_model=EventResponse)
 async def get_event(
     event_id: int,
     db: AsyncSession = Depends(get_db),
+    user: Optional[UserDetails] = Depends(get_optional_user),
     service: EventsService = Depends(get_events_service),
 ):
-    return await service.get_event(db, event_id)
+    return await service.get_event(db, event_id, user=user)
+
 
 
 @router.put("/events/{event_id}", response_model=EventResponse)
 async def update_event(
     event_id: int,
-    payload: EventUpdate,
+    title: str | None = Form(None),
+    event_type: str | None = Form(None),
+    date: datetime | None = Form(None),
+    venue: str | None = Form(None),
+    description: str | None = Form(None),
+    status: TenderStatus | None = Form(None),
+    image: UploadFile | None = File(None),
     db: AsyncSession = Depends(get_db),
     current_user: UserDetails = Depends(get_admin_or_nodal),
     service: EventsService = Depends(get_events_service),
 ):
-    response = await service.update_event(db, event_id, payload)
+    payload = EventUpdate(
+        title=title,
+        event_type=event_type,
+        date=date,
+        venue=venue,
+        description=description,
+        status=status,
+    )
+    response = await service.update_event(db, event_id, payload, image=image)
     await audit_service.log(
         db,
         "EVENT",
         AuditAction.CHANGED,
         current_user.user_id,
-        new_state=response.model_dump() if hasattr(response, "model_dump") else None,
+        new_state=response.model_dump(mode="json") if hasattr(response, "model_dump") else None,
     )
     await db.commit()
     return response

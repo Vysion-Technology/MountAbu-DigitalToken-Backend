@@ -29,6 +29,10 @@ AUTHORITY_ROLES = {
     UserRole.DEPT_LAND,
     UserRole.DEPT_LEGAL,
     UserRole.DEPT_ATP,
+    UserRole.AEN,
+    UserRole.RIN,
+    UserRole.SIN,
+    UserRole.COLLECTOR,
 }
 
 
@@ -75,8 +79,8 @@ async def get_authority_dashboard(
     - **Nodal Officer**: tokens generated/utilized KPIs, token-status donut,
       material approved-vs-used bar, token utilization list.
 
-    Query parameters ``days``, ``department_id``, ``ward_id`` apply to
-    Super Admin / Dept-head dashboards only.
+    Query parameters ``days``, ``department_id``, and ``ward_id`` are applied across all role-specific 
+    dashboards where relevant (e.g., JEN dashboard respects ward and time period).
     """
     if current_user.role not in AUTHORITY_ROLES:
         raise HTTPException(

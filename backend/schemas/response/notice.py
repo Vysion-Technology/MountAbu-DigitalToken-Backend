@@ -13,6 +13,11 @@ class NoticeResponse(BaseModel):
     valid_till: Optional[datetime]
     status: NoticeStatus
     visibility: Visibility
+    content: Optional[str] = None
+    image_path: Optional[str] = None
+    image_url: Optional[str] = None
+    document_path: Optional[str] = None
+    document_url: Optional[str] = None
     created_by: Optional[int]
     created_at: Optional[datetime] = None
 

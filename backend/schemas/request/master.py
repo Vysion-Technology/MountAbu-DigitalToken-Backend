@@ -23,6 +23,7 @@ class DepartmentCreate(BaseModel):
     code: str = Field(..., description="Unique Code")
     type: str = Field(..., description="Type of Department")
     status: bool = Field(True, description="Active Status")
+    jen_id: Optional[int] = Field(None, description="Primary JEN User ID")
 
 
 class DepartmentUpdate(BaseModel):
@@ -30,6 +31,7 @@ class DepartmentUpdate(BaseModel):
     code: Optional[str] = None
     type: Optional[str] = None
     status: Optional[bool] = None
+    jen_id: Optional[int] = None
 
 
 class RoleCreate(BaseModel):
@@ -63,3 +65,10 @@ class ComplaintCategoryUpdate(BaseModel):
 class MaterialCreate(BaseModel):
     name: str = Field(..., description="Material Name")
     unit: str = Field(..., description="Unit (e.g., kg, bags)")
+    status: bool = Field(True, description="Active status")
+
+
+class MaterialUpdate(BaseModel):
+    name: Optional[str] = None
+    unit: Optional[str] = None
+    status: Optional[bool] = None

@@ -299,14 +299,14 @@ def get_application(base: str, token: str, app_id: int) -> dict:
 
 
 def workflow_action(base: str, token: str, app_id: int, action: str,
-                    remarks: str = None, num_stages: int = None,
+                    remarks: str = None, phase: int = None,
                     phase_materials: list = None) -> dict:
     """PUT /api/applications/{id}/action"""
     payload: dict = {"action": action}
     if remarks:
         payload["remarks"] = remarks
-    if num_stages is not None:
-        payload["num_stages"] = num_stages
+    if phase is not None:
+        payload["phase"] = phase
     if phase_materials is not None:
         payload["phase_materials"] = phase_materials
     resp = requests.put(
@@ -358,8 +358,12 @@ def create_naka_entry(base: str, token: str, transport_code: str,
                       material_id: int, quantity: int,
                       vehicle_number: str = None) -> requests.Response:
     payload: dict = {
-        "material_id": material_id,
-        "quantity_brought": quantity,
+        "materials": [
+            {
+                "material_id": material_id,
+                "quantity_brought": quantity,
+            }
+        ]
     }
     if vehicle_number:
         payload["vehicle_number"] = vehicle_number
@@ -447,11 +451,11 @@ def test_new_application_workflow(base: str, citizen_token: str, tokens: dict,
                       phase_materials=phase_mats)
     print("  Inspection report created with recommended_phases=3")
 
-    # ── Step 4: Nodal Officer generates tokens (3 phases) ─────────────────
-    print("\n--- Step 4: Nodal Officer generates tokens (3 phases) ---")
+    # ── Step 4: Nodal Officer generates tokens (phase 1) ─────────────────
+    print("\n--- Step 4: Nodal Officer generates tokens (phase 1) ---")
     resp = workflow_action(base, tokens["NODAL_OFFICER"], app_id, "GENERATE_TOKENS",
-                           remarks="Generating tokens for 3 phases",
-                           num_stages=3)
+                           remarks="Generating tokens for phase 1",
+                           phase=1)
     # phase_materials already created by JEN inspection — GENERATE_TOKENS deduplicates
     _check(resp, "generate tokens")
     print(f"  {resp.json()['message']}")
@@ -466,9 +470,8 @@ def test_new_application_workflow(base: str, citizen_token: str, tokens: dict,
     print(f"  {len(phases)} phases created:")
     for p in phases:
         print(f"    Phase {p['phase']}: {p['status']} (activated_at={p.get('activated_at')})")
-    assert len(phases) == 3
+    assert len(phases) == 1
     assert phases[0]["status"] == "ACTIVE", f"Phase 1 should be ACTIVE, got {phases[0]['status']}"
-    assert phases[1]["status"] == "PENDING", f"Phase 2 should be PENDING, got {phases[1]['status']}"
 
     # ── Step 6: Naka logs materials for phase 1 ──────────────────────────
     print("\n--- Step 6: Naka Incharge logs material entry for phase 1 ---")
@@ -501,13 +504,21 @@ def test_new_application_workflow(base: str, citizen_token: str, tokens: dict,
     _expect_error(resp, 400, "naka entry over limit")
     print(f"  Correctly rejected over-limit entry ({over_qty} > remaining {remaining})")
 
-    # ── Step 7: Nodal completes phase 1 -> phase 2 activates ─────────────
-    print("\n--- Step 7: Nodal Officer completes phase 1 ---")
+    # ── Step 7: Nodal completes phase 1 and generates phase 2 ─────────────
+    print("\n--- Step 7: Nodal Officer completes phase 1 and generates phase 2 ---")
     complete_phase(base, tokens["NODAL_OFFICER"], app_id, 1)
     phases = get_phases(base, tokens["NODAL_OFFICER"], app_id)
     assert phases[0]["status"] == "COMPLETED", f"Phase 1 should be COMPLETED"
+
+    # Generate Phase 2
+    resp = workflow_action(base, tokens["NODAL_OFFICER"], app_id, "GENERATE_TOKENS",
+                           remarks="Generating tokens for phase 2",
+                           phase=2)
+    _check(resp, "generate tokens phase 2")
+    phases = get_phases(base, tokens["NODAL_OFFICER"], app_id)
+    assert len(phases) == 2
     assert phases[1]["status"] == "ACTIVE", f"Phase 2 should now be ACTIVE"
-    print(f"  Phase 1: {phases[0]['status']}, Phase 2: {phases[1]['status']}, Phase 3: {phases[2]['status']}")
+    print(f"  Phase 1: {phases[0]['status']}, Phase 2: {phases[1]['status']}")
 
     print(f"\n  ✅ NEW workflow test PASSED (app_id={app_id})")
     return app_id
@@ -608,10 +619,24 @@ def test_renovation_workflow(base: str, citizen_token: str, tokens: dict,
     assert app["status"] == "FORWARDED", f"Expected FORWARDED, got {app['status']}"
     print(f"  status={app['status']}")
 
-    # ── Step 3: Each department adds review comments ──────────────────────
-    print("\n--- Step 3: Department reviews ---")
+    # ── Step 3: JEN inspection & department reviews ──────────────────────
+    print("\n--- Step 3: JEN inspection & department reviews ---")
+    phase_mats = []
+    for phase_num in range(1, 3):
+        for mid in material_ids[:3]:
+            phase_mats.append({
+                "phase": phase_num,
+                "material_id": mid,
+                "quantity": random.randint(20, 60),
+            })
+
+    create_inspection(base, tokens["JEN"], app_id,
+                      remarks="Renovation site inspected. Existing structure is sound.",
+                      recommended_phases=2,
+                      phase_materials=phase_mats)
+    print("  Inspection report created with recommended_phases=2")
+
     dept_comments = [
-        ("JEN",       "Site is suitable for renovation. Structural integrity verified."),
         ("DEPT_ATP",  "ATP clearance: No encroachment detected on adjoining roads."),
         ("DEPT_LAND", "Land records verified. Title is clean."),
         ("DEPT_LEGAL","Legal clearance: No pending disputes on this property."),
@@ -630,28 +655,11 @@ def test_renovation_workflow(base: str, citizen_token: str, tokens: dict,
     assert app["status"] == "APPROVED", f"Expected APPROVED, got {app['status']}"
     print(f"  status={app['status']}")
 
-    # ── Step 5: JEN inspection ────────────────────────────────────────────
-    print("\n--- Step 5: JEN inspection ---")
-    phase_mats = []
-    for phase_num in range(1, 3):
-        for mid in material_ids[:3]:
-            phase_mats.append({
-                "phase": phase_num,
-                "material_id": mid,
-                "quantity": random.randint(20, 60),
-            })
-
-    create_inspection(base, tokens["JEN"], app_id,
-                      remarks="Renovation site inspected. Existing structure is sound.",
-                      recommended_phases=2,
-                      phase_materials=phase_mats)
-    print("  Inspection report created with recommended_phases=2")
-
-    # ── Step 6: Nodal Officer generates tokens (2 phases) ─────────────────
-    print("\n--- Step 6: Nodal Officer generates tokens (2 phases) ---")
+    # ── Step 5: Nodal Officer generates tokens (phase 1) ──────────────────
+    print("\n--- Step 5: Nodal Officer generates tokens (phase 1) ---")
     resp = workflow_action(base, tokens["NODAL_OFFICER"], app_id, "GENERATE_TOKENS",
-                           remarks="Generating tokens for renovation (2 phases)",
-                           num_stages=2,
+                           remarks="Generating tokens for renovation (phase 1)",
+                           phase=1,
                            phase_materials=phase_mats)
     _check(resp, "generate tokens")
 
@@ -660,8 +668,8 @@ def test_renovation_workflow(base: str, citizen_token: str, tokens: dict,
     print(f"  status={app['status']}")
 
     phases = get_phases(base, tokens["NODAL_OFFICER"], app_id)
-    assert len(phases) == 2
-    print(f"  {len(phases)} phases: Phase1={phases[0]['status']}, Phase2={phases[1]['status']}")
+    assert len(phases) == 1
+    print(f"  {len(phases)} phases: Phase1={phases[0]['status']}")
 
     print(f"\n  ✅ RENOVATION workflow test PASSED (app_id={app_id})")
     return app_id
@@ -705,7 +713,7 @@ def test_invalid_transitions(base: str, citizen_token: str, tokens: dict, master
     # Try GENERATE_TOKENS on SUBMITTED (should fail — must be APPROVED first)
     print("\n--- Test: Generate tokens on SUBMITTED app ---")
     resp = workflow_action(base, tokens["NODAL_OFFICER"], app_id, "GENERATE_TOKENS",
-                           num_stages=2)
+                           phase=1)
     _expect_error(resp, 400, "tokens on SUBMITTED")
 
     # Naka entry on non-TOKEN_GENERATED app — use a bogus transport code.

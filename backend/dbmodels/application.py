@@ -1,8 +1,8 @@
 from datetime import datetime
-from backend.meta import ApplicationDocumentType, CommentType, WorkflowAction
+from backend.meta import ApplicationDocumentType, CommentType, WorkflowAction, UserRole
 from typing import Optional
 
-from sqlalchemy import Enum, Float, Integer, String, ForeignKey, DateTime, JSON
+from sqlalchemy import Boolean, Enum, Float, Integer, String, ForeignKey, DateTime, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.database import Base
@@ -11,6 +11,9 @@ from backend.meta import (
     ApplicationType,
     ApplicationPhaseStatus,
     PropertyUsageType,
+    StructureType,
+    JurisdictionZone,
+    ObjectionStatus,
 )
 from backend.dbmodels.user import User
 from backend.dbmodels.master import Ward, Department
@@ -21,6 +24,7 @@ class Material(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String, index=True)
     unit: Mapped[str] = mapped_column(String, index=True)
+    status: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime, default=datetime.now, nullable=True
     )
@@ -57,6 +61,16 @@ class Application(Base):
     property_usage: Mapped[PropertyUsageType] = mapped_column(
         Enum(PropertyUsageType), default=PropertyUsageType.DOMESTIC
     )
+    existing_structure: Mapped[Optional[StructureType]] = mapped_column(
+        Enum(StructureType), nullable=True
+    )
+    construction_floor: Mapped[Optional[StructureType]] = mapped_column(
+        Enum(StructureType), nullable=True
+    )
+    jurisdiction_zone: Mapped[JurisdictionZone] = mapped_column(
+        Enum(JurisdictionZone), default=JurisdictionZone.ULB, nullable=False
+    )
+    organization_name: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
 
     # Master Data Foreign Keys
     department_id: Mapped[int] = mapped_column(
@@ -70,12 +84,21 @@ class Application(Base):
 
     description: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     status: Mapped[ApplicationStatus] = mapped_column(
-        Enum(ApplicationStatus), index=True, default=ApplicationStatus.PENDING
+         Enum(ApplicationStatus), index=True, default=ApplicationStatus.PENDING
+     )
+    objection_to_role: Mapped[Optional[UserRole]] = mapped_column(
+        Enum(UserRole), nullable=True
+    )
+    objected_from_status: Mapped[Optional[ApplicationStatus]] = mapped_column(
+        Enum(ApplicationStatus), nullable=True
     )
     type: Mapped[ApplicationType] = mapped_column(
         Enum(ApplicationType), index=True, default=ApplicationType.NEW
     )
     num_stages: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, default=datetime.now, nullable=True
+    )
 
     documents: Mapped[list["ApplicationDocument"]] = relationship(
         "ApplicationDocument", back_populates="application"
@@ -85,6 +108,9 @@ class Application(Base):
     )
     comments: Mapped[list["ApplicationComment"]] = relationship(
         "ApplicationComment", back_populates="application"
+    )
+    objections: Mapped[list["ApplicationObjection"]] = relationship(
+        "ApplicationObjection", back_populates="application", cascade="all, delete-orphan"
     )
     approvals: Mapped[list["ApplicationApproval"]] = relationship(
         "ApplicationApproval", back_populates="application"
@@ -113,16 +139,19 @@ class ApplicationMaterial(Base):
         ForeignKey("applications.id"),
         index=True,
     )
-    material_id: Mapped[int] = mapped_column(
-        ForeignKey("materials.id"),  # Added foreign key constraint
+    material_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("materials.id"),  # Made optional
         index=True,
+        nullable=True,
     )
+    custom_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    custom_unit: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     quantity: Mapped[int] = mapped_column(Integer, index=True)
 
     application: Mapped["Application"] = relationship(
         "Application", back_populates="materials"
     )
-    material: Mapped["Material"] = relationship("Material")
+    material: Mapped[Optional["Material"]] = relationship("Material")
 
 
 class ApplicationComment(Base):
@@ -211,13 +240,17 @@ class ApplicationPhaseMaterial(Base):
         index=True,
     )
     phase: Mapped[int] = mapped_column(Integer, index=True)
-    material_id: Mapped[int] = mapped_column(ForeignKey("materials.id"), index=True)
+    material_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("materials.id"), index=True, nullable=True
+    )
+    custom_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    custom_unit: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     quantity: Mapped[int] = mapped_column(Integer, index=True)
 
     application: Mapped["Application"] = relationship(
         "Application", back_populates="phase_materials"
     )
-    material: Mapped["Material"] = relationship("Material")
+    material: Mapped[Optional["Material"]] = relationship("Material")
     phase_record: Mapped["ApprovedApplicationPhase"] = relationship(
         "ApprovedApplicationPhase",
         back_populates="phase_materials",
@@ -260,6 +293,7 @@ __all__ = [
     "ApplicationPhaseMaterial",
     "VehicleEntry",
     "VehicleMaterial",
+    "VehicleEntryDumpingPhoto",
     "InspectionReport",
     "ApplicationActionLog",
 ]
@@ -277,6 +311,9 @@ class VehicleEntry(Base):
 
     # Vehicle Details
     vehicle_number: Mapped[str] = mapped_column(String, index=True)
+    vehicle_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     driver_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     driver_mobile: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
@@ -286,7 +323,7 @@ class VehicleEntry(Base):
     )
 
     remarks: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    media_path: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    media: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
     application: Mapped["Application"] = relationship(
         "Application", back_populates="vehicle_entries"
@@ -305,6 +342,12 @@ class VehicleEntry(Base):
         "VehicleMaterial", back_populates="vehicle_entry", cascade="all, delete-orphan"
     )
 
+    dumping_photos: Mapped[list["VehicleEntryDumpingPhoto"]] = relationship(
+        "VehicleEntryDumpingPhoto",
+        back_populates="vehicle_entry",
+        cascade="all, delete-orphan",
+    )
+
 
 class VehicleMaterial(Base):
     """Materials within a single vehicle entry."""
@@ -314,13 +357,35 @@ class VehicleMaterial(Base):
     vehicle_entry_id: Mapped[int] = mapped_column(
         ForeignKey("vehicle_entries.id"), index=True
     )
-    material_id: Mapped[int] = mapped_column(ForeignKey("materials.id"), index=True)
+    material_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("materials.id"), index=True, nullable=True
+    )
+    custom_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    custom_unit: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     quantity: Mapped[float] = mapped_column(Float)
 
     vehicle_entry: Mapped["VehicleEntry"] = relationship(
         "VehicleEntry", back_populates="materials"
     )
-    material: Mapped["Material"] = relationship("Material")
+    material: Mapped[Optional["Material"]] = relationship("Material")
+
+
+class VehicleEntryDumpingPhoto(Base):
+    """Dumping photos uploaded by citizen for a vehicle entry."""
+
+    __tablename__ = "vehicle_entry_dumping_photos"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    vehicle_entry_id: Mapped[int] = mapped_column(
+        ForeignKey("vehicle_entries.id"), index=True
+    )
+    photo_path: Mapped[str] = mapped_column(String, nullable=False)
+    uploaded_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.now, index=True
+    )
+
+    vehicle_entry: Mapped["VehicleEntry"] = relationship(
+        "VehicleEntry", back_populates="dumping_photos"
+    )
 
 
 class InspectionReport(Base):
@@ -369,3 +434,42 @@ class ApplicationActionLog(Base):
         "Application", back_populates="action_logs"
     )
     performer: Mapped[User] = relationship("User")
+
+
+class ApplicationObjection(Base):
+    """Objection history and active objections per role on an application."""
+
+    __tablename__ = "application_objections"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    application_id: Mapped[int] = mapped_column(
+        ForeignKey("applications.id"), index=True
+    )
+    objected_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    objected_by_role: Mapped[UserRole] = mapped_column(Enum(UserRole), index=True)
+    objected_to_role: Mapped[UserRole] = mapped_column(Enum(UserRole), index=True)
+    remarks: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    reverted_document_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    status: Mapped[ObjectionStatus] = mapped_column(
+        Enum(ObjectionStatus), index=True, default=ObjectionStatus.PENDING
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.now, index=True
+    )
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    resolved_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+    resolved_by_role: Mapped[Optional[UserRole]] = mapped_column(
+        Enum(UserRole), nullable=True
+    )
+    resolution_remarks: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+    application: Mapped["Application"] = relationship(
+        "Application", back_populates="objections"
+    )
+    objected_by_user: Mapped["User"] = relationship(
+        "User", foreign_keys=[objected_by_id]
+    )
+    resolved_by_user: Mapped[Optional["User"]] = relationship(
+        "User", foreign_keys=[resolved_by_id]
+    )

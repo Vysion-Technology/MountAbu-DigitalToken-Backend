@@ -1,9 +1,12 @@
 from jose import jwt, ExpiredSignatureError, JWTError
 from backend.config import settings
 import time
+import secrets
+import string
+import json
 
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Tuple
 
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.security import HTTPAuthorizationCredentials
@@ -12,12 +15,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database import get_db
 from backend.services.user import UserService
-from backend.dao.user import UserDAO, UserRole
+from backend.services.sms import sms_service
+from backend.dao.user import UserDAO, UserRole, JurisdictionZone
 from backend.core.security import (
     create_tokens,
     create_access_token,
     decode_token,
     verify_password,
+    decrypt_and_verify_payload,
+    get_rsa_public_key,
 )
 from backend.middlewares.auth import get_current_user, security
 from backend.schemas.base.auth import UserDetails
@@ -26,21 +32,46 @@ router = APIRouter()
 user_service = UserService()
 user_dao = UserDAO()
 
+# --- Utility Functions ---
+
 # --- Request/Response Models ---
 
 
 class OTPRequest(BaseModel):
-    mobile: str = Field(..., pattern=r"^\d{10}$")
+    mobile: str = Field(..., min_length=10, max_length=10, pattern=r"^[0-9]+$")
 
 
 class LoginRequest(BaseModel):
-    mobile: str = Field(..., pattern=r"^\d{10}$")
+    mobile: str
     otp: str
 
 
 class PasswordLoginRequest(BaseModel):
     username: str
     password: str
+
+
+class LoginPasswordResponse(BaseModel):
+    otp_required: bool = False
+    masked_mobile: Optional[str] = None
+    username: Optional[str] = None
+    nonce: Optional[str] = None
+
+    # Optional fields for backward compatibility/token output
+    access_token: Optional[str] = None
+    refresh_token: Optional[str] = None
+    token_type: Optional[str] = None
+    role: Optional[str] = None
+    user_id: Optional[int] = None
+    name: Optional[str] = None
+    is_new_user: bool = False
+    jurisdiction_zone: Optional[JurisdictionZone] = None
+
+
+class VerifyLoginOTPRequest(BaseModel):
+    username: str
+    otp: str
+    nonce: Optional[str] = None
 
 
 
@@ -60,6 +91,7 @@ class TokenResponse(BaseModel):
     user_id: int
     name: str
     is_new_user: bool = False
+    jurisdiction_zone: Optional[JurisdictionZone] = None
 
 
 class RefreshTokenResponse(BaseModel):
@@ -76,7 +108,8 @@ class MeResponse(BaseModel):
     name: str
     mobile: str
     role: str
-    username: Optional[str] = None
+    is_active: bool
+    jurisdiction_zone: Optional[JurisdictionZone] = None
 
 
 # --- Routes ---
@@ -84,18 +117,48 @@ class MeResponse(BaseModel):
 
 @router.post("/send-otp", response_model=MessageResponse)
 async def send_otp(request: OTPRequest, db: AsyncSession = Depends(get_db)):
-    # Check if a valid (non-expired) OTP already exists
+    # Restrict to citizens: check if mobile belongs to an authority
+    user = await user_service.get_user_by_mobile(db, request.mobile)
+    if user and user.role != UserRole.CITIZEN:
+        raise HTTPException(
+            status_code=403,
+            detail="Authority logins are restricted from this request",
+        )
+
+    # Check for existing OTP record (valid or not, to check cooldown)
+    latest_otp = await user_dao.get_otp_record(db, request.mobile)
+    
+    now = datetime.now()
+    cooldown_seconds = 120  # 2 minutes cooldown
+
+    if latest_otp:
+        elapsed = (now - latest_otp.created_at).total_seconds()
+        if elapsed < cooldown_seconds:
+            wait_time = int(cooldown_seconds - elapsed)
+            raise HTTPException(
+                status_code=429,
+                detail=f"Please wait {wait_time} seconds before requesting another OTP."
+            )
+
+    # Check if a valid (non-expired) OTP already exists to reuse it
     existing_otp = await user_dao.get_valid_otp_record(db, request.mobile)
 
     if existing_otp:
-        # Resend the same OTP if it hasn't expired
+        # Resend the same OTP
         otp_value = existing_otp.otp
+        # Update created_at so the cooldown resets on resend
+        existing_otp.created_at = now
+        await db.commit()
+        
         print("========================================")
         print(f"RESENDING EXISTING OTP {otp_value} TO {request.mobile}")
         print("========================================")
     else:
-        # Generate new OTP (placeholder: using "123456" for everyone)
-        otp_value = "123456"
+        # Generate new OTP
+        if settings.USE_REAL_OTP:
+            otp_value = "".join(secrets.choice(string.digits) for _ in range(6))
+        else:
+            otp_value = "123456"
 
         # Store OTP in DB
         await user_dao.create_otp(db, request.mobile, otp_value)
@@ -104,35 +167,52 @@ async def send_otp(request: OTPRequest, db: AsyncSession = Depends(get_db)):
         print(f"SENT NEW OTP {otp_value} TO {request.mobile}")
         print("========================================")
 
+    # Trigger SMS delivery
+    await sms_service.send_otp(request.mobile, otp_value)
+
     return {"message": "OTP sent successfully"}
 
 
 @router.post("/login/otp", response_model=TokenResponse)
 async def login_with_otp(request: LoginRequest, db: AsyncSession = Depends(get_db)):
+    # Decrypt credentials and verify timestamp
+    mobile, nonce = decrypt_and_verify_payload(request.mobile)
+    otp, _ = decrypt_and_verify_payload(request.otp)
+
     # 1. Verify OTP
-    otp_record = await user_dao.get_otp_record(db, request.mobile)
-    if not otp_record or otp_record.otp != request.otp:
+    otp_record = await user_dao.get_otp_record(db, mobile)
+    if not otp_record or otp_record.otp != otp:
         raise HTTPException(status_code=400, detail="Invalid OTP")
 
     # Check expiry
     if otp_record.valid_till < datetime.now():
         raise HTTPException(status_code=400, detail="OTP Expired")
 
-    # 2. Get or create user
+    # 2. OTP is valid, delete it to prevent reuse
+    await user_dao.delete_otp_records(db, mobile)
+
+    # 3. Get or create user
     is_new_user = False
-    user = await user_service.get_user_by_mobile(db, request.mobile)
+    user = await user_service.get_user_by_mobile(db, mobile)
 
     if not user:
         # Auto-register as citizen
         user = await user_service.create_user(
-            db, mobile=request.mobile, role=UserRole.CITIZEN
+            db, mobile=mobile, role=UserRole.CITIZEN
         )
         await db.commit()
         await db.refresh(user)
         is_new_user = True
+    elif not user.is_active:
+        raise HTTPException(status_code=403, detail="User account is inactive")
+    elif user.role != UserRole.CITIZEN:
+        raise HTTPException(
+            status_code=403,
+            detail="Authority login must use password-based authentication",
+        )
 
     # 3. Generate Tokens (access + refresh)
-    access_token, refresh_token = create_tokens(user.id, user.role.value)
+    access_token, refresh_token = create_tokens(user.id, user.role.value, user.token_version, nonce=nonce)
 
     return {
         "access_token": access_token,
@@ -142,27 +222,108 @@ async def login_with_otp(request: LoginRequest, db: AsyncSession = Depends(get_d
         "user_id": user.id,
         "name": user.name,
         "is_new_user": is_new_user,
+        "jurisdiction_zone": user.jurisdiction_zone,
     }
 
 
-@router.post("/login/password", response_model=TokenResponse)
+@router.post("/login/password", response_model=LoginPasswordResponse)
 async def login_with_password(
     request: PasswordLoginRequest, db: AsyncSession = Depends(get_db)
 ):
-    user = await user_service.get_user_by_username(db, request.username)
+    # Decrypt credentials and verify timestamp
+    username, nonce = decrypt_and_verify_payload(request.username)
+    password, _ = decrypt_and_verify_payload(request.password)
+
+    user = await user_service.get_user_by_username(db, username)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="User account is inactive")
 
     if not user.password:
         raise HTTPException(
             status_code=401, detail="Password login not enabled for this user"
         )
 
-    if not verify_password(request.password, user.password):
+    if not verify_password(password, user.password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    # Generate Tokens (access + refresh)
-    access_token, refresh_token = create_tokens(user.id, user.role.value)
+    # If the user is a citizen, they must use mobile login instead
+    if user.role == UserRole.CITIZEN:
+        raise HTTPException(
+            status_code=403,
+            detail="Citizen accounts are restricted from this login path"
+        )
+
+    # Authority logins require OTP verification
+    if not user.mobile:
+        raise HTTPException(
+            status_code=400,
+            detail="User mobile number not configured for OTP verification"
+        )
+
+    # Generate OTP
+    if settings.USE_REAL_OTP:
+        otp_value = "".join(secrets.choice(string.digits) for _ in range(6))
+    else:
+        otp_value = "123456"
+
+    # Store OTP in DB
+    await user_dao.create_otp(db, user.mobile, otp_value)
+
+    print("========================================")
+    print(f"SENT NEW AUTHORITY OTP {otp_value} TO {user.mobile}")
+    print("========================================")
+
+    # Trigger SMS delivery
+    await sms_service.send_otp(user.mobile, otp_value)
+
+    return {
+        "otp_required": True,
+        "masked_mobile": f"******{user.mobile[-4:]}",
+        "username": request.username,  # Pass back the encrypted username
+        "nonce": nonce,
+    }
+
+
+@router.post("/verify-login-otp", response_model=TokenResponse)
+async def verify_login_otp(
+    request: VerifyLoginOTPRequest, db: AsyncSession = Depends(get_db)
+):
+    # Decrypt credentials and verify timestamp
+    username, nonce_user = decrypt_and_verify_payload(request.username)
+    otp, _ = decrypt_and_verify_payload(request.otp)
+
+    nonce = request.nonce or nonce_user
+
+    user = await user_service.get_user_by_username(db, username)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid credentials or session expired")
+
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="User account is inactive")
+
+    if not user.mobile:
+        raise HTTPException(
+            status_code=400,
+            detail="User mobile number not configured for OTP verification"
+        )
+
+    # 1. Verify OTP
+    otp_record = await user_dao.get_otp_record(db, user.mobile)
+    if not otp_record or otp_record.otp != otp:
+        raise HTTPException(status_code=400, detail="Invalid OTP")
+
+    # Check expiry
+    if otp_record.valid_till < datetime.now():
+        raise HTTPException(status_code=400, detail="OTP Expired")
+
+    # 2. OTP is valid, delete it to prevent reuse
+    await user_dao.delete_otp_records(db, user.mobile)
+
+    # 3. Generate Tokens (access + refresh)
+    access_token, refresh_token = create_tokens(user.id, user.role.value, user.token_version, nonce=nonce)
 
     return {
         "access_token": access_token,
@@ -171,11 +332,19 @@ async def login_with_password(
         "role": user.role.value,
         "user_id": user.id,
         "name": user.name,
+        "is_new_user": False,
+        "jurisdiction_zone": user.jurisdiction_zone,
     }
 
 
+@router.get("/public-key")
+async def get_public_key():
+    """Returns the RSA public key for client-side encryption."""
+    return {"public_key": get_rsa_public_key()}
+
+
 @router.post("/refresh", response_model=RefreshTokenResponse)
-async def refresh_access_token(request: RefreshTokenRequest):
+async def refresh_access_token(request: RefreshTokenRequest, db: AsyncSession = Depends(get_db)):
     """
     Exchange a valid refresh token for a new access token.
 
@@ -200,23 +369,54 @@ async def refresh_access_token(request: RefreshTokenRequest):
         )
 
     # Extract user info from refresh token
-    user_id = payload.get("sub")
+    user_id_str = payload.get("sub")
     role = payload.get("role")
+    token_version = payload.get("version", 1)
+    nonce = payload.get("nonce")
 
-    if not user_id or not role:
+    if not user_id_str or not role:
         raise HTTPException(
             status_code=401,
             detail="Invalid refresh token payload",
         )
 
+    user_id = int(user_id_str)
+    user = await user_dao.get_by_id(db, user_id)
+    if not user or user.token_version != token_version:
+        raise HTTPException(
+            status_code=401,
+            detail="Token invalidated. Please login again.",
+        )
+
     # Create new access token
-    token_data = {"sub": user_id, "role": role}
+    token_data = {"sub": str(user_id), "role": role, "version": user.token_version}
+    if nonce:
+        token_data["nonce"] = nonce
     new_access_token = create_access_token(token_data)
 
     return {
         "access_token": new_access_token,
         "token_type": "bearer",
     }
+
+
+@router.post("/logout", response_model=MessageResponse)
+async def logout(
+    current_user: UserDetails = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Logout the current user by incrementing their token_version.
+    This invalidates all current access and refresh tokens for this user.
+    """
+    user = await user_dao.get_by_id(db, current_user.user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.token_version += 1
+    await db.commit()
+
+    return {"message": "Logged out successfully. All sessions invalidated."}
 
 
 @router.get("/me", response_model=MeResponse)
@@ -237,7 +437,8 @@ async def get_me(
         "name": user.name,
         "mobile": user.mobile,
         "role": user.role.value,
-        "username": user.username,
+        "is_active": user.is_active,
+        "jurisdiction_zone": user.jurisdiction_zone,
     }
 
 
@@ -249,6 +450,8 @@ async def debug_token(
     DEBUG ONLY: Decode the token and return detailed info about what's wrong.
     Remove this endpoint in production.
     """
+    if not settings.debug:
+        raise HTTPException(status_code=404, detail="Not Found")
 
     token = credentials.credentials
     now_ts = time.time()

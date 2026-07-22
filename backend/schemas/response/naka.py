@@ -33,7 +33,7 @@ class VehicleEntryResponse(BaseModel):
 
 class NakaMaterialSummary(BaseModel):
     """Per-material summary for a phase at the naka checkpoint."""
-    material_id: int
+    material_id: Optional[int] = None
     material_name: str
     unit: str
     allowed_qty: int

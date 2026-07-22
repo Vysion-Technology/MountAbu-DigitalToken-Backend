@@ -1,3 +1,4 @@
+from typing import Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
@@ -9,6 +10,7 @@ from backend.schemas.base.auth import UserDetails
 # HTTPBearer scheme - expects token in "Authorization: Bearer <token>" header
 # Shows simple token input in Swagger UI
 security = HTTPBearer()
+optional_security = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
@@ -28,6 +30,7 @@ async def get_current_user(
         )
         user_id_str: str = payload.get("sub")
         role_str: str = payload.get("role")
+        token_version: int = payload.get("version", 1)
 
         if user_id_str is None:
             raise credentials_exception
@@ -38,7 +41,53 @@ async def get_current_user(
     except (JWTError, ValueError):
         raise credentials_exception
 
-    return UserDetails(user_id=user_id, role=role)
+    # Token version verification
+    from backend.database import get_db
+    from backend.dao.user import UserDAO
+    async for db in get_db():
+        user_dao = UserDAO()
+        user = await user_dao.get_by_id(db, user_id)
+        if not user or user.token_version != token_version:
+            raise credentials_exception
+        break
+
+    return UserDetails(user_id=user_id, role=role, token_version=token_version)
+
+
+async def get_optional_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(optional_security),
+) -> Optional[UserDetails]:
+    """Get user details if token is provided, else return None."""
+    if not credentials:
+        return None
+    try:
+        token = credentials.credentials
+        payload = jwt.decode(
+            token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
+        )
+        user_id_str: str = payload.get("sub")
+        role_str: str = payload.get("role")
+        token_version: int = payload.get("version", 1)
+
+        if user_id_str is None:
+            return None
+
+        user_id = int(user_id_str)
+        role = UserRole(role_str) if role_str else UserRole.CITIZEN
+
+        # Token version verification
+        from backend.database import get_db
+        from backend.dao.user import UserDAO
+        async for db in get_db():
+            user_dao = UserDAO()
+            user = await user_dao.get_by_id(db, user_id)
+            if not user or user.token_version != token_version:
+                return None
+            break
+
+        return UserDetails(user_id=user_id, role=role, token_version=token_version)
+    except (JWTError, ValueError):
+        return None
 
 
 async def get_current_user_id(
@@ -98,9 +147,11 @@ async def get_audit_viewer(
         UserRole.ADMIN,
         UserRole.SUPERADMIN,
         UserRole.NODAL_OFFICER,
+        UserRole.COMMISSIONER,
+        UserRole.COLLECTOR,
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only Admin, Superadmin, or Nodal Officers can view audit logs",
+            detail="Only Admin, Superadmin, Nodal Officers, or Commissioner can view audit logs",
         )
     return current_user

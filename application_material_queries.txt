@@ -1,0 +1,11 @@
+# SQL Queries for Application Materials (Includes Catalog & Custom Materials)
+# Replace <APP_ID> with the actual Application ID (e.g., 29)
+
+# 1. Check Initial Material Requirements (What the citizen applied for)
+docker exec -it etoken-postgres psql -U etoken_user -d mountabu_etoken -c "SELECT am.id, COALESCE(m.name, am.custom_name) AS material_name, am.quantity, am.material_id FROM application_materials am LEFT JOIN materials m ON am.material_id = m.id WHERE am.application_id = <APP_ID>;"
+
+# 2. Check Approved Materials per Phase (What the Authority allowed per Token)
+docker exec -it etoken-postgres psql -U etoken_user -d mountabu_etoken -c "SELECT apm.id, apm.phase, COALESCE(m.name, apm.custom_name) AS material_name, apm.quantity AS approved_quantity, apm.material_id FROM application_phase_materials apm LEFT JOIN materials m ON apm.material_id = m.id WHERE apm.application_id = <APP_ID> ORDER BY apm.phase ASC;"
+
+# 3. Check Materials already brought via Vehicle Entries (Actual entry at Naka)
+docker exec -it etoken-postgres psql -U etoken_user -d mountabu_etoken -c "SELECT vm.id, ve.phase, COALESCE(m.name, vm.custom_name) AS material_name, vm.quantity AS quantity_brought, ve.entry_at FROM vehicle_materials vm JOIN vehicle_entries ve ON vm.vehicle_entry_id = ve.id LEFT JOIN materials m ON vm.material_id = m.id WHERE ve.application_id = <APP_ID> ORDER BY ve.entry_at DESC;"

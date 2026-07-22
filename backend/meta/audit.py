@@ -5,3 +5,4 @@ class AuditAction(str, PyEnum):
     CHANGED = "CHANGED"
     CREATED = "CREATED"
     VIEWED = "VIEWED"
+    DELETED = "DELETED"

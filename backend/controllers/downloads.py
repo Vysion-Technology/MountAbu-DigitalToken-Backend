@@ -1,7 +1,8 @@
+from typing import Optional
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.database import get_db
-from backend.middlewares.auth import get_admin_or_nodal
+from backend.middlewares.auth import get_admin_or_nodal, get_optional_user
 from backend.schemas.base.auth import UserDetails
 from backend.services.downloads import DownloadsService, get_downloads_service
 from backend.schemas.request.download import DownloadCreate, DownloadUpdate
@@ -40,7 +41,7 @@ async def create_download(
         "DOWNLOAD",
         AuditAction.CREATED,
         current_user.user_id,
-        new_state=response.model_dump() if hasattr(response, "model_dump") else None,
+        new_state=response.model_dump(mode="json") if hasattr(response, "model_dump") else None,
     )
     await db.commit()
     return response
@@ -51,18 +52,20 @@ async def list_downloads(
     limit: int = 50,
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
+    user: Optional[UserDetails] = Depends(get_optional_user),
     service: DownloadsService = Depends(get_downloads_service),
 ):
-    return await service.list_downloads(db, limit=limit, offset=offset)
+    return await service.list_downloads(db, limit=limit, offset=offset, user=user)
 
 
 @router.get("/downloads/{download_id}", response_model=DownloadResponse)
 async def get_download(
     download_id: int,
     db: AsyncSession = Depends(get_db),
+    user: Optional[UserDetails] = Depends(get_optional_user),
     service: DownloadsService = Depends(get_downloads_service),
 ):
-    return await service.get_download(db, download_id)
+    return await service.get_download(db, download_id, user=user)
 
 
 @router.put("/downloads/{download_id}", response_model=DownloadResponse)
@@ -80,7 +83,7 @@ async def update_download(
         "DOWNLOAD",
         AuditAction.CHANGED,
         current_user.user_id,
-        new_state=response.model_dump() if hasattr(response, "model_dump") else None,
+        new_state=response.model_dump(mode="json") if hasattr(response, "model_dump") else None,
     )
     await db.commit()
     return response

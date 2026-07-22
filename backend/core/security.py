@@ -2,9 +2,95 @@ from datetime import datetime, timedelta
 from typing import Optional, Tuple
 
 import bcrypt
+import json
+import time
+import base64
+from Crypto.PublicKey import RSA
+from Crypto.Cipher import PKCS1_v1_5
+from Crypto.Hash import SHA256
+from Crypto import Random
 from jose import jwt, JWTError
+from fastapi import HTTPException
 
 from backend.config import settings
+
+# RSA Key Management
+_private_key = None
+_public_key_pem = None
+
+def get_rsa_public_key() -> str:
+    """Returns the public key in PEM format."""
+    global _private_key, _public_key_pem
+    if _public_key_pem is None:
+        # In a real production app, you might load these from a file or env
+        # For now, we generate them on startup if not present
+        random_generator = Random.new().read
+        _private_key = RSA.generate(2048, random_generator)
+        _public_key_pem = _private_key.publickey().export_key().decode("utf-8")
+    return _public_key_pem
+
+def decrypt_credentials(encrypted_text: str) -> str:
+    """
+    Decrypt credentials encrypted with RSA Public Key.
+    Expects base64 encoded ciphertext.
+    """
+    global _private_key
+    if _private_key is None:
+        get_rsa_public_key() # Ensure keys are generated
+
+    try:
+        # Decode base64
+        ciphertext = base64.b64decode(encrypted_text)
+        
+        # Decrypt using PKCS1_v1_5
+        sentinel = Random.new().read(16)
+        cipher = PKCS1_v1_5.new(_private_key)
+        plain_text = cipher.decrypt(ciphertext, sentinel)
+        
+        if plain_text == sentinel:
+            raise ValueError("RSA Decryption failed")
+            
+        return plain_text.decode("utf-8")
+    except Exception as e:
+        if settings.ENFORCE_RSA_ENCRYPTION:
+            print(f"Decryption error (Enforced): {e}")
+            raise ValueError("Invalid encrypted credentials format")
+        
+        # If not enforced, fallback to plain text (development mode)
+        return encrypted_text
+
+def decrypt_and_verify_payload(encrypted_text: str) -> Tuple[str, Optional[str]]:
+    """
+    Decrypts RSA payload and verifies timestamp expiry (30 seconds).
+    Returns (value, nonce).
+    """
+    decrypted_text = decrypt_credentials(encrypted_text)
+    
+    try:
+        data = json.loads(decrypted_text)
+        if isinstance(data, dict):
+            value = data.get("value")
+            nonce = data.get("nonce")
+            timestamp = data.get("timestamp")
+            
+            if timestamp:
+                # Handle both ms and s
+                if timestamp > 1e11: # Likely milliseconds (e.g., Date.now() in JS)
+                    timestamp = timestamp / 1000.0
+                
+                now = time.time()
+                if abs(now - timestamp) > 30:
+                    raise HTTPException(
+                        status_code=401, 
+                        detail="Request expired or clock out of sync. Please try again."
+                    )
+            
+            # If value is present, return it. Otherwise, return the whole JSON as string (fallback)
+            return value if value is not None else decrypted_text, nonce
+    except (json.JSONDecodeError, TypeError):
+        pass
+    
+    return decrypted_text, None
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -46,9 +132,11 @@ def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None) 
     return encoded_jwt
 
 
-def create_tokens(user_id: int, role: str) -> Tuple[str, str]:
+def create_tokens(user_id: int, role: str, token_version: int = 1, nonce: Optional[str] = None) -> Tuple[str, str]:
     """Create both access and refresh tokens for a user."""
-    token_data = {"sub": str(user_id), "role": role}
+    token_data = {"sub": str(user_id), "role": role, "version": token_version}
+    if nonce:
+        token_data["nonce"] = nonce
     access_token = create_access_token(token_data)
     refresh_token = create_refresh_token(token_data)
     return access_token, refresh_token

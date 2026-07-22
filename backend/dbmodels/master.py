@@ -35,6 +35,9 @@ class Department(Base):
     code: Mapped[str] = mapped_column(String, index=True, unique=True)
     type: Mapped[str] = mapped_column(String)  # Municipal, Planning, etc.
     status: Mapped[bool] = mapped_column(Boolean, default=True)
+    jen_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
     created_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime, default=datetime.now, nullable=True
     )
@@ -42,7 +45,8 @@ class Department(Base):
         ForeignKey("users.id"), nullable=True, default=1
     )
 
-    created_by: Mapped["User"] = relationship("User")
+    created_by: Mapped["User"] = relationship("User", foreign_keys=[created_by_id])
+    jen: Mapped["User"] = relationship("User", foreign_keys=[jen_id])
 
 
 class Role(Base):

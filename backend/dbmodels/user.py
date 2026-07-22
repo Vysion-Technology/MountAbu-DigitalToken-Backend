@@ -5,7 +5,7 @@ from sqlalchemy import Enum, Integer, String, DateTime
 from sqlalchemy.orm import mapped_column, Mapped
 
 from backend.database import Base
-from backend.meta import UserRole
+from backend.meta import UserRole, JurisdictionZone
 
 
 class ActiveUserOTP(Base):
@@ -15,7 +15,7 @@ class ActiveUserOTP(Base):
     otp: Mapped[str] = mapped_column(String, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     valid_till: Mapped[datetime] = mapped_column(
-        DateTime, default=lambda: datetime.now() + timedelta(minutes=60)
+        DateTime, default=lambda: datetime.now() + timedelta(minutes=5)
     )
 
 
@@ -29,3 +29,8 @@ class User(Base):
     mobile: Mapped[str] = mapped_column(String(10), index=True)
     username: Mapped[Optional[str]] = mapped_column(String, index=True)
     password: Mapped[Optional[str]] = mapped_column(String, index=True)
+    is_active: Mapped[bool] = mapped_column(default=True)
+    token_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    jurisdiction_zone: Mapped[Optional[JurisdictionZone]] = mapped_column(
+        Enum(JurisdictionZone), nullable=True
+    )

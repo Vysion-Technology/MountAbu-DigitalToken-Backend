@@ -23,3 +23,4 @@ class TenderUpdate(BaseModel):
     published_on: Optional[datetime] = Field(None)
     submission_deadline: Optional[datetime] = Field(None)
     status: Optional[TenderStatus] = Field(None)
+    document_path: Optional[str] = Field(None)

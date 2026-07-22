@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import List, Optional
 
 from fastapi import Depends, UploadFile
@@ -12,6 +13,11 @@ from backend.meta import (
     ApplicationFlags,
     CommentType,
     UserRole,
+    ApplicationPhaseStatus,
+    PropertyUsageType,
+    JurisdictionZone,
+    ApplicationType,
+    ApplicationStatus,
 )
 from backend.schemas.base.auth import UserDetails
 from backend.schemas.request.application import (
@@ -19,14 +25,20 @@ from backend.schemas.request.application import (
     ApplicationMaterialCreate,
     ApplicationMaterialRequirements,
     InspectionReportCreate,
+    InspectionReportUpdate,
     NakaEntryCreate,
     WorkflowActionRequest,
+    PhaseStatusUpdateRequest,
 )
 from backend.schemas.response.application import (
     ApplicationResponse,
+    ApplicationPaginatedResponse,
     PhaseResponse,
     TokenResponse,
     TokenDetailResponse,
+    AuthorityVehicleEntryResponse,
+    NakaEntryResponse,
+    VehicleEntryDetailResponse,
 )
 from backend.schemas.response.meta import SuccessResponse, DocumentUploadResponse
 from backend.services.base import BaseService
@@ -56,29 +68,86 @@ class ApplicationService(BaseService):
 
         application = await self.dao.get_application(application_id)
 
-        if application and user.role == UserRole.NAKA_INCHARGE:
-            # Sanitize user details for NAKA_INCHARGE
-            application.mobile = "******"
-            application.email = "******"
-            application.current_address = "******"
+        if application:
+            if user.role == UserRole.CITIZEN:
+                if hasattr(application, "comments") and application.comments is not None:
+                    application.comments = [
+                        c for c in application.comments if c.comment_type != CommentType.DEPT_REVIEW
+                    ]
+                if hasattr(application, "objections") and application.objections is not None:
+                    application.objections = [
+                        o for o in application.objections if str(getattr(o, "objected_to_role", "")) == "CITIZEN" or getattr(o, "objected_to_role", None) == UserRole.CITIZEN
+                    ]
+            elif user.role == UserRole.NAKA_INCHARGE:
+                # Sanitize user details for NAKA_INCHARGE
+                application.mobile = "******"
+                application.email = "******"
+                application.current_address = "******"
 
         return application
 
     async def get_applications(
         self,
-        flag: Optional[ApplicationFlags],
-        offset: int,
-        limit: int,
+        flag: Optional[ApplicationFlags] = None,
+        offset: int = 0,
+        limit: int = 10,
         user_id: Optional[int] = None,
-    ) -> List[ApplicationResponse]:
-        """Get applications filtered by flag with pagination."""
-        return await self.dao.get_applications(
-            flag=flag, offset=offset, limit=limit, user_id=user_id
+        search: Optional[str] = None,
+        ward_id: Optional[int] = None,
+        ward_ids: Optional[list[int]] = None,
+        property_usage: Optional[PropertyUsageType] = None,
+        jurisdiction_zone: Optional[JurisdictionZone] = None,
+        user_role: Optional[UserRole] = None,
+        caller_role: Optional[UserRole] = None,
+        primary_tab: Optional[str] = None,
+        authority_role: Optional[UserRole] = None,
+        action_name: Optional[str] = None,
+        pending_days: Optional[int] = None,
+        submitted_days: Optional[int] = None,
+        app_type: Optional[ApplicationType] = None,
+        app_status: Optional[ApplicationStatus] = None,
+    ) -> ApplicationPaginatedResponse:
+        """Get applications filtered by flag, primary tab, search, and other criteria."""
+        apps, total = await self.dao.get_applications(
+            flag=flag,
+            offset=offset,
+            limit=limit,
+            user_id=user_id,
+            search=search,
+            ward_id=ward_id,
+            ward_ids=ward_ids,
+            property_usage=property_usage,
+            jurisdiction_zone=jurisdiction_zone,
+            user_role=user_role,
+            primary_tab=primary_tab,
+            authority_role=authority_role,
+            action_name=action_name,
+            pending_days=pending_days,
+            submitted_days=submitted_days,
+            app_type=app_type,
+            app_status=app_status,
         )
+        if caller_role == UserRole.CITIZEN:
+            for app in apps:
+                if hasattr(app, "comments") and app.comments is not None:
+                    app.comments = [
+                        c for c in app.comments if c.comment_type != CommentType.DEPT_REVIEW
+                    ]
+                if hasattr(app, "objections") and app.objections is not None:
+                    app.objections = [
+                        o for o in app.objections if str(getattr(o, "objected_to_role", "")) == "CITIZEN" or getattr(o, "objected_to_role", None) == UserRole.CITIZEN
+                    ]
+        return ApplicationPaginatedResponse(applications=apps, total=total, offset=offset, limit=limit)
 
     async def delete_application(self, application_id: int) -> SuccessResponse:
         """Delete an application by ID."""
         return await self.dao.delete_application(application_id)
+
+    async def get_organization_suggestions(
+        self, property_usage: PropertyUsageType
+    ) -> List[str]:
+        """Fetch unique list of organization names for property usage type (COMMERCIAL / GOVERNMENT)."""
+        return await self.dao.get_organization_suggestions(property_usage)
 
     async def comment_on_application(
         self,
@@ -93,9 +162,14 @@ class ApplicationService(BaseService):
             application_id, comment, user_id, comment_type, media_paths
         )
 
-    async def get_application_comments(self, application_id: int) -> list:
+    async def get_application_comments(
+        self, application_id: int, caller_role: Optional[UserRole] = None
+    ) -> list:
         """Get comments for an application."""
-        return await self.dao.get_comments(application_id)
+        comments = await self.dao.get_comments(application_id)
+        if caller_role == UserRole.CITIZEN:
+            comments = [c for c in comments if c.comment_type != CommentType.DEPT_REVIEW]
+        return comments
 
     async def upload_document(
         self,
@@ -170,9 +244,20 @@ class ApplicationService(BaseService):
             user_id=user_id,
             user_role=user_role,
             remarks=request.remarks,
-            num_stages=request.num_stages,
+            phase=request.phase,
             phase_materials=request.phase_materials,
+            objection_to_role=request.objection_to_role,
+            objection_to_roles=request.objection_to_roles,
+            role_remarks=request.role_remarks,
+            reverted_document_url=request.reverted_document_url,
+            clear_objection_role=request.clear_objection_role,
         )
+
+    async def update_phase_materials(
+        self, application_id: int, phase_materials: list
+    ) -> SuccessResponse:
+        """Update phase-wise materials for an application (used by JEN)."""
+        return await self.dao.update_phase_materials(application_id, phase_materials)
 
     # ── JEN inspection ────────────────────────────────────────────────────
     async def create_inspection_report(
@@ -193,6 +278,23 @@ class ApplicationService(BaseService):
             phase_materials=report.phase_materials,
         )
 
+    async def update_inspection_report(
+        self,
+        application_id: int,
+        report: InspectionReportUpdate,
+        user_id: int,
+    ) -> SuccessResponse:
+        """Update an existing inspection report."""
+        return await self.dao.update_inspection_report(
+            application_id=application_id,
+            user_id=user_id,
+            latitude=report.latitude,
+            longitude=report.longitude,
+            remarks=report.remarks,
+            media_paths=report.media_paths,
+            recommended_phases=report.recommended_phases,
+        )
+
     # ── Naka entry ────────────────────────────────────────────────────────
     async def create_naka_entry(
         self,
@@ -202,24 +304,109 @@ class ApplicationService(BaseService):
         user_id: int,
     ) -> SuccessResponse:
         """Log a naka checkpoint entry."""
+        media = {
+            "vehicle_plate": entry.vehicle_plate_image,
+            "entry_proofs": entry.entry_proof_images,
+        }
         return await self.dao.create_naka_entry(
             application_id=application_id,
             phase=phase,
             user_id=user_id,
-            material_id=entry.material_id,
-            quantity_brought=entry.quantity_brought,
+            materials=[m.model_dump() for m in entry.materials],
             vehicle_number=entry.vehicle_number,
+            vehicle_type=entry.vehicle_type,
+            latitude=entry.latitude,
+            longitude=entry.longitude,
             remarks=entry.remarks,
-            media_path=entry.media_path,
+            media=media,
+        )
+
+    async def upload_dumping_photo(
+        self, application_id: int, entry_id: int, document: UploadFile, user_id: int
+    ) -> DocumentUploadResponse:
+        """Upload and save dumping photo for a vehicle entry."""
+        storage = get_storage_service()
+        if not storage:
+            raise Exception("Storage service unavailable")
+
+        file_path = f"applications/{application_id}/vehicle-entries/{entry_id}/dumping-photos/{document.filename}"
+        path = await storage.upload_file(document, file_path)
+
+        await self.dao.add_dumping_photo(
+            application_id=application_id,
+            entry_id=entry_id,
+            photo_path=path,
+            user_id=user_id,
+        )
+        return DocumentUploadResponse(
+            message="Dumping photo uploaded successfully", path=path
         )
 
     async def get_naka_entries(self, application_id: int) -> list:
         """Get all naka entries for an application."""
-        from backend.schemas.response.application import NakaEntryResponse
 
         entries = await self.dao.get_naka_entries(application_id)
         return [NakaEntryResponse.model_validate(e) for e in entries]
 
+    async def get_vehicle_entry_detail(
+        self, entry_id: int, user: UserDetails
+    ) -> VehicleEntryDetailResponse:
+        """Get full details for a single vehicle entry with auth check."""
+        entry_data = await self.dao.get_vehicle_entry_detail(entry_id)
+
+        # Authorization Check
+        allowed_authority_roles = [
+            UserRole.SUPERADMIN,
+            UserRole.NODAL_OFFICER,
+            UserRole.NAKA_INCHARGE,
+            UserRole.COLLECTOR,
+        ]
+
+        if user.role not in allowed_authority_roles:
+            # Must be CITIZEN and own the application
+            if (
+                user.role != UserRole.CITIZEN
+                or entry_data["application_user_id"] != user.user_id
+            ):
+                raise HTTPException(
+                    status_code=403,
+                    detail="You are not permitted to view this vehicle entry.",
+                )
+
+        return VehicleEntryDetailResponse.model_validate(entry_data)
+
+    async def get_all_vehicle_entries(
+        self,
+        user_role: UserRole,
+        search: Optional[str] = None,
+        vehicle_number: Optional[List[str]] = None,
+        material_name: Optional[List[str]] = None,
+        token_number: Optional[List[str]] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        offset: int = 0,
+        limit: int = 50,
+    ) -> list[AuthorityVehicleEntryResponse]:
+        """Get all vehicle entries for authority view, with role-based token_number hiding."""
+        entries_data = await self.dao.get_all_vehicle_entries(
+            search=search,
+            vehicle_number=vehicle_number,
+            material_name=material_name,
+            token_number=token_number,
+            start_date=start_date,
+            end_date=end_date,
+            offset=offset,
+            limit=limit,
+        )
+
+        response = []
+        for item in entries_data:
+            if user_role == UserRole.NAKA_INCHARGE:
+                item["token_number"] = None
+
+            response.append(AuthorityVehicleEntryResponse.model_validate(item))
+
+        return response
     async def get_phase_material_summary(self, application_id: int, phase: int) -> dict:
         """Get material summary for a phase (used by naka checkpoint)."""
         return await self.dao.get_phase_material_summary(application_id, phase)
@@ -236,17 +423,29 @@ class ApplicationService(BaseService):
         """Mark a phase as completed."""
         return await self.dao.complete_phase(application_id, phase, user_id)
 
-    # ── Token queries ─────────────────────────────────────────────────────
-    async def get_citizen_tokens(
+    async def update_phase_status(
         self,
+        application_id: int,
+        phase: int,
+        request: PhaseStatusUpdateRequest,
         user_id: int,
+    ) -> SuccessResponse:
+        """Manually update a phase's status."""
+        return await self.dao.update_phase_status(
+            application_id, phase, request.status, user_id
+        )
+
+    # ── Token queries ─────────────────────────────────────────────────────
+    async def get_tokens(
+        self,
+        user_id: Optional[int] = None,
         status_filter: Optional[str] = None,
         search: Optional[str] = None,
         offset: int = 0,
         limit: int = 10,
     ) -> list[TokenResponse]:
-        """Get all tokens for a citizen with optional filters."""
-        token_dicts = await self.dao.get_citizen_tokens(
+        """Get all tokens with optional filters."""
+        token_dicts = await self.dao.get_tokens(
             user_id=user_id,
             status_filter=status_filter,
             search=search,

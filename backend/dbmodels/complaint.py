@@ -43,6 +43,9 @@ class Complaint(Base):
     latitude: Mapped[float] = mapped_column(Float, nullable=True)
     longitude: Mapped[float] = mapped_column(Float, nullable=True)
     location_address: Mapped[str] = mapped_column(String, nullable=True)
+    assigned_to_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
@@ -53,7 +56,8 @@ class Complaint(Base):
     )
 
     # Relationships
-    user: Mapped["User"] = relationship("User", backref="complaints")
+    user: Mapped["User"] = relationship("User", foreign_keys=[user_id], backref="complaints")
+    assigned_to: Mapped["User"] = relationship("User", foreign_keys=[assigned_to_id])
     ward: Mapped["Ward"] = relationship("Ward")
     category: Mapped["ComplaintCategory"] = relationship("ComplaintCategory")
 

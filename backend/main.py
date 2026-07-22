@@ -1,8 +1,10 @@
 from contextlib import asynccontextmanager
 import subprocess
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 import uvicorn
 
+from backend.config import settings
 from backend.controllers.auth import router as auth_router
 from backend.controllers.application import router as app_router
 from backend.controllers.superadmin import router as superadmin_router
@@ -21,6 +23,7 @@ from backend.controllers.dashboard import router as dashboard_router
 from backend.controllers.user_management import router as user_management_router
 from backend.controllers.audit import router as audit_router
 from backend.controllers.contact_diary import router as contact_diary_router
+from backend.middlewares.security import XSSMiddleware
 
 
 @asynccontextmanager
@@ -38,7 +41,37 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Mount Abu E-Token System", lifespan=lifespan)
+app = FastAPI(
+    title="Mount Abu E-Token System", 
+    lifespan=lifespan,
+    debug=settings.debug
+)
+
+@app.exception_handler(ValueError)
+async def value_error_exception_handler(request: Request, exc: ValueError):
+    return JSONResponse(
+        status_code=400,
+        content={"detail": str(exc)},
+    )
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    # Log the error (FastAPI/Uvicorn usually does this, but we can be explicit)
+    import traceback
+    traceback.print_exc()
+
+    if settings.debug:
+        return JSONResponse(
+            status_code=500,
+            content={"detail": str(exc), "traceback": traceback.format_exc()},
+        )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal Server Error"},
+    )
+
+# Add Middlewares
+app.add_middleware(XSSMiddleware)
 
 # Include routers
 app.include_router(auth_router, prefix="/auth", tags=["Auth"])

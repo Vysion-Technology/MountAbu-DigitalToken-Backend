@@ -12,6 +12,10 @@ class UserRole(str, PyEnum):
     DEPT_LEGAL = "DEPT_LEGAL"
     DEPT_ATP = "DEPT_ATP"
     JEN = "JEN"
+    AEN = "AEN"
+    RIN = "RIN"
+    SIN = "SIN"
+    COLLECTOR = "COLLECTOR"
 
 
 class ApplicationStatus(str, PyEnum):
@@ -47,6 +51,7 @@ class ApplicationDocumentType(str, PyEnum):
     SUPPORTING_DOCUMENTS = "SUPPORTING_DOCUMENTS"
     SITE_INSPECTION = "SITE_INSPECTION"  # JEN geo-tagged inspection photos
     GEO_TAGGED_PHOTO = "GEO_TAGGED_PHOTO"  # Geo-tagged site photos
+    DETAILED_DESIGN_ESTIMATE = "DETAILED_DESIGN_ESTIMATE"
 
 
 class ApplicationPhaseStatus(str, PyEnum):
@@ -69,6 +74,7 @@ class WorkflowAction(str, PyEnum):
     FORWARD = "FORWARD"  # Commissioner forwards renovation to depts
     GENERATE_TOKENS = "GENERATE_TOKENS"
     WITHDRAW = "WITHDRAW"  # Application Withdrawn by Applicant
+    CLEAR_OBJECTION = "CLEAR_OBJECTION"
 
 
 class CommentType(str, PyEnum):
@@ -81,10 +87,16 @@ class CommentType(str, PyEnum):
     INSPECTION_REMARK = "INSPECTION_REMARK"  # JEN inspection remarks
 
 
+class ObjectionStatus(str, PyEnum):
+    PENDING = "PENDING"
+    RESOLVED = "RESOLVED"
+
+
 class PropertyUsageType(str, PyEnum):
     DOMESTIC = "DOMESTIC"
     COMMERCIAL = "COMMERCIAL"
     HOTEL = "HOTEL"
+    GOVERNMENT = "GOVERNMENT"
 
 
 class DepartmentType(str, PyEnum):
@@ -143,6 +155,8 @@ class ApplicationFlags(str, PyEnum):
     OBJECTED_CITIZEN_ACTION = (
         "OBJECTED_CITIZEN_ACTION"  # Citizen must respond to objection
     )
+    ALL_DEPT = "ALL_DEPT"
+    PENDING_WITH_ME = "PENDING_WITH_ME"
 
     # New Application flags
     NEW_APPLICATION_REQUIRES_NODAL_OFFICER_ACTION = (
@@ -199,3 +213,17 @@ class ApplicationFlags(str, PyEnum):
     # Phase & Naka flags
     PHASE_READY_FOR_NAKA = "PHASE_READY_FOR_NAKA"  # Naka incharge can act
     NAKA_INCHARGE_ACTION = "NAKA_INCHARGE_ACTION"  # Materials to verify
+
+
+class StructureType(str, PyEnum):
+    NONE = "NONE"
+    FENCING = "FENCING"
+    G = "G"
+    G_1 = "G+1"
+    G_2 = "G+2"
+    G_3 = "G+3"
+
+
+class JurisdictionZone(str, PyEnum):
+    ULB = "ULB"
+    UIT = "UIT"

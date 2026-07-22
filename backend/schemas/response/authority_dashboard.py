@@ -1,6 +1,6 @@
 """Response schemas for authority / role-specific dashboards."""
 
-from typing import List, Optional
+from typing import List, Optional, Union
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -130,6 +130,20 @@ class TokenUtilizationRow(BaseModel):
     used_quantity: int = 0
 
 
+class NodalVehicleEntryRow(BaseModel):
+    """Vehicle entry row for Nodal Officer dashboard."""
+
+    token_number: str
+    vehicle_number: Optional[str] = None
+    naka_incharge: Optional[str] = None
+    material_type: Optional[str] = None
+    quantity_entered: float = 0
+    entry_at: Optional[str] = None
+    ai_recognition: Optional[str] = None  # Not in DB, always None for now
+    remaining_quantity: float = 0
+    media_path: Optional[str] = None
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Top-level authority dashboard response
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -159,7 +173,7 @@ class AuthorityDashboardResponse(BaseModel):
 
     # ── Naka Incharge ─────────────────────────────────────────────────────
     entries_by_naka: Optional[List[EntriesByNaka]] = None
-    vehicle_entry_list: Optional[List[NakaEntryRow]] = None
+    vehicle_entry_list: Optional[List[Union[NodalVehicleEntryRow, NakaEntryRow]]] = None
 
     # ── Complaint Officer (Commissioner) ──────────────────────────────────
     complaint_resolution_status: Optional[List[StatusCount]] = None
