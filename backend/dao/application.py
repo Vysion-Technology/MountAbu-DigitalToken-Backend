@@ -20,7 +20,7 @@ from backend.dbmodels.application import (
     VehicleEntryDumpingPhoto,
 )
 from backend.dao.base import BaseDAO
-from backend.meta import ApplicationStatus, CommentType, WorkflowAction
+from backend.meta import ApplicationStatus, CommentType, WorkflowAction, ObjectionStatus, UserRole, ApplicationFlags, ApplicationType, ApplicationPhaseStatus, PropertyUsageType
 from backend.schemas.request.application import ApplicationCreate
 from backend.schemas.response.application import ApplicationResponse
 from backend.schemas.response.meta import SuccessResponse
@@ -32,6 +32,7 @@ from backend.dbmodels.application import (
     ApplicationPhaseMaterial,
     ApprovedApplicationPhase,
     Material,
+    ApplicationObjection,
 )
 from backend.meta import (
     ApplicationDocumentType,
@@ -56,8 +57,18 @@ _APPLICATION_LOAD_OPTIONS = [
     selectinload(Application.phase_materials).selectinload(ApplicationPhaseMaterial.material),
     selectinload(Application.inspections).selectinload(InspectionReport.inspector),
     selectinload(Application.vehicle_entries).selectinload(VehicleEntry.materials).selectinload(VehicleMaterial.material),
-    selectinload(Application.action_logs),
+    selectinload(Application.action_logs).selectinload(ApplicationActionLog.performer),
+    selectinload(Application.objections).selectinload(ApplicationObjection.objected_by_user),
+    selectinload(Application.objections).selectinload(ApplicationObjection.resolved_by_user),
 ]
+
+
+def _get_app_last_updated_at(app: Application) -> datetime:
+    if hasattr(app, "action_logs") and app.action_logs:
+        log_ts = [log.performed_at for log in app.action_logs if log.performed_at]
+        if log_ts:
+            return max(log_ts)
+    return app.created_at
 
 
 class ApplicationDAO(BaseDAO):
@@ -72,8 +83,8 @@ class ApplicationDAO(BaseDAO):
 
         # ── OBJECTED (both flows) ─────────────────────────────────────
         if st == ApplicationStatus.OBJECTED:
-            flags.append(ApplicationFlags.OBJECTED_CITIZEN_ACTION)
-            return flags
+            if not application.objection_to_role or application.objection_to_role == UserRole.CITIZEN:
+                flags.append(ApplicationFlags.OBJECTED_CITIZEN_ACTION)
 
         # ── NEW flow ──────────────────────────────────────────────────
         if tp == ApplicationType.NEW:
@@ -190,53 +201,59 @@ class ApplicationDAO(BaseDAO):
         # ── PENDING_WITH_ME flag ─────────────────────────────────────────
         if user_role:
             is_pending_with_me = False
-            if user_role == UserRole.NODAL_OFFICER:
-                # 1. NEW in SUBMITTED (needing approval)
-                # 2. NEW in APPROVED (has inspection + phase materials, needs token generation)
-                # 3. RENOVATION in APPROVED (has inspection + phase materials, needs token generation)
-                if tp == ApplicationType.NEW and st == ApplicationStatus.SUBMITTED:
+            if st == ApplicationStatus.OBJECTED:
+                if application.objection_to_role == user_role:
                     is_pending_with_me = True
-                elif st == ApplicationStatus.APPROVED and len(application.inspections) > 0 and application.phase_materials:
+                elif not application.objection_to_role and user_role == UserRole.CITIZEN:
                     is_pending_with_me = True
-            
-            elif user_role == UserRole.COMMISSIONER:
-                # 1. RENOVATION in SUBMITTED (needing forwarding)
-                # 2. RENOVATION in FORWARDED where all depts commented and JEN inspected (needing approval)
-                if tp == ApplicationType.RENOVATION:
-                    if st == ApplicationStatus.SUBMITTED:
+            else:
+                if user_role == UserRole.NODAL_OFFICER:
+                    # 1. NEW in SUBMITTED (needing approval)
+                    # 2. NEW in APPROVED (has inspection + phase materials, needs token generation)
+                    # 3. RENOVATION in APPROVED (has inspection + phase materials, needs token generation)
+                    if tp == ApplicationType.NEW and st == ApplicationStatus.SUBMITTED:
                         is_pending_with_me = True
-                    elif st == ApplicationStatus.FORWARDED:
-                        dept_review_roles = {
-                            c.commenter.role
-                            for c in application.comments
-                            if c.comment_type == CommentType.DEPT_REVIEW
-                        }
-                        if len(application.inspections) > 0:
-                            dept_review_roles.add(UserRole.JEN)
-                        
-                        missing_depts = RENOVATION_DEPT_ROLES - dept_review_roles
-                        if not missing_depts:
+                    elif st == ApplicationStatus.APPROVED and len(application.inspections) > 0 and application.phase_materials:
+                        is_pending_with_me = True
+                
+                elif user_role == UserRole.COMMISSIONER:
+                    # 1. RENOVATION in SUBMITTED (needing forwarding)
+                    # 2. RENOVATION in FORWARDED where all depts commented and JEN inspected (needing approval)
+                    if tp == ApplicationType.RENOVATION:
+                        if st == ApplicationStatus.SUBMITTED:
                             is_pending_with_me = True
-            
-            elif user_role == UserRole.JEN:
-                # 1. NEW in APPROVED and (no inspection or no phase materials)
-                # 2. RENOVATION in FORWARDED and (no inspection or no phase materials)
-                if tp == ApplicationType.NEW and st == ApplicationStatus.APPROVED:
-                    if len(application.inspections) == 0 or not application.phase_materials:
-                        is_pending_with_me = True
-                elif tp == ApplicationType.RENOVATION and st == ApplicationStatus.FORWARDED:
-                    if len(application.inspections) == 0 or not application.phase_materials:
-                        is_pending_with_me = True
-            
-            elif user_role in (UserRole.DEPT_ATP, UserRole.DEPT_LAND, UserRole.DEPT_LEGAL):
-                # RENOVATION in FORWARDED and has NOT commented yet with DEPT_REVIEW
-                if tp == ApplicationType.RENOVATION and st == ApplicationStatus.FORWARDED:
-                    has_commented = any(
-                        c.commenter.role == user_role and c.comment_type == CommentType.DEPT_REVIEW
-                        for c in application.comments
-                    )
-                    if not has_commented:
-                        is_pending_with_me = True
+                        elif st == ApplicationStatus.FORWARDED:
+                            dept_review_roles = {
+                                c.commenter.role
+                                for c in application.comments
+                                if c.comment_type == CommentType.DEPT_REVIEW
+                            }
+                            if len(application.inspections) > 0:
+                                dept_review_roles.add(UserRole.JEN)
+                            
+                            missing_depts = RENOVATION_DEPT_ROLES - dept_review_roles
+                            if not missing_depts:
+                                is_pending_with_me = True
+                
+                elif user_role == UserRole.JEN:
+                    # 1. NEW in APPROVED and (no inspection or no phase materials)
+                    # 2. RENOVATION in FORWARDED and (no inspection or no phase materials)
+                    if tp == ApplicationType.NEW and st == ApplicationStatus.APPROVED:
+                        if len(application.inspections) == 0 or not application.phase_materials:
+                            is_pending_with_me = True
+                    elif tp == ApplicationType.RENOVATION and st == ApplicationStatus.FORWARDED:
+                        if len(application.inspections) == 0 or not application.phase_materials:
+                            is_pending_with_me = True
+                
+                elif user_role in (UserRole.DEPT_ATP, UserRole.DEPT_LAND, UserRole.DEPT_LEGAL):
+                    # RENOVATION in FORWARDED and has NOT commented yet with DEPT_REVIEW
+                    if tp == ApplicationType.RENOVATION and st == ApplicationStatus.FORWARDED:
+                        has_commented = any(
+                            c.commenter.role == user_role and c.comment_type == CommentType.DEPT_REVIEW
+                            for c in application.comments
+                        )
+                        if not has_commented:
+                            is_pending_with_me = True
 
             if is_pending_with_me:
                 flags.append(ApplicationFlags.PENDING_WITH_ME)
@@ -376,102 +393,169 @@ class ApplicationDAO(BaseDAO):
         user_id: Optional[int] = None,
         search: Optional[str] = None,
         ward_id: Optional[int] = None,
+        ward_ids: Optional[list[int]] = None,
         property_usage: Optional[PropertyUsageType] = None,
         jurisdiction_zone: Optional[JurisdictionZone] = None,
         user_role: Optional[UserRole] = None,
-    ) -> list[ApplicationResponse]:
-        """Get applications, optionally filtered by flag, search and extra criteria."""
+        primary_tab: Optional[str] = None,  # "PENDING", "COMPLETED", "SUBMISSION_DAYS"
+        authority_role: Optional[UserRole] = None,
+        action_name: Optional[str] = None,
+        pending_days: Optional[int] = None,
+        submitted_days: Optional[int] = None,
+        app_type: Optional[ApplicationType] = None,
+        app_status: Optional[ApplicationStatus] = None,
+    ) -> tuple[list[ApplicationResponse], int]:
+        """Get applications with primary workflow filters, secondary filters, pagination, and total count."""
         query = select(Application).options(*_APPLICATION_LOAD_OPTIONS).order_by(Application.created_at.desc())
         
-        # ── Global filters ───────────────────────────────────────────────
+        # ── Global & Secondary filters ───────────────────────────────────
         if user_id:
             query = query.where(Application.user_id == user_id)
-        if ward_id:
+        if ward_ids and len(ward_ids) > 0:
+            query = query.where(Application.ward_id.in_(ward_ids))
+        elif ward_id:
             query = query.where(Application.ward_id == ward_id)
         if property_usage:
             query = query.where(Application.property_usage == property_usage)
         if jurisdiction_zone:
             query = query.where(Application.jurisdiction_zone == jurisdiction_zone)
+        if app_type:
+            query = query.where(Application.type == app_type)
+        if app_status:
+            query = query.where(Application.status == app_status)
             
         # ── Search logic ──────────────────────────────────────────────────
         if search:
             search_filters = []
-            
-            # 1. Applicant Name (Partial match)
             search_filters.append(Application.applicant_name.ilike(f"%{search}%"))
-            
-            # 2. Mobile (Partial match)
             search_filters.append(Application.mobile.ilike(f"%{search}%"))
-            
-            # 3. Application ID / Number
-            # If search is a plain number like '123'
             if search.isdigit():
                 search_filters.append(Application.id == int(search))
-            # If search is 'APP-2026-00001'
             elif search.upper().startswith("APP-"):
                 try:
-                    # Extract last part: APP-2026-00123 -> 123
                     parts = search.split("-")
                     app_id = int(parts[-1])
                     search_filters.append(Application.id == app_id)
                 except (ValueError, IndexError):
                     pass
-            
             query = query.where(or_(*search_filters))
 
-        if flag is None or flag == ApplicationFlags.ALL:
-            if flag == ApplicationFlags.ALL:
-                query = query.where(
-                    and_(
-                        Application.status != ApplicationStatus.PENDING,
-                        Application.status != ApplicationStatus.WITHDRAWN,
-                    )
+        # ── Primary Tab C: SUBMISSION_DAYS ────────────────────────────────
+        if primary_tab == "SUBMISSION_DAYS" and submitted_days is not None:
+            cutoff = datetime.now() - timedelta(days=submitted_days)
+            query = query.where(
+                and_(
+                    Application.created_at <= cutoff,
+                    Application.status != ApplicationStatus.TOKEN_GENERATED,
+                    Application.status != ApplicationStatus.WITHDRAWN,
+                    Application.status != ApplicationStatus.REJECTED,
                 )
-            # No flag filter — return paginated results directly
-            applications = list(
-                await self.session.scalars(query.offset(offset).limit(limit))
             )
-            responses = [
-                ApplicationResponse.model_validate(app) for app in applications
-            ]
-            # Attach tokens for applications that have phases
-            apps_with_phases = [app for app in applications if app.phases]
-            if apps_with_phases:
-                from backend.schemas.response.application import TokenResponse
-                from backend.core.transport_code import encode_transport_code
 
-                all_phases = [p for app in apps_with_phases for p in app.phases]
-                token_dicts = await self._build_token_list_dicts(all_phases)
-                
-                tc_to_app: dict[str, int] = {}
-                for app in apps_with_phases:
-                    for p in app.phases:
-                        tc = encode_transport_code(p.application_id, p.phase)
-                        tc_to_app[tc] = p.application_id
-                
-                tokens_by_app: dict[int, list] = {}
-                for td in token_dicts:
-                    app_id = tc_to_app.get(td["transport_code"])
-                    if app_id:
-                        tokens_by_app.setdefault(app_id, []).append(td)
-                
-                for resp in responses:
-                    if resp.id in tokens_by_app:
-                        resp.tokens = [
-                            TokenResponse.model_validate(t)
-                            for t in tokens_by_app[resp.id]
-                        ]
-            return responses
+        # Execute base query to get all candidate applications
+        all_applications = list((await self.session.scalars(query)).unique().all())
 
-        # Flag filter — load all matching apps, compute flags, then paginate in Python
-        all_applications = list((await self.session.scalars(query)).all())
-        matched_apps = [
-            app for app in all_applications if flag in self.get_required_flags(app, user_role)
-        ]
-        paginated = matched_apps[offset : offset + limit]
-        responses = [ApplicationResponse.model_validate(app) for app in paginated]
-        # Attach tokens
-        apps_with_phases = [app for app in paginated if app.phases]
+        # ── Primary Tab Filtering ─────────────────────────────────────────
+        matched_apps = []
+        now = datetime.now()
+
+        for app in all_applications:
+            # Legacy flag filter if present
+            if flag and flag != ApplicationFlags.ALL and flag not in self.get_required_flags(app, user_role):
+                continue
+
+            # Primary Tab A: PENDING with Authority
+            if primary_tab == "PENDING" and authority_role:
+                is_pending_for_role = False
+                pending_start_ts: Optional[datetime] = None
+
+                # Rule 6.2/Workflow check for role
+                if authority_role == UserRole.NODAL_OFFICER:
+                    if app.type == ApplicationType.NEW and app.status == ApplicationStatus.SUBMITTED:
+                        is_pending_for_role = True
+                        pending_start_ts = app.created_at
+                    elif app.status in (ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED) and app.phase_materials and len(app.phase_materials) > 0:
+                        # Pending token generation (only when phase materials have been submitted by JEN)
+                        is_pending_for_role = True
+                        insp_ts = [i.inspected_at for i in app.inspections if i.inspected_at]
+                        pending_start_ts = max(insp_ts) if insp_ts else _get_app_last_updated_at(app)
+                    elif app.status == ApplicationStatus.OBJECTED:
+                        pending_objs = [o for o in app.objections if o.status == ObjectionStatus.PENDING and o.objected_to_role in (UserRole.CITIZEN, UserRole.JEN)]
+                        if pending_objs:
+                            is_pending_for_role = True
+                            pending_start_ts = min([o.created_at for o in pending_objs if o.created_at])
+
+                elif authority_role == UserRole.COMMISSIONER:
+                    if app.type == ApplicationType.RENOVATION:
+                        if app.status == ApplicationStatus.SUBMITTED:
+                            is_pending_for_role = True
+                            pending_start_ts = app.created_at
+                        elif app.status == ApplicationStatus.FORWARDED:
+                            is_pending_for_role = True
+                            pending_start_ts = _get_app_last_updated_at(app)
+                        elif app.status == ApplicationStatus.OBJECTED:
+                            is_pending_for_role = True
+                            pending_start_ts = _get_app_last_updated_at(app)
+
+                elif authority_role == UserRole.JEN:
+                    if app.status in (ApplicationStatus.SUBMITTED, ApplicationStatus.FORWARDED, ApplicationStatus.APPROVED) and (not app.inspections or not app.phase_materials):
+                        is_pending_for_role = True
+                        pending_start_ts = _get_app_last_updated_at(app)
+                    elif app.status == ApplicationStatus.OBJECTED:
+                        pending_objs = [o for o in app.objections if o.status == ObjectionStatus.PENDING and o.objected_to_role == UserRole.JEN]
+                        if pending_objs:
+                            is_pending_for_role = True
+                            pending_start_ts = min([o.created_at for o in pending_objs if o.created_at])
+
+                elif authority_role in (UserRole.DEPT_LAND, UserRole.DEPT_LEGAL, UserRole.DEPT_ATP):
+                    if app.type == ApplicationType.RENOVATION and app.status == ApplicationStatus.FORWARDED:
+                        commented_roles = {c.commenter.role for c in app.comments if c.commenter and c.commenter.role}
+                        if authority_role not in commented_roles:
+                            is_pending_for_role = True
+                            pending_start_ts = _get_app_last_updated_at(app)
+                    elif app.status == ApplicationStatus.OBJECTED:
+                        pending_objs = [o for o in app.objections if o.status == ObjectionStatus.PENDING and o.objected_to_role == authority_role]
+                        if pending_objs:
+                            is_pending_for_role = True
+                            pending_start_ts = min([o.created_at for o in pending_objs if o.created_at])
+
+                if not is_pending_for_role:
+                    continue
+
+                # Filter by pending_days if provided
+                if pending_days is not None and pending_days > 0 and pending_start_ts:
+                    days_elapsed = (now - pending_start_ts).days
+                    if days_elapsed < pending_days:
+                        continue
+
+            # Primary Tab B: COMPLETED by Authority
+            elif primary_tab == "COMPLETED" and authority_role:
+                is_completed_by_role = False
+                if authority_role in (UserRole.NODAL_OFFICER, UserRole.COMMISSIONER):
+                    # Check action logs / approvals
+                    if hasattr(app, "action_logs") and app.action_logs:
+                        if any(log.performer and log.performer.role == authority_role for log in app.action_logs if hasattr(log, "performer")):
+                            is_completed_by_role = True
+                elif authority_role == UserRole.JEN:
+                    if app.inspections and len(app.inspections) > 0 and app.phase_materials and len(app.phase_materials) > 0:
+                        is_completed_by_role = True
+                elif authority_role in (UserRole.DEPT_LAND, UserRole.DEPT_LEGAL, UserRole.DEPT_ATP):
+                    if app.comments:
+                        if any(c.commenter and c.commenter.role == authority_role for c in app.comments if hasattr(c, "commenter")):
+                            is_completed_by_role = True
+
+                if not is_completed_by_role:
+                    continue
+
+            matched_apps.append(app)
+
+        total_count = len(matched_apps)
+        paginated_apps = matched_apps[offset : offset + limit]
+
+        responses = [ApplicationResponse.model_validate(app) for app in paginated_apps]
+
+        # Attach tokens for applications that have phases
+        apps_with_phases = [app for app in paginated_apps if app.phases]
         if apps_with_phases:
             from backend.schemas.response.application import TokenResponse
             from backend.core.transport_code import encode_transport_code as _enc
@@ -492,7 +576,8 @@ class ApplicationDAO(BaseDAO):
                     resp.tokens = [
                         TokenResponse.model_validate(t) for t in tokens_by_app[resp.id]
                     ]
-        return responses
+
+        return responses, total_count
 
     async def approve_application(self, application_id: int) -> SuccessResponse:
         """Approve an Application (legacy simple path, use perform_workflow_action instead)."""
@@ -703,6 +788,11 @@ class ApplicationDAO(BaseDAO):
         remarks: Optional[str] = None,
         phase: Optional[int] = None,
         phase_materials: Optional[list] = None,
+        objection_to_role: Optional[UserRole] = None,
+        objection_to_roles: Optional[list[UserRole]] = None,
+        role_remarks: Optional[dict] = None,
+        reverted_document_url: Optional[str] = None,
+        clear_objection_role: Optional[UserRole] = None,
     ) -> SuccessResponse:
         """
         Execute a workflow action on an application.
@@ -712,13 +802,7 @@ class ApplicationDAO(BaseDAO):
         stmt = (
             select(Application)
             .where(Application.id == application_id)
-            .options(
-                selectinload(Application.inspections),
-                selectinload(Application.materials),
-                selectinload(Application.phases),
-                selectinload(Application.phase_materials),
-                selectinload(Application.comments).selectinload(ApplicationComment.commenter),
-            )
+            .options(*_APPLICATION_LOAD_OPTIONS)
         )
         result = await self.session.execute(stmt)
         application = result.scalar_one_or_none()
@@ -787,6 +871,12 @@ class ApplicationDAO(BaseDAO):
                     detail="JEN inspection must be completed before generating tokens",
                 )
 
+            if not phase:
+                raise HTTPException(
+                    status_code=400,
+                    detail="phase is required for GENERATE_TOKENS action",
+                )
+
             # Check duplicates
             existing_phase = next((p for p in application.phases if p.phase == phase), None)
             if existing_phase:
@@ -803,13 +893,12 @@ class ApplicationDAO(BaseDAO):
                         status_code=400,
                         detail=f"Cannot generate Phase {phase}: Phase {phase - 1} has not been generated yet.",
                     )
-                if prev_phase.status != ApplicationPhaseStatus.COMPLETED:
+                if prev_phase.status not in (ApplicationPhaseStatus.COMPLETED, ApplicationPhaseStatus.TERMINATED):
                     raise HTTPException(
                         status_code=400,
-                        detail=f"Cannot generate Phase {phase}: Phase {phase - 1} is '{prev_phase.status.value}', must be COMPLETED.",
+                        detail=f"Cannot generate Phase {phase}: Phase {phase - 1} is '{prev_phase.status.value}', must be COMPLETED or TERMINATED.",
                     )
 
-            # Update the number of stages on the application
             if not application.num_stages or phase > application.num_stages:
                 application.num_stages = phase
 
@@ -853,6 +942,134 @@ class ApplicationDAO(BaseDAO):
                             quantity=pm.quantity,
                         )
                     )
+
+        # Handle objection redirection validation and assignment
+        if action == WorkflowAction.OBJECT:
+            # Save the pre-objection status if not already saved
+            if not application.objected_from_status:
+                application.objected_from_status = application.status
+
+            # Consolidate target roles
+            target_roles: list[UserRole] = []
+            if objection_to_roles:
+                target_roles = [r for r in objection_to_roles if r]
+            elif objection_to_role:
+                target_roles = [objection_to_role]
+
+            if not target_roles:
+                raise HTTPException(
+                    status_code=400,
+                    detail="objection_to_roles is required when raising an objection",
+                )
+
+            # Rule 6.1: In New Construction at SUBMITTED state (before inspection), Nodal Officer can ONLY object to CITIZEN
+            if application.type == ApplicationType.NEW and application.status == ApplicationStatus.SUBMITTED:
+                for r in target_roles:
+                    if r != UserRole.CITIZEN:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="For new construction in submitted state, objection can only be sent to CITIZEN before inspection.",
+                        )
+
+            # Rule 6.8 & 6.9: In Renovation workflow, Commissioner can only object to lower authorities who have commented or inspected
+            if application.type == ApplicationType.RENOVATION and user_role == UserRole.COMMISSIONER:
+                participated_roles = {
+                    c.commenter.role for c in application.comments if c.commenter and c.commenter.role
+                }
+                for insp in application.inspections:
+                    if hasattr(insp, "inspector") and insp.inspector and hasattr(insp.inspector, "role"):
+                        participated_roles.add(insp.inspector.role)
+                
+                for r in target_roles:
+                    if r != UserRole.CITIZEN and r not in participated_roles:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Cannot object to {r.value} because they have not commented or inspected yet.",
+                        )
+
+            application.objection_to_role = target_roles[0]
+
+            # Process each target role in application_objections table
+            for role in target_roles:
+                r_remark = (role_remarks or {}).get(role.value) or (role_remarks or {}).get(str(role)) or remarks
+                
+                # Check for existing pending objection for this role
+                existing_obj = next(
+                    (o for o in application.objections if o.objected_to_role == role and o.status == ObjectionStatus.PENDING),
+                    None
+                )
+                if existing_obj:
+                    existing_obj.remarks = r_remark
+                    if role == UserRole.CITIZEN and reverted_document_url:
+                        existing_obj.reverted_document_url = reverted_document_url
+                else:
+                    self.session.add(
+                        ApplicationObjection(
+                            application_id=application_id,
+                            objected_by_id=user_id,
+                            objected_by_role=user_role,
+                            objected_to_role=role,
+                            remarks=r_remark,
+                            reverted_document_url=reverted_document_url if role == UserRole.CITIZEN else None,
+                            status=ObjectionStatus.PENDING,
+                            created_at=datetime.now(),
+                        )
+                    )
+
+            # Rule 6.2 & 6.3: Log comment with proper privacy type
+            if remarks:
+                if UserRole.CITIZEN in target_roles:
+                    c_type = CommentType.OBJECTION_COMMENT
+                else:
+                    c_type = CommentType.DEPT_REVIEW  # Hidden from CITIZEN
+
+                self.session.add(
+                    ApplicationComment(
+                        application_id=application_id,
+                        comment=f"Objection [{', '.join([r.value for r in target_roles])}]: {remarks}",
+                        comment_by=user_id,
+                        comment_type=c_type,
+                        media_paths=[reverted_document_url] if (UserRole.CITIZEN in target_roles and reverted_document_url) else None,
+                        created_at=datetime.now(),
+                    )
+                )
+
+        elif action == WorkflowAction.CLEAR_OBJECTION:
+            # Rule 6.13: Only Nodal Officer, Commissioner, and Superadmin can clear objections
+            if user_role not in (UserRole.NODAL_OFFICER, UserRole.COMMISSIONER, UserRole.SUPERADMIN):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Only Nodal Officer, Commissioner, or Superadmin can verify and clear objections.",
+                )
+
+            # Mark matching pending objections as RESOLVED
+            pending_objs = [o for o in application.objections if o.status == ObjectionStatus.PENDING]
+            if clear_objection_role:
+                pending_objs = [o for o in pending_objs if o.objected_to_role == clear_objection_role]
+
+            for obj in pending_objs:
+                obj.status = ObjectionStatus.RESOLVED
+                obj.resolved_at = datetime.now()
+                obj.resolved_by_id = user_id
+                obj.resolved_by_role = user_role
+                obj.resolution_remarks = remarks or f"Objection cleared by {user_role.value}"
+
+            # Check if any pending objections remain
+            remaining_pending = [o for o in application.objections if o.status == ObjectionStatus.PENDING and o not in pending_objs]
+            if not remaining_pending:
+                if application.objected_from_status:
+                    next_status = application.objected_from_status
+                else:
+                    next_status = ApplicationStatus.FORWARDED if application.type == ApplicationType.RENOVATION else ApplicationStatus.SUBMITTED
+                
+                application.objected_from_status = None
+                application.objection_to_role = None
+            else:
+                next_status = ApplicationStatus.OBJECTED
+                application.objection_to_role = remaining_pending[0].objected_to_role
+        else:
+            # Clear target role for other actions
+            application.objection_to_role = None
 
         # Update application status
         application.status = next_status
@@ -919,6 +1136,20 @@ class ApplicationDAO(BaseDAO):
         phases_to_update = {pm_data.phase for pm_data in phase_materials}
 
         if phases_to_update:
+            # Check if any of these phases have already been generated/approved
+            generated_phases_stmt = select(ApprovedApplicationPhase.phase).where(
+                ApprovedApplicationPhase.application_id == application_id,
+                ApprovedApplicationPhase.phase.in_(list(phases_to_update))
+            )
+            generated_phases_result = await self.session.execute(generated_phases_stmt)
+            generated_phases = generated_phases_result.scalars().all()
+            if generated_phases:
+                phases_str = ", ".join(map(str, sorted(generated_phases)))
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Cannot update materials for Phase(s) {phases_str} because token(s) have already been generated.",
+                )
+
             # Delete existing phase materials for these phases
             delete_stmt = delete(ApplicationPhaseMaterial).where(
                 ApplicationPhaseMaterial.application_id == application_id,
@@ -1033,16 +1264,16 @@ class ApplicationDAO(BaseDAO):
             raise HTTPException(status_code=404, detail="Application not found")
 
         if application.type == ApplicationType.RENOVATION:
-            if application.status != ApplicationStatus.FORWARDED:
+            if application.status not in (ApplicationStatus.FORWARDED, ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED):
                 raise HTTPException(
                     status_code=400,
-                    detail="Inspection update is only allowed on FORWARDED applications for renovation",
+                    detail="Inspection update is only allowed on FORWARDED, APPROVED, or TOKEN_GENERATED applications for renovation",
                 )
         else:
-            if application.status != ApplicationStatus.APPROVED:
+            if application.status not in (ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED):
                 raise HTTPException(
                     status_code=400,
-                    detail="Inspection update is only allowed on APPROVED applications",
+                    detail="Inspection update is only allowed on APPROVED or TOKEN_GENERATED applications",
                 )
 
         stmt = (

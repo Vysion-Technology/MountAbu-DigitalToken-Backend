@@ -9,6 +9,8 @@ from backend.meta import (
     CommentType,
     PropertyUsageType,
     JurisdictionZone,
+    ApplicationType,
+    ApplicationStatus,
 )
 
 from backend.middlewares.auth import get_current_user_id, get_current_user
@@ -29,6 +31,7 @@ from backend.schemas.request.application import (
 )
 from backend.schemas.response.application import (
     ApplicationResponse,
+    ApplicationPaginatedResponse,
     CommentResponse,
     PhaseResponse,
     TokenResponse,
@@ -45,7 +48,7 @@ router = APIRouter()
 audit_service = AuditService()
 
 # Roles that can access every flag
-_ADMIN_ROLES = [UserRole.SUPERADMIN, UserRole.NODAL_OFFICER, UserRole.COMMISSIONER]
+_ADMIN_ROLES = [UserRole.SUPERADMIN, UserRole.NODAL_OFFICER, UserRole.COMMISSIONER, UserRole.COLLECTOR]
 
 # Mapping of flag -> allowed roles that can query with that flag
 FLAG_ALLOWED_ROLES: dict[ApplicationFlags, list[UserRole]] = {
@@ -206,6 +209,7 @@ async def get_all_vehicle_entries(
         UserRole.SUPERADMIN,
         UserRole.NODAL_OFFICER,
         UserRole.NAKA_INCHARGE,
+        UserRole.COLLECTOR,
     ]:
         raise HTTPException(
             status_code=403,
@@ -241,10 +245,10 @@ async def get_organization_suggestions(
     return await application_service.get_organization_suggestions(property_usage)
 
 
-@router.get("/applications", response_model=List[ApplicationResponse])
+@router.get("/applications", response_model=ApplicationPaginatedResponse)
 async def get_applications(
-    flag: ApplicationFlags = Query(
-        ..., description="Filter applications by workflow flag"
+    flag: Optional[ApplicationFlags] = Query(
+        None, description="Filter applications by workflow flag"
     ),
     offset: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
@@ -252,6 +256,9 @@ async def get_applications(
         None, description="Search by applicant name, mobile, or application number"
     ),
     ward_id: Optional[int] = Query(None, description="Filter by ward/zone"),
+    ward_ids: Optional[str] = Query(
+        None, description="Comma-separated list of ward IDs for multi-select"
+    ),
     property_usage: Optional[PropertyUsageType] = Query(
         None, description="Filter by property usage"
     ),
@@ -261,30 +268,60 @@ async def get_applications(
     citizen_user_id: Optional[int] = Query(
         None, description="Citizen user ID (required when flag=CITIZEN)"
     ),
+    primary_tab: Optional[str] = Query(
+        None, description="Primary tab mode: PENDING, COMPLETED, SUBMISSION_DAYS"
+    ),
+    authority_role: Optional[UserRole] = Query(
+        None, description="Target authority role for PENDING/COMPLETED tabs"
+    ),
+    action_name: Optional[str] = Query(
+        None, description="Specific action name for PENDING/COMPLETED tabs"
+    ),
+    pending_days: Optional[int] = Query(
+        None, description="Days pending filter (N days)"
+    ),
+    submitted_days: Optional[int] = Query(
+        None, description="Days since submission filter (N days)"
+    ),
+    app_type: Optional[ApplicationType] = Query(
+        None, alias="type", description="Application type: NEW or RENOVATION"
+    ),
+    app_status: Optional[ApplicationStatus] = Query(
+        None, alias="status", description="Application status"
+    ),
     application_service: ApplicationService = Depends(get_application_service),
     user: UserDetails = Depends(get_current_user),
-) -> List[ApplicationResponse]:
-    """Get applications filtered by flag, search, and other criteria."""
+) -> ApplicationPaginatedResponse:
+    """Get applications filtered by flag, primary tab, search, and secondary criteria."""
     if user.role == UserRole.NAKA_INCHARGE:
         raise HTTPException(
             status_code=403,
             detail="NAKA_INCHARGE must use /api/naka/{transport_code} endpoints",
         )
-    # Validate role is allowed for the requested flag
-    allowed_roles = FLAG_ALLOWED_ROLES.get(flag, [])
-    if user.role not in allowed_roles:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Your role ({user.role.value}) is not permitted to query flag {flag.value}",
-        )
+
+    parsed_ward_ids: Optional[list[int]] = None
+    if ward_ids:
+        try:
+            parsed_ward_ids = [int(w.strip()) for w in ward_ids.split(",") if w.strip()]
+        except ValueError:
+            pass
 
     # Search and extra filters are ONLY for authority/admin roles
-    is_authority = user.role in _ADMIN_ROLES or user.role in [UserRole.JEN, UserRole.DEPT_ATP, UserRole.DEPT_LAND, UserRole.DEPT_LEGAL]
-    
+    is_authority = (
+        user.role in _ADMIN_ROLES
+        or user.role
+        in [
+            UserRole.JEN,
+            UserRole.DEPT_ATP,
+            UserRole.DEPT_LAND,
+            UserRole.DEPT_LEGAL,
+        ]
+    )
+
     current_search = search if is_authority else None
     current_ward = ward_id if is_authority else None
     current_usage = property_usage if is_authority else None
-    
+
     current_zone = None
     if is_authority and jurisdiction_zone:
         jz_upper = jurisdiction_zone.upper()
@@ -292,40 +329,42 @@ async def get_applications(
             current_zone = JurisdictionZone(jz_upper)
 
     # CITIZEN flag: citizen sees their own applications
-    if flag == ApplicationFlags.CITIZEN:
-        # Check that the user role is CITIZEN
-        if user.role != UserRole.CITIZEN:
-            raise HTTPException(
-                status_code=400,
-                detail="Only users with CITIZEN role can query with CITIZEN flag",
-            )
+    if flag == ApplicationFlags.CITIZEN or user.role == UserRole.CITIZEN:
         return await application_service.get_applications(
-            flag=None, offset=offset, limit=limit, user_id=user.user_id
-        )
-
-    # ALL flag: returns all applications without flag filtering (excluding PENDING)
-    if flag == ApplicationFlags.ALL:
-        return await application_service.get_applications(
-            flag=flag,
+            flag=None,
             offset=offset,
             limit=limit,
-            user_id=citizen_user_id,  # optionally scope to a specific citizen
-            search=current_search,
-            ward_id=current_ward,
-            property_usage=current_usage,
-            jurisdiction_zone=current_zone,
+            user_id=user.user_id if user.role == UserRole.CITIZEN else citizen_user_id,
+            caller_role=user.role,
+            primary_tab=primary_tab,
+            authority_role=authority_role,
+            action_name=action_name,
+            pending_days=pending_days,
+            submitted_days=submitted_days,
+            app_type=app_type,
+            app_status=app_status,
+            ward_ids=parsed_ward_ids,
         )
 
-    # Workflow flag: filter by computed flag
     return await application_service.get_applications(
         flag=flag,
         offset=offset,
         limit=limit,
+        user_id=citizen_user_id,
         search=current_search,
         ward_id=current_ward,
+        ward_ids=parsed_ward_ids,
         property_usage=current_usage,
         jurisdiction_zone=current_zone,
         user_role=user.role,
+        caller_role=user.role,
+        primary_tab=primary_tab,
+        authority_role=authority_role,
+        action_name=action_name,
+        pending_days=pending_days,
+        submitted_days=submitted_days,
+        app_type=app_type,
+        app_status=app_status,
     )
 
 
@@ -619,10 +658,10 @@ async def update_inspection(
     user: UserDetails = Depends(get_current_user),
 ) -> SuccessResponse:
     """JEN updates a site inspection report."""
-    if user.role not in (UserRole.JEN, UserRole.SUPERADMIN):
+    if user.role not in (UserRole.JEN, UserRole.NODAL_OFFICER, UserRole.SUPERADMIN):
         raise HTTPException(
             status_code=403,
-            detail="Only JEN or SUPERADMIN can update inspection reports",
+            detail="Only JEN, NODAL_OFFICER or SUPERADMIN can update inspection reports",
         )
     response = await application_service.update_inspection_report(
         application_id=application_id,
@@ -739,6 +778,12 @@ async def comment_on_application(
     user: UserDetails = Depends(get_current_user),
 ) -> SuccessResponse:
     """Add a comment to an application. Any authority or the applicant can comment."""
+    if user.role == UserRole.COLLECTOR:
+        raise HTTPException(
+            status_code=403,
+            detail="Collectors have read-only access and cannot post comments",
+        )
+
     # Restriction for OBJECTION_COMMENT: Only NODAL_OFFICER and COMMISSIONER can call this type
     if comment_request.comment_type == CommentType.OBJECTION_COMMENT:
         if user.role not in (
@@ -794,7 +839,7 @@ async def get_application_comments(
     user: UserDetails = Depends(get_current_user),
 ) -> List[CommentResponse]:
     """Get all comments for an application."""
-    comments = await application_service.get_application_comments(application_id)
+    comments = await application_service.get_application_comments(application_id, user.role)
     return [CommentResponse.model_validate(c) for c in comments]
 
 
@@ -850,6 +895,7 @@ async def list_tokens(
         UserRole.CITIZEN,
         UserRole.SUPERADMIN,
         UserRole.NODAL_OFFICER,
+        UserRole.COLLECTOR,
     ):
         raise HTTPException(
             status_code=403,

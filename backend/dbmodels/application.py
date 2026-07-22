@@ -1,5 +1,5 @@
 from datetime import datetime
-from backend.meta import ApplicationDocumentType, CommentType, WorkflowAction
+from backend.meta import ApplicationDocumentType, CommentType, WorkflowAction, UserRole
 from typing import Optional
 
 from sqlalchemy import Boolean, Enum, Float, Integer, String, ForeignKey, DateTime, JSON
@@ -13,6 +13,7 @@ from backend.meta import (
     PropertyUsageType,
     StructureType,
     JurisdictionZone,
+    ObjectionStatus,
 )
 from backend.dbmodels.user import User
 from backend.dbmodels.master import Ward, Department
@@ -83,7 +84,13 @@ class Application(Base):
 
     description: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     status: Mapped[ApplicationStatus] = mapped_column(
-        Enum(ApplicationStatus), index=True, default=ApplicationStatus.PENDING
+         Enum(ApplicationStatus), index=True, default=ApplicationStatus.PENDING
+     )
+    objection_to_role: Mapped[Optional[UserRole]] = mapped_column(
+        Enum(UserRole), nullable=True
+    )
+    objected_from_status: Mapped[Optional[ApplicationStatus]] = mapped_column(
+        Enum(ApplicationStatus), nullable=True
     )
     type: Mapped[ApplicationType] = mapped_column(
         Enum(ApplicationType), index=True, default=ApplicationType.NEW
@@ -101,6 +108,9 @@ class Application(Base):
     )
     comments: Mapped[list["ApplicationComment"]] = relationship(
         "ApplicationComment", back_populates="application"
+    )
+    objections: Mapped[list["ApplicationObjection"]] = relationship(
+        "ApplicationObjection", back_populates="application", cascade="all, delete-orphan"
     )
     approvals: Mapped[list["ApplicationApproval"]] = relationship(
         "ApplicationApproval", back_populates="application"
@@ -424,3 +434,42 @@ class ApplicationActionLog(Base):
         "Application", back_populates="action_logs"
     )
     performer: Mapped[User] = relationship("User")
+
+
+class ApplicationObjection(Base):
+    """Objection history and active objections per role on an application."""
+
+    __tablename__ = "application_objections"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    application_id: Mapped[int] = mapped_column(
+        ForeignKey("applications.id"), index=True
+    )
+    objected_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    objected_by_role: Mapped[UserRole] = mapped_column(Enum(UserRole), index=True)
+    objected_to_role: Mapped[UserRole] = mapped_column(Enum(UserRole), index=True)
+    remarks: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    reverted_document_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    status: Mapped[ObjectionStatus] = mapped_column(
+        Enum(ObjectionStatus), index=True, default=ObjectionStatus.PENDING
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.now, index=True
+    )
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    resolved_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+    resolved_by_role: Mapped[Optional[UserRole]] = mapped_column(
+        Enum(UserRole), nullable=True
+    )
+    resolution_remarks: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+    application: Mapped["Application"] = relationship(
+        "Application", back_populates="objections"
+    )
+    objected_by_user: Mapped["User"] = relationship(
+        "User", foreign_keys=[objected_by_id]
+    )
+    resolved_by_user: Mapped[Optional["User"]] = relationship(
+        "User", foreign_keys=[resolved_by_id]
+    )

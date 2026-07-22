@@ -39,7 +39,7 @@ class TestInspectionUpdate(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(context.exception.detail, "Application not found")
 
     async def test_update_inspection_invalid_status_new_construction(self):
-        """New Construction update inspection should fail if status is not APPROVED."""
+        """New Construction update inspection should fail if status is not APPROVED or TOKEN_GENERATED."""
         app = self._make_application(app_type=ApplicationType.NEW, status=ApplicationStatus.SUBMITTED)
         self.mock_session.get = AsyncMock(return_value=app)
         
@@ -50,11 +50,11 @@ class TestInspectionUpdate(unittest.IsolatedAsyncioTestCase):
                 remarks="Test remarks"
             )
         self.assertEqual(context.exception.status_code, 400)
-        self.assertIn("Inspection update is only allowed on APPROVED applications", context.exception.detail)
+        self.assertIn("Inspection update is only allowed on APPROVED or TOKEN_GENERATED applications", context.exception.detail)
 
     async def test_update_inspection_invalid_status_renovation(self):
-        """Renovation update inspection should fail if status is not FORWARDED."""
-        app = self._make_application(app_type=ApplicationType.RENOVATION, status=ApplicationStatus.APPROVED)
+        """Renovation update inspection should fail if status is not FORWARDED, APPROVED, or TOKEN_GENERATED."""
+        app = self._make_application(app_type=ApplicationType.RENOVATION, status=ApplicationStatus.SUBMITTED)
         self.mock_session.get = AsyncMock(return_value=app)
         
         with self.assertRaises(HTTPException) as context:
@@ -64,7 +64,7 @@ class TestInspectionUpdate(unittest.IsolatedAsyncioTestCase):
                 remarks="Test remarks"
             )
         self.assertEqual(context.exception.status_code, 400)
-        self.assertIn("Inspection update is only allowed on FORWARDED applications", context.exception.detail)
+        self.assertIn("Inspection update is only allowed on FORWARDED, APPROVED, or TOKEN_GENERATED applications", context.exception.detail)
 
     async def test_update_inspection_report_not_found(self):
         """Should raise 404 if no existing inspection report is found."""

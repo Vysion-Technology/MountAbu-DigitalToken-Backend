@@ -16,6 +16,8 @@ from backend.meta import (
     ApplicationPhaseStatus,
     PropertyUsageType,
     JurisdictionZone,
+    ApplicationType,
+    ApplicationStatus,
 )
 from backend.schemas.base.auth import UserDetails
 from backend.schemas.request.application import (
@@ -30,6 +32,7 @@ from backend.schemas.request.application import (
 )
 from backend.schemas.response.application import (
     ApplicationResponse,
+    ApplicationPaginatedResponse,
     PhaseResponse,
     TokenResponse,
     TokenDetailResponse,
@@ -65,38 +68,76 @@ class ApplicationService(BaseService):
 
         application = await self.dao.get_application(application_id)
 
-        if application and user.role == UserRole.NAKA_INCHARGE:
-            # Sanitize user details for NAKA_INCHARGE
-            application.mobile = "******"
-            application.email = "******"
-            application.current_address = "******"
+        if application:
+            if user.role == UserRole.CITIZEN:
+                if hasattr(application, "comments") and application.comments is not None:
+                    application.comments = [
+                        c for c in application.comments if c.comment_type != CommentType.DEPT_REVIEW
+                    ]
+                if hasattr(application, "objections") and application.objections is not None:
+                    application.objections = [
+                        o for o in application.objections if str(getattr(o, "objected_to_role", "")) == "CITIZEN" or getattr(o, "objected_to_role", None) == UserRole.CITIZEN
+                    ]
+            elif user.role == UserRole.NAKA_INCHARGE:
+                # Sanitize user details for NAKA_INCHARGE
+                application.mobile = "******"
+                application.email = "******"
+                application.current_address = "******"
 
         return application
 
     async def get_applications(
         self,
-        flag: Optional[ApplicationFlags],
-        offset: int,
-        limit: int,
+        flag: Optional[ApplicationFlags] = None,
+        offset: int = 0,
+        limit: int = 10,
         user_id: Optional[int] = None,
         search: Optional[str] = None,
         ward_id: Optional[int] = None,
+        ward_ids: Optional[list[int]] = None,
         property_usage: Optional[PropertyUsageType] = None,
         jurisdiction_zone: Optional[JurisdictionZone] = None,
         user_role: Optional[UserRole] = None,
-    ) -> List[ApplicationResponse]:
-        """Get applications filtered by flag, search, and other criteria."""
-        return await self.dao.get_applications(
+        caller_role: Optional[UserRole] = None,
+        primary_tab: Optional[str] = None,
+        authority_role: Optional[UserRole] = None,
+        action_name: Optional[str] = None,
+        pending_days: Optional[int] = None,
+        submitted_days: Optional[int] = None,
+        app_type: Optional[ApplicationType] = None,
+        app_status: Optional[ApplicationStatus] = None,
+    ) -> ApplicationPaginatedResponse:
+        """Get applications filtered by flag, primary tab, search, and other criteria."""
+        apps, total = await self.dao.get_applications(
             flag=flag,
             offset=offset,
             limit=limit,
             user_id=user_id,
             search=search,
             ward_id=ward_id,
+            ward_ids=ward_ids,
             property_usage=property_usage,
             jurisdiction_zone=jurisdiction_zone,
             user_role=user_role,
+            primary_tab=primary_tab,
+            authority_role=authority_role,
+            action_name=action_name,
+            pending_days=pending_days,
+            submitted_days=submitted_days,
+            app_type=app_type,
+            app_status=app_status,
         )
+        if caller_role == UserRole.CITIZEN:
+            for app in apps:
+                if hasattr(app, "comments") and app.comments is not None:
+                    app.comments = [
+                        c for c in app.comments if c.comment_type != CommentType.DEPT_REVIEW
+                    ]
+                if hasattr(app, "objections") and app.objections is not None:
+                    app.objections = [
+                        o for o in app.objections if str(getattr(o, "objected_to_role", "")) == "CITIZEN" or getattr(o, "objected_to_role", None) == UserRole.CITIZEN
+                    ]
+        return ApplicationPaginatedResponse(applications=apps, total=total, offset=offset, limit=limit)
 
     async def delete_application(self, application_id: int) -> SuccessResponse:
         """Delete an application by ID."""
@@ -121,9 +162,14 @@ class ApplicationService(BaseService):
             application_id, comment, user_id, comment_type, media_paths
         )
 
-    async def get_application_comments(self, application_id: int) -> list:
+    async def get_application_comments(
+        self, application_id: int, caller_role: Optional[UserRole] = None
+    ) -> list:
         """Get comments for an application."""
-        return await self.dao.get_comments(application_id)
+        comments = await self.dao.get_comments(application_id)
+        if caller_role == UserRole.CITIZEN:
+            comments = [c for c in comments if c.comment_type != CommentType.DEPT_REVIEW]
+        return comments
 
     async def upload_document(
         self,
@@ -200,6 +246,11 @@ class ApplicationService(BaseService):
             remarks=request.remarks,
             phase=request.phase,
             phase_materials=request.phase_materials,
+            objection_to_role=request.objection_to_role,
+            objection_to_roles=request.objection_to_roles,
+            role_remarks=request.role_remarks,
+            reverted_document_url=request.reverted_document_url,
+            clear_objection_role=request.clear_objection_role,
         )
 
     async def update_phase_materials(
@@ -308,6 +359,7 @@ class ApplicationService(BaseService):
             UserRole.SUPERADMIN,
             UserRole.NODAL_OFFICER,
             UserRole.NAKA_INCHARGE,
+            UserRole.COLLECTOR,
         ]
 
         if user.role not in allowed_authority_roles:

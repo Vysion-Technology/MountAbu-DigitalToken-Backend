@@ -8,6 +8,7 @@ from backend.meta import (
     ApplicationPhaseStatus,
     StructureType,
     JurisdictionZone,
+    UserRole,
 )
 from pydantic import BaseModel, Field, model_validator
 
@@ -160,6 +161,26 @@ class WorkflowActionRequest(BaseModel):
     phase_materials: Optional[List[PhaseMaterialEntry]] = Field(
         None,
         description="Materials per phase (required for GENERATE_TOKENS)",
+    )
+    objection_to_role: Optional[UserRole] = Field(
+        None,
+        description="Specific role to redirect the objection to",
+    )
+    objection_to_roles: Optional[List[UserRole]] = Field(
+        None,
+        description="List of roles to direct objections to",
+    )
+    role_remarks: Optional[dict] = Field(
+        None,
+        description="Per-role objection remarks mapping (role -> remark string)",
+    )
+    reverted_document_url: Optional[str] = Field(
+        None,
+        description="URL of uploaded Objection Reverted Data PDF",
+    )
+    clear_objection_role: Optional[UserRole] = Field(
+        None,
+        description="Specific objection role being cleared by Nodal/Commissioner/Superadmin",
     )
 
 

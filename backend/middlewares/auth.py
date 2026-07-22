@@ -148,6 +148,7 @@ async def get_audit_viewer(
         UserRole.SUPERADMIN,
         UserRole.NODAL_OFFICER,
         UserRole.COMMISSIONER,
+        UserRole.COLLECTOR,
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

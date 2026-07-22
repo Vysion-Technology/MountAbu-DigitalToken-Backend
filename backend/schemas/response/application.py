@@ -10,6 +10,7 @@ from backend.meta import (
     WorkflowAction,
     StructureType,
     JurisdictionZone,
+    UserRole,
 )
 from pydantic import BaseModel, ConfigDict, model_validator
 
@@ -101,6 +102,7 @@ class CommentResponse(BaseModel):
     comment: str
     comment_by: int
     commenter_name: Optional[str] = None
+    commenter_role: Optional[str] = None
     comment_type: Optional[CommentType] = CommentType.GENERAL
     media_paths: Optional[list] = None
     created_at: Optional[datetime] = None
@@ -112,12 +114,16 @@ class CommentResponse(BaseModel):
     def extract_commenter_name(cls, data):
         """Extract commenter name from the relationship."""
         if hasattr(data, "commenter") and data.commenter:
+            role_val = getattr(data.commenter, "role", None)
+            if hasattr(role_val, "value"):
+                role_val = role_val.value
             data = dict(
                 id=data.id,
                 application_id=data.application_id,
                 comment=data.comment,
                 comment_by=data.comment_by,
                 commenter_name=data.commenter.name,
+                commenter_role=str(role_val) if role_val else None,
                 comment_type=getattr(data, "comment_type", CommentType.GENERAL),
                 media_paths=getattr(data, "media_paths", None),
                 created_at=getattr(data, "created_at", None),
@@ -468,30 +474,57 @@ class ActionLogResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class ApplicationResponse(BaseModel):
-    """Application Response Schema."""
-
+class ApplicationObjectionResponse(BaseModel):
     id: int
+    application_id: int
+    objected_by_id: int
+    objected_by_name: Optional[str] = None
+    objected_by_role: str
+    objected_to_role: str
+    remarks: Optional[str] = None
+    reverted_document_url: Optional[str] = None
+    status: str
+    created_at: Optional[datetime] = None
+    resolved_at: Optional[datetime] = None
+    resolved_by_id: Optional[int] = None
+    resolved_by_name: Optional[str] = None
+    resolved_by_role: Optional[str] = None
+    resolution_remarks: Optional[str] = None
+
+    model_config = ConfigDict(extra="ignore", from_attributes=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def populate_names(cls, data):
+        if hasattr(data, "__dict__"):
+            dict_keys = set(data.__dict__.keys())
+            d = {k: data.__dict__[k] for k in dict_keys if not k.startswith("_")}
+            if "objected_by_user" in dict_keys and data.__dict__["objected_by_user"]:
+                d["objected_by_name"] = getattr(data.__dict__["objected_by_user"], "name", None)
+            if "resolved_by_user" in dict_keys and data.__dict__["resolved_by_user"]:
+                d["resolved_by_name"] = getattr(data.__dict__["resolved_by_user"], "name", None)
+            return d
+        return data
+
+
+class ApplicationResponse(BaseModel):
+    id: int
+    applicant_id: Optional[int] = 0
     user_id: int
+    assigned_role: Optional[UserRole] = None
 
-    # Applicant Details
     applicant_name: str
-    father_name: str
+    father_name: Optional[str] = None
     mobile: str
-    email: Optional[str]
-    current_address: str
-
-    # Property & Work Details
+    email: Optional[str] = None
     property_address: str
-    title: str
-    work_description: str
-    contractor_name: Optional[str]
-
+    current_address: Optional[str] = None
     is_agriculture_land: bool
     property_usage: PropertyUsageType
     existing_structure: Optional[StructureType] = None
     construction_floor: Optional[StructureType] = None
     jurisdiction_zone: JurisdictionZone
+
     organization_name: Optional[str] = None
     department_id: Optional[int]
     ward_id: Optional[int]
@@ -509,7 +542,9 @@ class ApplicationResponse(BaseModel):
     comments: List[CommentResponse] = []
     inspections: List[InspectionReportResponse] = []
     tokens: List[TokenResponse] = []
+    objections: List[ApplicationObjectionResponse] = []
     rejection_remarks: Optional[str] = None
+    objection_to_role: Optional[str] = None
 
     model_config = ConfigDict(extra="ignore", from_attributes=True)
 
@@ -691,4 +726,17 @@ class VehicleEntryDetailResponse(BaseModel):
     entry_proof: List[str] = []  # List of signed URLs
     dumping_photos: List[DumpingPhotoResponse] = []
 
+
+class ApplicationPaginatedResponse(BaseModel):
+    """Paginated applications list response with total count."""
+
+    applications: List[ApplicationResponse]
+    total: int
+    offset: int = 0
+    limit: int = 10
+
+
     model_config = ConfigDict(from_attributes=True)
+
+
+ApplicationResponse.model_rebuild()

@@ -8,6 +8,11 @@ class TestUpdatePhaseMaterials(unittest.IsolatedAsyncioTestCase):
         # Setup mock session
         mock_session = AsyncMock()
         mock_session.add = MagicMock() # session.add is synchronous
+        
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        
         dao = ApplicationDAO(mock_session)
 
         # Mock session.get to return a mock Application
@@ -37,8 +42,8 @@ class TestUpdatePhaseMaterials(unittest.IsolatedAsyncioTestCase):
         # Verify session.get was called to fetch the application
         mock_session.get.assert_awaited_once_with(Application, 148)
 
-        # Verify that execute was called to run the delete statement
-        mock_session.execute.assert_awaited_once()
+        # Verify that execute was called to run the validation check and delete statement
+        self.assertEqual(mock_session.execute.await_count, 2)
         
         # Verify that session.add was called for both new phase materials
         self.assertEqual(mock_session.add.call_count, 2)

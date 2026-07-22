@@ -15,6 +15,7 @@ class UserRole(str, PyEnum):
     AEN = "AEN"
     RIN = "RIN"
     SIN = "SIN"
+    COLLECTOR = "COLLECTOR"
 
 
 class ApplicationStatus(str, PyEnum):
@@ -73,6 +74,7 @@ class WorkflowAction(str, PyEnum):
     FORWARD = "FORWARD"  # Commissioner forwards renovation to depts
     GENERATE_TOKENS = "GENERATE_TOKENS"
     WITHDRAW = "WITHDRAW"  # Application Withdrawn by Applicant
+    CLEAR_OBJECTION = "CLEAR_OBJECTION"
 
 
 class CommentType(str, PyEnum):
@@ -83,6 +85,11 @@ class CommentType(str, PyEnum):
     OBJECTION_RESPONSE = "OBJECTION_RESPONSE"  # Citizen response to objection
     OBJECTION_COMMENT = "OBJECTION_COMMENT"  # Nodal/Commissioner objection comment
     INSPECTION_REMARK = "INSPECTION_REMARK"  # JEN inspection remarks
+
+
+class ObjectionStatus(str, PyEnum):
+    PENDING = "PENDING"
+    RESOLVED = "RESOLVED"
 
 
 class PropertyUsageType(str, PyEnum):
