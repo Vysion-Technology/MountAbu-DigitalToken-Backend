@@ -112,7 +112,19 @@ class CommentResponse(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def extract_commenter_name(cls, data):
-        """Extract commenter name from the relationship."""
+        """Extract commenter name and sign media paths."""
+        from backend.services.storage import generate_signed_file_url
+
+        raw_paths = None
+        if hasattr(data, "media_paths"):
+            raw_paths = data.media_paths
+        elif isinstance(data, dict):
+            raw_paths = data.get("media_paths")
+
+        signed_paths = []
+        if raw_paths:
+            signed_paths = [generate_signed_file_url(p) for p in raw_paths if p]
+
         if hasattr(data, "commenter") and data.commenter:
             role_val = getattr(data.commenter, "role", None)
             if hasattr(role_val, "value"):
@@ -125,9 +137,27 @@ class CommentResponse(BaseModel):
                 commenter_name=data.commenter.name,
                 commenter_role=str(role_val) if role_val else None,
                 comment_type=getattr(data, "comment_type", CommentType.GENERAL),
-                media_paths=getattr(data, "media_paths", None),
+                media_paths=signed_paths if signed_paths else getattr(data, "media_paths", None),
                 created_at=getattr(data, "created_at", None),
             )
+        else:
+            if signed_paths:
+                if hasattr(data, "__dict__"):
+                    # Create a dict if it is an object
+                    res_dict = {
+                        "id": getattr(data, "id", None),
+                        "application_id": getattr(data, "application_id", None),
+                        "comment": getattr(data, "comment", None),
+                        "comment_by": getattr(data, "comment_by", None),
+                        "commenter_name": getattr(data, "commenter_name", None),
+                        "commenter_role": getattr(data, "commenter_role", None),
+                        "comment_type": getattr(data, "comment_type", CommentType.GENERAL),
+                        "media_paths": signed_paths,
+                        "created_at": getattr(data, "created_at", None),
+                    }
+                    return res_dict
+                elif isinstance(data, dict):
+                    data["media_paths"] = signed_paths
         return data
 
 
@@ -532,6 +562,8 @@ class ApplicationResponse(BaseModel):
     ward_zone: Optional[str] = None
 
     description: Optional[str] = None
+    contractor_name: Optional[str] = None
+    work_description: Optional[str] = None
     status: ApplicationStatus
     type: ApplicationType
     num_stages: Optional[int]

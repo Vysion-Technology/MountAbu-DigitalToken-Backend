@@ -65,7 +65,9 @@ class AuthorityDashboardDAO(BaseDAO):
         cur_total = (
             await self.session.execute(
                 _base_app_filter(
-                    select(func.count(Application.id)),
+                    select(func.count(Application.id)).where(
+                        Application.status.not_in([ApplicationStatus.PENDING, ApplicationStatus.WITHDRAWN])
+                    ),
                     dt_col=Application.created_at,
                     start=since,
                 )
@@ -136,7 +138,9 @@ class AuthorityDashboardDAO(BaseDAO):
         prev_total = (
             await self.session.execute(
                 _base_app_filter(
-                    select(func.count(Application.id)),
+                    select(func.count(Application.id)).where(
+                        Application.status.not_in([ApplicationStatus.PENDING, ApplicationStatus.WITHDRAWN])
+                    ),
                     dt_col=Application.created_at,
                     start=prev_start,
                     end=prev_end,
@@ -212,6 +216,8 @@ class AuthorityDashboardDAO(BaseDAO):
     ) -> list[dict]:
         stmt = select(
             Application.status, func.count(Application.id).label("count")
+        ).where(
+            Application.status.not_in([ApplicationStatus.PENDING, ApplicationStatus.WITHDRAWN])
         ).group_by(Application.status)
         if since:
             stmt = stmt.where(Application.created_at >= since)
@@ -282,6 +288,8 @@ class AuthorityDashboardDAO(BaseDAO):
                     )
                 )
             ).label("tokens_issued"),
+        ).where(
+            Application.status.not_in([ApplicationStatus.PENDING, ApplicationStatus.WITHDRAWN])
         ).group_by(Application.ward_id)
         if since:
             app_sq = app_sq.where(Application.created_at >= since)
