@@ -424,6 +424,14 @@ class ApplicationDAO(BaseDAO):
         if app_status:
             query = query.where(Application.status == app_status)
             
+        if user_role and user_role != UserRole.CITIZEN:
+            query = query.where(
+                and_(
+                    Application.status != ApplicationStatus.PENDING,
+                    Application.status != ApplicationStatus.WITHDRAWN,
+                )
+            )
+            
         # ── Search logic ──────────────────────────────────────────────────
         if search:
             search_filters = []
