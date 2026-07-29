@@ -486,14 +486,20 @@ class ApplicationDAO(BaseDAO):
                             pending_start_ts = min([o.created_at for o in pending_objs if o.created_at])
 
                 elif authority_role == UserRole.COMMISSIONER:
-                    if app.type == ApplicationType.RENOVATION:
+                    if app.status == ApplicationStatus.OBJECTED:
+                        # If there is a pending objection specifically sent to the Commissioner
+                        comm_objs = [o for o in app.objections if o.status == ObjectionStatus.PENDING and o.objected_to_role == UserRole.COMMISSIONER]
+                        if comm_objs:
+                            is_pending_for_role = True
+                            pending_start_ts = min([o.created_at for o in comm_objs if o.created_at])
+                        elif app.type == ApplicationType.RENOVATION:
+                            is_pending_for_role = True
+                            pending_start_ts = _get_app_last_updated_at(app)
+                    elif app.type == ApplicationType.RENOVATION:
                         if app.status == ApplicationStatus.SUBMITTED:
                             is_pending_for_role = True
                             pending_start_ts = app.created_at
                         elif app.status == ApplicationStatus.FORWARDED:
-                            is_pending_for_role = True
-                            pending_start_ts = _get_app_last_updated_at(app)
-                        elif app.status == ApplicationStatus.OBJECTED:
                             is_pending_for_role = True
                             pending_start_ts = _get_app_last_updated_at(app)
 
@@ -962,6 +968,14 @@ class ApplicationDAO(BaseDAO):
                     detail="objection_to_roles is required when raising an objection",
                 )
 
+            # If target role is COMMISSIONER, only NODAL_OFFICER (or SUPERADMIN) can raise the objection
+            if UserRole.COMMISSIONER in target_roles:
+                if user_role not in (UserRole.NODAL_OFFICER, UserRole.SUPERADMIN):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Only Nodal Officer can raise an objection to the Commissioner.",
+                    )
+
             # Rule 6.1: In New Construction at SUBMITTED state (before inspection), Nodal Officer can ONLY object to CITIZEN
             if application.type == ApplicationType.NEW and application.status == ApplicationStatus.SUBMITTED:
                 for r in target_roles:
@@ -1046,6 +1060,14 @@ class ApplicationDAO(BaseDAO):
             pending_objs = [o for o in application.objections if o.status == ObjectionStatus.PENDING]
             if clear_objection_role:
                 pending_objs = [o for o in pending_objs if o.objected_to_role == clear_objection_role]
+
+            # If any of the pending objections being cleared is to COMMISSIONER, only NODAL_OFFICER or SUPERADMIN can clear it
+            if any(obj.objected_to_role == UserRole.COMMISSIONER for obj in pending_objs):
+                if user_role not in (UserRole.NODAL_OFFICER, UserRole.SUPERADMIN):
+                    raise HTTPException(
+                        status_code=403,
+                        detail="Only Nodal Officer can verify and clear objections sent to the Commissioner.",
+                    )
 
             for obj in pending_objs:
                 obj.status = ObjectionStatus.RESOLVED
