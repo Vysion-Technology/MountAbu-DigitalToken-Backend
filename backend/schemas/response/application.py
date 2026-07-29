@@ -562,6 +562,8 @@ class ApplicationResponse(BaseModel):
     ward_zone: Optional[str] = None
 
     description: Optional[str] = None
+    contractor_name: Optional[str] = None
+    work_description: Optional[str] = None
     status: ApplicationStatus
     type: ApplicationType
     num_stages: Optional[int]
