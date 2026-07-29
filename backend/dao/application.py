@@ -976,13 +976,13 @@ class ApplicationDAO(BaseDAO):
                         detail="Only Nodal Officer can raise an objection to the Commissioner.",
                     )
 
-            # Rule 6.1: In New Construction at SUBMITTED state (before inspection), Nodal Officer can ONLY object to CITIZEN
+            # Rule 6.1: In New Construction at SUBMITTED state (before inspection), Nodal Officer can ONLY object to CITIZEN or COMMISSIONER
             if application.type == ApplicationType.NEW and application.status == ApplicationStatus.SUBMITTED:
                 for r in target_roles:
-                    if r != UserRole.CITIZEN:
+                    if r not in (UserRole.CITIZEN, UserRole.COMMISSIONER):
                         raise HTTPException(
                             status_code=400,
-                            detail="For new construction in submitted state, objection can only be sent to CITIZEN before inspection.",
+                            detail="For new construction in submitted state, objection can only be sent to CITIZEN or COMMISSIONER before inspection.",
                         )
 
             # Rule 6.8 & 6.9: In Renovation workflow, Commissioner can only object to lower authorities who have commented or inspected

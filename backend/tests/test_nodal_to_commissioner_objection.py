@@ -105,3 +105,20 @@ class TestNodalToCommissionerObjection(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(pending_obj.status, ObjectionStatus.RESOLVED)
+
+    async def test_nodal_officer_can_object_to_commissioner_in_submitted_state(self):
+        """Nodal Officer should be allowed to raise an objection to the Commissioner in SUBMITTED state for new construction."""
+        self.mock_app.type = ApplicationType.NEW
+        self.mock_app.status = ApplicationStatus.SUBMITTED
+
+        await self.dao.perform_workflow_action(
+            application_id=1,
+            action=WorkflowAction.OBJECT,
+            user_id=10,
+            user_role=UserRole.NODAL_OFFICER,
+            objection_to_roles=[UserRole.COMMISSIONER],
+            remarks="Nodal objections to Commissioner",
+        )
+
+        self.assertEqual(self.mock_app.objection_to_role, UserRole.COMMISSIONER)
+        self.assertEqual(self.mock_app.status, ApplicationStatus.OBJECTED)
