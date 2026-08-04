@@ -1220,13 +1220,17 @@ class ApplicationDAO(BaseDAO):
         if not application:
             raise HTTPException(status_code=404, detail="Application not found")
         if application.type == ApplicationType.RENOVATION:
-            if application.status != ApplicationStatus.FORWARDED:
+            if application.status != ApplicationStatus.FORWARDED and not (
+                application.status == ApplicationStatus.OBJECTED and application.objection_to_role == UserRole.JEN
+            ):
                 raise HTTPException(
                     status_code=400,
                     detail="Inspection is only allowed on FORWARDED applications for renovation",
                 )
         else:
-            if application.status != ApplicationStatus.APPROVED:
+            if application.status != ApplicationStatus.APPROVED and not (
+                application.status == ApplicationStatus.OBJECTED and application.objection_to_role == UserRole.JEN
+            ):
                 raise HTTPException(
                     status_code=400,
                     detail="Inspection is only allowed on APPROVED applications",
@@ -1294,13 +1298,17 @@ class ApplicationDAO(BaseDAO):
             raise HTTPException(status_code=404, detail="Application not found")
 
         if application.type == ApplicationType.RENOVATION:
-            if application.status not in (ApplicationStatus.FORWARDED, ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED):
+            if application.status not in (ApplicationStatus.FORWARDED, ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED) and not (
+                application.status == ApplicationStatus.OBJECTED and application.objection_to_role == UserRole.JEN
+            ):
                 raise HTTPException(
                     status_code=400,
                     detail="Inspection update is only allowed on FORWARDED, APPROVED, or TOKEN_GENERATED applications for renovation",
                 )
         else:
-            if application.status not in (ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED):
+            if application.status not in (ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED) and not (
+                application.status == ApplicationStatus.OBJECTED and application.objection_to_role == UserRole.JEN
+            ):
                 raise HTTPException(
                     status_code=400,
                     detail="Inspection update is only allowed on APPROVED or TOKEN_GENERATED applications",

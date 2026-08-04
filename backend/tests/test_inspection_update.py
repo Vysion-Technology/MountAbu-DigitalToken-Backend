@@ -138,3 +138,24 @@ class TestInspectionUpdate(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(latest_inspection.remarks, "New remarks")
         self.assertEqual(latest_inspection.inspected_by, 3)
 
+    async def test_update_inspection_success_when_objected_to_jen(self):
+        """Should allow updating inspection if the application is in OBJECTED status and objected to JEN."""
+        app = self._make_application(app_type=ApplicationType.NEW, status=ApplicationStatus.OBJECTED)
+        from backend.meta import UserRole
+        app.objection_to_role = UserRole.JEN
+        self.mock_session.get = AsyncMock(return_value=app)
+        
+        inspection = self._make_inspection(app_id=app.id)
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.first.return_value = inspection
+        self.mock_session.execute = AsyncMock(return_value=mock_result)
+        self.mock_session.commit = AsyncMock()
+
+        result = await self.dao.update_inspection_report(
+            application_id=app.id,
+            user_id=2,
+            remarks="Updated remarks when objected to JEN"
+        )
+        self.assertEqual(result.message, "Inspection report updated successfully")
+        self.assertEqual(inspection.remarks, "Updated remarks when objected to JEN")
+
