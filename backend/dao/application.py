@@ -1772,7 +1772,7 @@ class ApplicationDAO(BaseDAO):
         end_date: Optional[datetime] = None,
         offset: int = 0,
         limit: int = 50,
-    ) -> list[dict]:
+    ) -> tuple[list[dict], int]:
         """Get all vehicle entries for authority view, grouped by trip with advanced filtering."""
         from backend.dbmodels.user import User
         from backend.dbmodels.application import (
@@ -1908,6 +1908,23 @@ class ApplicationDAO(BaseDAO):
         if filters:
             stmt = stmt.where(and_(*filters))
 
+        # Count total matching vehicle entries
+        count_stmt = (
+            select(func.count(VehicleEntry.id))
+            .join(Application, VehicleEntry.application_id == Application.id)
+            .join(User, VehicleEntry.entry_by == User.id)
+            .outerjoin(
+                ApprovedApplicationPhase,
+                and_(
+                    ApprovedApplicationPhase.application_id == VehicleEntry.application_id,
+                    ApprovedApplicationPhase.phase == VehicleEntry.phase,
+                ),
+            )
+        )
+        if filters:
+            count_stmt = count_stmt.where(and_(*filters))
+        total = (await self.session.execute(count_stmt)).scalar() or 0
+
         stmt = stmt.order_by(VehicleEntry.entry_at.desc()).offset(offset).limit(limit)
 
         result = await self.session.execute(stmt)
@@ -2029,7 +2046,7 @@ class ApplicationDAO(BaseDAO):
                 }
             )
 
-        return grouped_results
+        return grouped_results, total
 
     async def get_phase_material_summary(self, application_id: int, phase: int) -> dict:
         """Get material summary for a phase at the naka checkpoint.
@@ -2592,7 +2609,7 @@ class ApplicationDAO(BaseDAO):
         search: Optional[str] = None,
         offset: int = 0,
         limit: int = 10,
-    ) -> list[dict]:
+    ) -> tuple[list[dict], int]:
         """Get all tokens (phases) with optional user_id filtering.
 
         Supports filtering by phase status and searching by token/application number.
@@ -2636,7 +2653,7 @@ class ApplicationDAO(BaseDAO):
             ]
 
         # Paginate
-        return tokens[offset : offset + limit]
+        return tokens[offset : offset + limit], len(tokens)
 
     async def get_application_tokens(self, application_id: int) -> list[dict]:
         """Get all tokens (phases) for a single application with material summaries."""

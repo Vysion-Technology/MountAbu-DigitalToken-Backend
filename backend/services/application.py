@@ -386,9 +386,9 @@ class ApplicationService(BaseService):
         end_date: Optional[datetime] = None,
         offset: int = 0,
         limit: int = 50,
-    ) -> list[AuthorityVehicleEntryResponse]:
+    ) -> tuple[list[AuthorityVehicleEntryResponse], int]:
         """Get all vehicle entries for authority view, with role-based token_number hiding."""
-        entries_data = await self.dao.get_all_vehicle_entries(
+        entries_data, total = await self.dao.get_all_vehicle_entries(
             search=search,
             vehicle_number=vehicle_number,
             material_name=material_name,
@@ -406,7 +406,7 @@ class ApplicationService(BaseService):
 
             response.append(AuthorityVehicleEntryResponse.model_validate(item))
 
-        return response
+        return response, total
     async def get_phase_material_summary(self, application_id: int, phase: int) -> dict:
         """Get material summary for a phase (used by naka checkpoint)."""
         return await self.dao.get_phase_material_summary(application_id, phase)
@@ -443,16 +443,16 @@ class ApplicationService(BaseService):
         search: Optional[str] = None,
         offset: int = 0,
         limit: int = 10,
-    ) -> list[TokenResponse]:
+    ) -> tuple[list[TokenResponse], int]:
         """Get all tokens with optional filters."""
-        token_dicts = await self.dao.get_tokens(
+        token_dicts, total = await self.dao.get_tokens(
             user_id=user_id,
             status_filter=status_filter,
             search=search,
             offset=offset,
             limit=limit,
         )
-        return [TokenResponse.model_validate(t) for t in token_dicts]
+        return [TokenResponse.model_validate(t) for t in token_dicts], total
 
     async def get_application_tokens(self, application_id: int) -> list[TokenResponse]:
         """Get all tokens for a specific application."""

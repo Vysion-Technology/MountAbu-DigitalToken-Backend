@@ -294,6 +294,13 @@ class TokenResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class TokenListResponse(BaseModel):
+    items: List[TokenResponse] = []
+    total: int = 0
+    offset: int = 0
+    limit: int = 10
+
+
 class VehicleEntryResponse(BaseModel):
     """A single vehicle / naka entry shown under the Vehicle Entries tab."""
 
@@ -723,6 +730,13 @@ class AuthorityVehicleEntryResponse(BaseModel):
         if isinstance(data, dict):
             data["access_urls"] = access_urls
         return data
+
+
+class VehicleEntryListResponse(BaseModel):
+    items: List[AuthorityVehicleEntryResponse] = []
+    total: int = 0
+    offset: int = 0
+    limit: int = 50
 
 
 class DumpingPhotoResponse(BaseModel):

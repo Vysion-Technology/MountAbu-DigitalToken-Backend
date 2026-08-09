@@ -35,8 +35,10 @@ from backend.schemas.response.application import (
     CommentResponse,
     PhaseResponse,
     TokenResponse,
+    TokenListResponse,
     TokenDetailResponse,
     AuthorityVehicleEntryResponse,
+    VehicleEntryListResponse,
     VehicleEntryDetailResponse,
 )
 from backend.schemas.response.meta import SuccessResponse, DocumentUploadResponse
@@ -188,7 +190,7 @@ async def get_vehicle_entry_detail(
 
 @router.get(
     "/authority/vehicle-entries",
-    response_model=List[AuthorityVehicleEntryResponse],
+    response_model=VehicleEntryListResponse,
 )
 async def get_all_vehicle_entries(
     search: Optional[str] = Query(
@@ -203,7 +205,7 @@ async def get_all_vehicle_entries(
     limit: int = Query(50, ge=1, le=500),
     application_service: ApplicationService = Depends(get_application_service),
     user: UserDetails = Depends(get_current_user),
-) -> List[AuthorityVehicleEntryResponse]:
+) -> VehicleEntryListResponse:
     """Get all vehicle entries for authority view with advanced filtering."""
     if user.role not in [
         UserRole.SUPERADMIN,
@@ -215,7 +217,7 @@ async def get_all_vehicle_entries(
             status_code=403,
             detail="You are not permitted to view the vehicle entries list.",
         )
-    return await application_service.get_all_vehicle_entries(
+    items, total = await application_service.get_all_vehicle_entries(
         user.role,
         search=search,
         vehicle_number=vehicle_number,
@@ -226,6 +228,7 @@ async def get_all_vehicle_entries(
         offset=offset,
         limit=limit,
     )
+    return VehicleEntryListResponse(items=items, total=total, offset=offset, limit=limit)
 
 
 @router.get("/applications/organizations", response_model=List[str])
@@ -866,7 +869,7 @@ async def delete_application(
 # ── Token endpoints ──────────────────────────────────────────────────────
 
 
-@router.get("/tokens", response_model=List[TokenResponse])
+@router.get("/tokens", response_model=TokenListResponse)
 async def list_tokens(
     status: Optional[str] = Query(
         None, description="Filter by token status: ACTIVE, PENDING, COMPLETED"
@@ -878,7 +881,7 @@ async def list_tokens(
     limit: int = Query(10, ge=1, le=100),
     application_service: ApplicationService = Depends(get_application_service),
     user: UserDetails = Depends(get_current_user),
-) -> List[TokenResponse]:
+) -> TokenListResponse:
     """List tokens (approved application phases) for the current citizen.
 
     Returns tokens with computed fields:
@@ -905,13 +908,14 @@ async def list_tokens(
     # Filter by user_id only for citizens
     filter_user_id = user.user_id if user.role == UserRole.CITIZEN else None
 
-    return await application_service.get_tokens(
+    items, total = await application_service.get_tokens(
         user_id=filter_user_id,
         status_filter=status,
         search=search,
         offset=offset,
         limit=limit,
     )
+    return TokenListResponse(items=items, total=total, offset=offset, limit=limit)
 
 
 @router.get("/applications/{application_id}/tokens", response_model=List[TokenResponse])
