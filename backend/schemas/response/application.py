@@ -640,6 +640,8 @@ class ApplicationResponse(BaseModel):
                         break
 
         # Return dict or updated dict
+        from backend.meta import ApplicationDocumentType
+
         if hasattr(data, "__dict__"):
             d = {k: getattr(data, k, None) for k in data.__dict__.keys() if not k.startswith("_")}
             d["ward_zone"] = ward_name
@@ -648,10 +650,25 @@ class ApplicationResponse(BaseModel):
             for field in cls.model_fields.keys():
                 if field not in d and hasattr(data, field):
                     d[field] = getattr(data, field)
+            
+            if d.get("documents"):
+                d["documents"] = [
+                    doc for doc in d["documents"]
+                    if getattr(doc, "document_type", None) != ApplicationDocumentType.GEO_TAGGED_PHOTO
+                    and getattr(doc, "document_type", None) != "GEO_TAGGED_PHOTO"
+                    and (not isinstance(doc, dict) or (doc.get("document_type") != ApplicationDocumentType.GEO_TAGGED_PHOTO and doc.get("document_type") != "GEO_TAGGED_PHOTO"))
+                ]
             return d
         elif isinstance(data, dict):
             data["ward_zone"] = ward_name
             data["rejection_remarks"] = rejection_remarks
+            if data.get("documents"):
+                data["documents"] = [
+                    doc for doc in data["documents"]
+                    if getattr(doc, "document_type", None) != ApplicationDocumentType.GEO_TAGGED_PHOTO
+                    and getattr(doc, "document_type", None) != "GEO_TAGGED_PHOTO"
+                    and (not isinstance(doc, dict) or (doc.get("document_type") != ApplicationDocumentType.GEO_TAGGED_PHOTO and doc.get("document_type") != "GEO_TAGGED_PHOTO"))
+                ]
             return data
         return data
 
