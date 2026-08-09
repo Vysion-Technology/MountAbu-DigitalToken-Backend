@@ -1140,7 +1140,13 @@ class ApplicationDAO(BaseDAO):
             elif action == WorkflowAction.REJECT:
                 await sms_service.send_application_sms(application.mobile, app_number, "rejected")
             elif action == WorkflowAction.OBJECT:
-                await sms_service.send_application_sms(application.mobile, app_number, "objected")
+                target_roles = []
+                if objection_to_roles:
+                    target_roles = [r for r in objection_to_roles if r]
+                elif objection_to_role:
+                    target_roles = [objection_to_role]
+                if UserRole.CITIZEN in target_roles:
+                    await sms_service.send_application_sms(application.mobile, app_number, "objected")
             elif action == WorkflowAction.GENERATE_TOKENS:
                 # Notify that tokens are generated for the application
                 await sms_service.send_token_sms(application.mobile, app_number, "generated")
