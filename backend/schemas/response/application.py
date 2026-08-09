@@ -654,9 +654,9 @@ class ApplicationResponse(BaseModel):
             if d.get("documents"):
                 d["documents"] = [
                     doc for doc in d["documents"]
-                    if getattr(doc, "document_type", None) != ApplicationDocumentType.GEO_TAGGED_PHOTO
-                    and getattr(doc, "document_type", None) != "GEO_TAGGED_PHOTO"
-                    and (not isinstance(doc, dict) or (doc.get("document_type") != ApplicationDocumentType.GEO_TAGGED_PHOTO and doc.get("document_type") != "GEO_TAGGED_PHOTO"))
+                    if getattr(doc, "document_type", None) not in (ApplicationDocumentType.GEO_TAGGED_PHOTO, ApplicationDocumentType.SITE_INSPECTION)
+                    and getattr(doc, "document_type", None) not in ("GEO_TAGGED_PHOTO", "SITE_INSPECTION")
+                    and (not isinstance(doc, dict) or (doc.get("document_type") not in (ApplicationDocumentType.GEO_TAGGED_PHOTO, ApplicationDocumentType.SITE_INSPECTION) and doc.get("document_type") not in ("GEO_TAGGED_PHOTO", "SITE_INSPECTION")))
                 ]
             return d
         elif isinstance(data, dict):
@@ -665,9 +665,9 @@ class ApplicationResponse(BaseModel):
             if data.get("documents"):
                 data["documents"] = [
                     doc for doc in data["documents"]
-                    if getattr(doc, "document_type", None) != ApplicationDocumentType.GEO_TAGGED_PHOTO
-                    and getattr(doc, "document_type", None) != "GEO_TAGGED_PHOTO"
-                    and (not isinstance(doc, dict) or (doc.get("document_type") != ApplicationDocumentType.GEO_TAGGED_PHOTO and doc.get("document_type") != "GEO_TAGGED_PHOTO"))
+                    if getattr(doc, "document_type", None) not in (ApplicationDocumentType.GEO_TAGGED_PHOTO, ApplicationDocumentType.SITE_INSPECTION)
+                    and getattr(doc, "document_type", None) not in ("GEO_TAGGED_PHOTO", "SITE_INSPECTION")
+                    and (not isinstance(doc, dict) or (doc.get("document_type") not in (ApplicationDocumentType.GEO_TAGGED_PHOTO, ApplicationDocumentType.SITE_INSPECTION) and doc.get("document_type") not in ("GEO_TAGGED_PHOTO", "SITE_INSPECTION")))
                 ]
             return data
         return data
