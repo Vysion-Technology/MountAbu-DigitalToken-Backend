@@ -17,6 +17,7 @@ from backend.middlewares.auth import get_current_user_id, get_current_user
 from backend.services.user import UserService, get_user_service
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.database import get_db
+from backend.config import settings
 
 from backend.schemas.base.auth import UserDetails
 from backend.schemas.request.application import (
@@ -156,6 +157,12 @@ async def create_application(
     db: AsyncSession = Depends(get_db),  # Inject DB session
 ) -> ApplicationResponse:
     """Create a new application."""
+    if not settings.ALLOW_NEW_APPLICATIONS:
+        raise HTTPException(
+            status_code=503,
+            detail="Due to some maintenance, we are not taking new applications at this time."
+        )
+
     # Fetch full user to get mobile
     user = await user_service.get_user_by_id(db, user_id)
     if not user:

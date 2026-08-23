@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     USE_REAL_OTP: bool = False
     MSG91_AUTH_KEY: str = ""
 
+    # Maintenance Toggle
+    ALLOW_NEW_APPLICATIONS: bool = True
+
     # RSA Encryption Toggle
     ENFORCE_RSA_ENCRYPTION: bool = False
 
