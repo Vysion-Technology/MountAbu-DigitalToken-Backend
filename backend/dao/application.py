@@ -2768,6 +2768,87 @@ class ApplicationDAO(BaseDAO):
         phases = list(result.scalars().all())
         return await self._build_token_list_dicts(phases)
 
+    async def verify_toll_plaza_entry(
+        self, application_id: int, phase: int, vehicle_number: str
+    ) -> dict:
+        """Verify the latest Naka vehicle entry at the toll plaza."""
+        import re
+        normalized_vehicle = re.sub(r'[^A-Z0-9]', '', vehicle_number.upper())
+
+        stmt = (
+            select(VehicleEntry)
+            .where(
+                VehicleEntry.application_id == application_id,
+                VehicleEntry.phase == phase,
+            )
+            .order_by(VehicleEntry.entry_at.desc())
+        )
+        result = await self.session.execute(stmt)
+        entries = result.scalars().all()
+
+        matched_entry = None
+        for entry in entries:
+            entry_norm = re.sub(r'[^A-Z0-9]', '', (entry.vehicle_number or "").upper())
+            if entry_norm == normalized_vehicle:
+                matched_entry = entry
+                break
+
+        if not matched_entry:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No Naka vehicle entry found for vehicle {vehicle_number}"
+            )
+
+        if matched_entry.plaza_verified_at is not None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Naka entry for vehicle {vehicle_number} has already been verified at the Toll Plaza"
+            )
+
+        now = datetime.now()
+        if now - matched_entry.entry_at > timedelta(hours=2):
+            raise HTTPException(
+                status_code=400,
+                detail="Naka verification window has expired (validity is 2 hours from checkpoint entry)"
+            )
+
+        matched_entry.plaza_verified_at = now
+        await self.session.flush()
+        await self.session.commit()
+
+        materials_stmt = (
+            select(VehicleMaterial)
+            .where(VehicleMaterial.vehicle_entry_id == matched_entry.id)
+        )
+        mat_result = await self.session.execute(materials_stmt)
+        vehicle_materials = mat_result.scalars().all()
+
+        materials_list = []
+        for vm in vehicle_materials:
+            m_name = vm.custom_name
+            m_unit = vm.custom_unit
+            if vm.material_id:
+                mat = await self.session.get(Material, vm.material_id)
+                if mat:
+                    m_name = mat.name
+                    m_unit = mat.unit
+            materials_list.append({
+                "material_id": vm.material_id,
+                "material_name": m_name or "Unknown",
+                "unit": m_unit or "Units",
+                "quantity": vm.quantity
+            })
+
+        return {
+            "verified": True,
+            "naka_entry_id": matched_entry.id,
+            "vehicle_number": matched_entry.vehicle_number,
+            "entry_at": matched_entry.entry_at,
+            "verified_at": matched_entry.plaza_verified_at,
+            "materials": materials_list
+        }
+
+
 
 async def get_application_dao(
     session: AsyncSession = Depends(get_db),

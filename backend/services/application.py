@@ -466,6 +466,16 @@ class ApplicationService(BaseService):
         detail_dict = await self.dao.get_token_detail(application_id, phase)
         return TokenDetailResponse.model_validate(detail_dict)
 
+    async def verify_toll_plaza_entry(
+        self, application_id: int, phase: int, vehicle_number: str
+    ) -> dict:
+        """Verify the latest Naka vehicle entry at the toll plaza."""
+        return await self.dao.verify_toll_plaza_entry(
+            application_id=application_id,
+            phase=phase,
+            vehicle_number=vehicle_number,
+        )
+
 
 class ApplicationMaterialService(BaseService):
     """Service for handling application material operations."""

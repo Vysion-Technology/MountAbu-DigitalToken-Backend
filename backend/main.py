@@ -18,6 +18,7 @@ from backend.controllers.tenders import router as tenders_router
 from backend.controllers.events import router as events_router
 from backend.controllers.leaders import router as leaders_router
 from backend.controllers.naka import router as naka_router
+from backend.controllers.toll_plaza import router as toll_plaza_router
 
 from backend.controllers.dashboard import router as dashboard_router
 from backend.controllers.user_management import router as user_management_router
@@ -86,6 +87,7 @@ app.include_router(events_router, prefix="/api", tags=["Events"])
 app.include_router(leaders_router, prefix="/api", tags=["Leaders"])
 app.include_router(complaint_router, prefix="/api", tags=["Complaints"])
 app.include_router(naka_router, prefix="/api", tags=["Naka"])
+app.include_router(toll_plaza_router, prefix="/api", tags=["Toll Plaza"])
 app.include_router(dashboard_router, prefix="/api", tags=["Dashboard"])
 app.include_router(city_profile_router, prefix="/api", tags=["City Profile"])
 app.include_router(user_management_router, prefix="/api", tags=["User Management"])

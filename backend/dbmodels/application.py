@@ -321,6 +321,9 @@ class VehicleEntry(Base):
     entry_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.now, index=True
     )
+    plaza_verified_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, nullable=True, default=None, index=True
+    )
 
     remarks: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     media: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
