@@ -315,7 +315,7 @@ class ApplicationDAO(BaseDAO):
     ) -> ApplicationResponse:
         """Create application."""
         # Extract material requirements before creating application
-        material_requirements = application.material_requirements
+        material_requirements = application.material_requirements or []
         application_data = application.model_dump(exclude={"material_requirements"})
         application_data["user_id"] = user_id
         application_data["mobile"] = mobile

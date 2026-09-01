@@ -58,8 +58,8 @@ class ApplicationCreate(BaseModel):
 
     type: ApplicationType = Field(..., description="Application Type")
     description: Optional[str] = Field(None, description="Application Description")
-    material_requirements: list[ApplicationMaterialRequirements] = Field(
-        ..., description="Application Material Requirements"
+    material_requirements: Optional[list[ApplicationMaterialRequirements]] = Field(
+        default_factory=list, description="Application Material Requirements"
     )
 
     @model_validator(mode="after")
