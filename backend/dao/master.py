@@ -337,3 +337,41 @@ class MasterDataDAO:
     async def delete_vehicle_type(self, session: AsyncSession, vehicle_type_id: int) -> bool:
         return await self._delete(session, VehicleType, vehicle_type_id)
 
+    # Schedule Blackout Operations
+    async def create_blackout(
+        self,
+        session: AsyncSession,
+        blackout: ScheduleBlackoutCreate,
+        created_by_id: Optional[int] = None,
+    ) -> ScheduleBlackout:
+        data = blackout.model_dump()
+        if created_by_id:
+            data["created_by_id"] = created_by_id
+        return await self._create(session, ScheduleBlackout, data)
+
+    async def get_blackout(
+        self, session: AsyncSession, blackout_id: int, active_only: bool = False
+    ) -> Optional[ScheduleBlackout]:
+        return await self._get(session, ScheduleBlackout, blackout_id, active_only=active_only)
+
+    async def list_blackouts(
+        self, session: AsyncSession, active_only: bool = False
+    ) -> List[ScheduleBlackout]:
+        stmt = select(ScheduleBlackout).options(selectinload(ScheduleBlackout.slot))
+        if active_only:
+            stmt = stmt.where(ScheduleBlackout.is_active == True)
+        stmt = stmt.order_by(ScheduleBlackout.blackout_date.asc())
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def update_blackout(
+        self, session: AsyncSession, blackout_id: int, blackout: ScheduleBlackoutUpdate
+    ) -> Optional[ScheduleBlackout]:
+        return await self._update(
+            session, ScheduleBlackout, blackout_id, blackout.model_dump(exclude_unset=True)
+        )
+
+    async def delete_blackout(self, session: AsyncSession, blackout_id: int) -> bool:
+        return await self._delete(session, ScheduleBlackout, blackout_id)
+
+

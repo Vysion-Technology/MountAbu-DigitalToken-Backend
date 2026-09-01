@@ -13,7 +13,15 @@ from .application import (
     VehicleMaterial,
     VehicleEntryDumpingPhoto,
 )
-from .master import Ward, Department, Role, ComplaintCategory, SlotDefinition, VehicleType
+from .master import (
+    Ward,
+    Department,
+    Role,
+    ComplaintCategory,
+    SlotDefinition,
+    VehicleType,
+    ScheduleBlackout,
+)
 from .city_profile import CityProfile
 from .download import Download
 from .notice import Notice
@@ -45,6 +53,8 @@ __all__ = [
     "ComplaintCategory",
     "SlotDefinition",
     "VehicleType",
+    "ScheduleBlackout",
+
     # City Profile
     "CityProfile",
     # Downloads

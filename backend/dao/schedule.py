@@ -11,13 +11,16 @@ from backend.dbmodels.application import (
     Application,
     VehicleEntry,
 )
-from backend.dbmodels.master import SlotDefinition, VehicleType
-from backend.meta import VehicleScheduleStatus, ApplicationPhaseStatus
+from backend.dbmodels.master import SlotDefinition, VehicleType, ScheduleBlackout
+from backend.meta import VehicleScheduleStatus, ApplicationPhaseStatus, ScheduleComplianceStatus
 from backend.schemas.request.schedule import VehicleScheduleCreate
 from backend.schemas.response.schedule import (
     AvailableSlotItemResponse,
     AvailableSlotsResponse,
     VehicleScheduleResponse,
+    CapacityHeatmapResponse,
+    CapacityHeatmapDay,
+    CapacityHeatmapSlot,
 )
 
 
@@ -82,8 +85,24 @@ class VehicleScheduleDAO:
     async def get_available_slots_for_date(
         self, session: AsyncSession, target_date: date
     ) -> AvailableSlotsResponse:
-        """Get all active slots and their booked/available capacities for the specified date."""
-        # 1. Fetch all active slots ordered by start_time
+        """Get all active slots and their booked/available capacities for the specified date, factoring blackouts and applicable days."""
+        # 1. Check for active blackouts on this date
+        blackout_stmt = select(ScheduleBlackout).where(
+            and_(
+                cast(ScheduleBlackout.blackout_date, Date) == target_date,
+                ScheduleBlackout.is_active == True,
+            )
+        )
+        blackout_res = await session.execute(blackout_stmt)
+        blackouts = blackout_res.scalars().all()
+
+        full_day_blackout = next((b for b in blackouts if b.is_full_day or b.slot_id is None), None)
+        slot_blackout_map = {b.slot_id: b.reason for b in blackouts if b.slot_id is not None}
+
+        # 2. Day of week check (e.g. MON, TUE, etc.)
+        day_abbr = target_date.strftime("%a").upper()  # 'MON', 'TUE', etc.
+
+        # 3. Fetch all active slots ordered by start_time
         slot_stmt = (
             select(SlotDefinition)
             .where(SlotDefinition.is_active == True)
@@ -94,8 +113,18 @@ class VehicleScheduleDAO:
 
         slot_items: List[AvailableSlotItemResponse] = []
         for s in slots:
+            # Check applicable days
+            app_days = [d.strip().upper() for d in (s.applicable_days or "MON,TUE,WED,THU,FRI,SAT,SUN").split(",") if d.strip()]
+            is_applicable_today = day_abbr in app_days
+
+            # Check blackout
+            is_slot_blackout = bool(full_day_blackout) or (s.id in slot_blackout_map)
+            slot_blackout_reason = full_day_blackout.reason if full_day_blackout else slot_blackout_map.get(s.id)
+
             booked_count = await self.get_slot_booked_count(session, s.id, target_date)
             avail = max(0, s.max_capacity - booked_count)
+            is_avail = avail > 0 and not is_slot_blackout and is_applicable_today
+
             slot_items.append(
                 AvailableSlotItemResponse(
                     slot_id=s.id,
@@ -104,12 +133,75 @@ class VehicleScheduleDAO:
                     end_time=s.end_time,
                     max_capacity=s.max_capacity,
                     booked_count=booked_count,
-                    available_capacity=avail,
-                    is_available=avail > 0,
+                    available_capacity=0 if is_slot_blackout else avail,
+                    is_available=is_avail,
+                    is_blackout=is_slot_blackout,
+                    blackout_reason=slot_blackout_reason,
+                    is_applicable_today=is_applicable_today,
                 )
             )
 
-        return AvailableSlotsResponse(date=target_date, slots=slot_items)
+        return AvailableSlotsResponse(
+            date=target_date,
+            is_full_day_blackout=bool(full_day_blackout),
+            blackout_reason=full_day_blackout.reason if full_day_blackout else None,
+            slots=slot_items,
+        )
+
+    async def get_capacity_heatmap(
+        self, session: AsyncSession, start_date: date, days: int = 14
+    ) -> CapacityHeatmapResponse:
+        """Return a live capacity heatmap & load analytics across the next N days."""
+        from datetime import timedelta
+        end_date = start_date + timedelta(days=days - 1)
+
+        days_list: List[CapacityHeatmapDay] = []
+        for i in range(days):
+            current_date = start_date + timedelta(days=i)
+            available_slots = await self.get_available_slots_for_date(session, current_date)
+
+            total_cap = sum(s.max_capacity for s in available_slots.slots)
+            total_bk = sum(s.booked_count for s in available_slots.slots)
+            total_av = sum(s.available_capacity for s in available_slots.slots)
+            load_pct = round((total_bk / total_cap * 100), 1) if total_cap > 0 else 0.0
+
+            slot_heatmap: List[CapacityHeatmapSlot] = []
+            for s in available_slots.slots:
+                slot_load = round((s.booked_count / s.max_capacity * 100), 1) if s.max_capacity > 0 else 0.0
+                slot_heatmap.append(
+                    CapacityHeatmapSlot(
+                        slot_id=s.slot_id,
+                        name=s.name,
+                        start_time=s.start_time,
+                        end_time=s.end_time,
+                        max_capacity=s.max_capacity,
+                        booked_count=s.booked_count,
+                        available_capacity=s.available_capacity,
+                        is_blackout=s.is_blackout,
+                        load_percentage=slot_load,
+                    )
+                )
+
+            days_list.append(
+                CapacityHeatmapDay(
+                    date=current_date,
+                    day_name=current_date.strftime("%A"),
+                    total_capacity=total_cap,
+                    total_booked=total_bk,
+                    total_available=total_av,
+                    overall_load_percentage=load_pct,
+                    is_full_blackout=available_slots.is_full_day_blackout,
+                    blackout_reason=available_slots.blackout_reason,
+                    slots=slot_heatmap,
+                )
+            )
+
+        return CapacityHeatmapResponse(
+            start_date=start_date,
+            end_date=end_date,
+            total_days=days,
+            days=days_list,
+        )
 
     async def create_schedule(
         self,
@@ -146,20 +238,39 @@ class VehicleScheduleDAO:
         if not slot:
             raise ValueError("Selected time slot is invalid or inactive.")
 
-        # 4. Verify capacity for selected slot on target date
+        # 4. Check Day of week applicability
+        day_abbr = schedule_in.schedule_date.strftime("%a").upper()
+        app_days = [d.strip().upper() for d in (slot.applicable_days or "MON,TUE,WED,THU,FRI,SAT,SUN").split(",") if d.strip()]
+        if day_abbr not in app_days:
+            raise ValueError(f"Slot '{slot.name}' is not operational on {schedule_in.schedule_date.strftime('%A')}s.")
+
+        # 5. Check Blackout Dates
+        blackout_stmt = select(ScheduleBlackout).where(
+            and_(
+                cast(ScheduleBlackout.blackout_date, Date) == schedule_in.schedule_date,
+                ScheduleBlackout.is_active == True,
+            )
+        )
+        blackout_res = await session.execute(blackout_stmt)
+        blackouts = blackout_res.scalars().all()
+        for b in blackouts:
+            if b.is_full_day or b.slot_id is None or b.slot_id == slot.id:
+                raise ValueError(f"Scheduling is blocked on {schedule_in.schedule_date} due to: {b.reason}")
+
+        # 6. Verify capacity for selected slot on target date
         booked_count = await self.get_slot_booked_count(session, slot.id, schedule_in.schedule_date)
         if booked_count >= slot.max_capacity:
             raise ValueError(f"Selected time slot '{slot.name}' on {schedule_in.schedule_date} is fully booked ({booked_count}/{slot.max_capacity}). Please choose another slot.")
 
-        # 5. Format schedule code
+        # 7. Format schedule code
         date_str = schedule_in.schedule_date.strftime("%Y%m%d")
         rand_suffix = secrets.token_hex(2).upper()
         schedule_code = f"SCH-{date_str}-{rand_suffix}"
 
-        # 6. Construct DateTime from date
+        # 8. Construct DateTime from date
         schedule_dt = datetime.combine(schedule_in.schedule_date, time(0, 0))
 
-        # 7. Create schedule object
+        # 9. Create schedule object
         clean_vehicle_number = schedule_in.vehicle_number.strip().upper()
         db_schedule = VehicleSchedule(
             schedule_code=schedule_code,
@@ -244,3 +355,4 @@ class VehicleScheduleDAO:
             await session.commit()
             await session.refresh(schedule)
         return schedule
+

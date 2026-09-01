@@ -11,6 +11,7 @@ from backend.schemas.response.schedule import (
     AvailableSlotsResponse,
     VehicleScheduleResponse,
     TokenScheduleStatusResponse,
+    CapacityHeatmapResponse,
 )
 from backend.services.schedule import VehicleScheduleService
 
@@ -18,7 +19,20 @@ router = APIRouter(prefix="/schedules", tags=["Vehicle Scheduling"])
 schedule_service = VehicleScheduleService()
 
 
+@router.get("/analytics/capacity-heatmap", response_model=CapacityHeatmapResponse)
+async def get_capacity_heatmap(
+    start_date: Optional[date] = Query(None, description="Start date (defaults to today)"),
+    days: int = Query(14, ge=1, le=30, description="Number of days to project (1 to 30)"),
+    db: AsyncSession = Depends(get_db),
+    user: UserDetails = Depends(get_current_user),
+) -> CapacityHeatmapResponse:
+    """Get live capacity heatmap and booking load analytics across the next N days."""
+    s_date = start_date or date.today()
+    return await schedule_service.get_capacity_heatmap(db, s_date, days)
+
+
 @router.get("/available-slots", response_model=AvailableSlotsResponse)
+
 async def get_available_slots(
     date_val: date = Query(..., alias="date", description="Date to check available slots (YYYY-MM-DD)"),
     db: AsyncSession = Depends(get_db),

@@ -38,6 +38,8 @@ from backend.schemas.request.master import (
     SlotDefinitionUpdate,
     VehicleTypeCreate,
     VehicleTypeUpdate,
+    ScheduleBlackoutCreate,
+    ScheduleBlackoutUpdate,
 )
 from backend.schemas.response.master import (
     WardResponse,
@@ -47,8 +49,10 @@ from backend.schemas.response.master import (
     MaterialResponse,
     SlotDefinitionResponse,
     VehicleTypeResponse,
+    ScheduleBlackoutResponse,
     UserSummary,
 )
+
 
 router = APIRouter(prefix="/master", tags=["Master Data"])
 dao = MasterDataDAO()
@@ -597,4 +601,113 @@ async def delete_vehicle_type(
     )
     await session.commit()
     return {"message": "Vehicle type deleted successfully"}
+
+
+# ── Schedule Blackout Calendar Master Data ───────────────────────────────────
+@router.post("/blackouts", response_model=ScheduleBlackoutResponse)
+async def create_blackout(
+    blackout: ScheduleBlackoutCreate,
+    current_user: UserDetails = Depends(get_superadmin),
+    session: AsyncSession = Depends(get_db),
+):
+    response = await dao.create_blackout(
+        session, blackout, created_by_id=current_user.user_id
+    )
+    await audit_service.log(
+        session,
+        "SCHEDULE_BLACKOUT",
+        AuditAction.CREATED,
+        current_user.user_id,
+        new_state=response.model_dump() if hasattr(response, "model_dump") else None,
+    )
+    await session.commit()
+    # Format response with slot_name
+    return ScheduleBlackoutResponse(
+        id=response.id,
+        blackout_date=response.blackout_date.date() if hasattr(response.blackout_date, "date") else response.blackout_date,
+        reason=response.reason,
+        is_full_day=response.is_full_day,
+        slot_id=response.slot_id,
+        slot_name=response.slot.name if response.slot else None,
+        is_active=response.is_active,
+        created_at=response.created_at,
+        created_by=UserSummary.model_validate(response.created_by) if response.created_by else None,
+    )
+
+
+@router.get("/blackouts", response_model=List[ScheduleBlackoutResponse])
+async def list_blackouts(
+    session: AsyncSession = Depends(get_db),
+    user: Optional[UserDetails] = Depends(get_optional_user),
+):
+    active_only = True if not user or user.role != UserRole.SUPERADMIN else False
+    blackouts = await dao.list_blackouts(session, active_only=active_only)
+    return [
+        ScheduleBlackoutResponse(
+            id=b.id,
+            blackout_date=b.blackout_date.date() if hasattr(b.blackout_date, "date") else b.blackout_date,
+            reason=b.reason,
+            is_full_day=b.is_full_day,
+            slot_id=b.slot_id,
+            slot_name=b.slot.name if b.slot else None,
+            is_active=b.is_active,
+            created_at=b.created_at,
+            created_by=UserSummary.model_validate(b.created_by) if b.created_by else None,
+        )
+        for b in blackouts
+    ]
+
+
+@router.put("/blackouts/{blackout_id}", response_model=ScheduleBlackoutResponse)
+async def update_blackout(
+    blackout_id: int,
+    blackout: ScheduleBlackoutUpdate,
+    current_user: UserDetails = Depends(get_superadmin),
+    session: AsyncSession = Depends(get_db),
+):
+    updated = await dao.update_blackout(session, blackout_id, blackout)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Blackout entry not found")
+
+    await audit_service.log(
+        session,
+        "SCHEDULE_BLACKOUT",
+        AuditAction.CHANGED,
+        current_user.user_id,
+        new_state=updated.model_dump() if hasattr(updated, "model_dump") else None,
+    )
+    await session.commit()
+    return ScheduleBlackoutResponse(
+        id=updated.id,
+        blackout_date=updated.blackout_date.date() if hasattr(updated.blackout_date, "date") else updated.blackout_date,
+        reason=updated.reason,
+        is_full_day=updated.is_full_day,
+        slot_id=updated.slot_id,
+        slot_name=updated.slot.name if updated.slot else None,
+        is_active=updated.is_active,
+        created_at=updated.created_at,
+        created_by=UserSummary.model_validate(updated.created_by) if updated.created_by else None,
+    )
+
+
+@router.delete("/blackouts/{blackout_id}")
+async def delete_blackout(
+    blackout_id: int,
+    current_user: UserDetails = Depends(get_superadmin),
+    session: AsyncSession = Depends(get_db),
+):
+    success = await dao.delete_blackout(session, blackout_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Blackout entry not found")
+
+    await audit_service.log(
+        session,
+        "SCHEDULE_BLACKOUT",
+        AuditAction.DELETED,
+        current_user.user_id,
+        new_state={"blackout_id": blackout_id},
+    )
+    await session.commit()
+    return {"message": "Blackout entry deleted successfully"}
+
 

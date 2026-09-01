@@ -95,6 +95,12 @@ class SlotDefinition(Base):
     start_time: Mapped[str] = mapped_column(String)  # e.g., "08:00"
     end_time: Mapped[str] = mapped_column(String)    # e.g., "10:00"
     max_capacity: Mapped[int] = mapped_column(Integer, default=20)
+    applicable_days: Mapped[str] = mapped_column(
+        String, default="MON,TUE,WED,THU,FRI,SAT,SUN", server_default="MON,TUE,WED,THU,FRI,SAT,SUN"
+    )
+    grace_period_minutes: Mapped[int] = mapped_column(
+        Integer, default=30, server_default="30"
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime, default=datetime.now, nullable=True
@@ -120,4 +126,26 @@ class VehicleType(Base):
     )
 
     created_by: Mapped["User"] = relationship("User")
+
+
+class ScheduleBlackout(Base):
+    __tablename__ = "schedule_blackouts"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    blackout_date: Mapped[datetime] = mapped_column(DateTime, index=True)
+    reason: Mapped[str] = mapped_column(String)  # e.g., "Mount Abu Summer Festival"
+    is_full_day: Mapped[bool] = mapped_column(Boolean, default=True)
+    slot_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("slot_definitions.id"), nullable=True
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, default=datetime.now, nullable=True
+    )
+    created_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id"), nullable=True, default=1
+    )
+
+    slot = relationship("SlotDefinition")
+    created_by: Mapped["User"] = relationship("User")
+
 

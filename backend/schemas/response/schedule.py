@@ -13,12 +13,17 @@ class AvailableSlotItemResponse(BaseModel):
     booked_count: int
     available_capacity: int
     is_available: bool
+    is_blackout: bool = False
+    blackout_reason: Optional[str] = None
+    is_applicable_today: bool = True
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class AvailableSlotsResponse(BaseModel):
     date: date
+    is_full_day_blackout: bool = False
+    blackout_reason: Optional[str] = None
     slots: List[AvailableSlotItemResponse]
 
 
@@ -49,3 +54,35 @@ class VehicleScheduleResponse(BaseModel):
 class TokenScheduleStatusResponse(BaseModel):
     has_active_schedule: bool
     active_schedule: Optional[VehicleScheduleResponse] = None
+
+
+class CapacityHeatmapSlot(BaseModel):
+    slot_id: int
+    name: str
+    start_time: str
+    end_time: str
+    max_capacity: int
+    booked_count: int
+    available_capacity: int
+    is_blackout: bool = False
+    load_percentage: float
+
+
+class CapacityHeatmapDay(BaseModel):
+    date: date
+    day_name: str
+    total_capacity: int
+    total_booked: int
+    total_available: int
+    overall_load_percentage: float
+    is_full_blackout: bool = False
+    blackout_reason: Optional[str] = None
+    slots: List[CapacityHeatmapSlot] = []
+
+
+class CapacityHeatmapResponse(BaseModel):
+    start_date: date
+    end_date: date
+    total_days: int
+    days: List[CapacityHeatmapDay]
+

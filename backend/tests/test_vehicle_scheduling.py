@@ -77,13 +77,17 @@ class TestVehicleScheduling:
         mock_slot.id = 2
         mock_slot.name = "Slot 1 (08:00 AM - 10:00 AM)"
         mock_slot.max_capacity = 5
+        mock_slot.applicable_days = "MON,TUE,WED,THU,FRI,SAT,SUN"
         mock_slot.is_active = True
 
         slot_res = MagicMock()
         slot_res.scalar_one_or_none.return_value = mock_slot
 
-        # Sequence of execute calls: 1. token lookup, 2. slot lookup
-        mock_session.execute.side_effect = [token_res, slot_res]
+        blackout_res = MagicMock()
+        blackout_res.scalars.return_value.all.return_value = []
+
+        # Sequence of execute calls: 1. token lookup, 2. slot lookup, 3. blackout lookup
+        mock_session.execute.side_effect = [token_res, slot_res, blackout_res]
 
         dao.get_active_schedule_by_token = AsyncMock(return_value=None)
         dao.get_slot_booked_count = AsyncMock(return_value=5)  # Max capacity reached
@@ -99,6 +103,53 @@ class TestVehicleScheduling:
             await dao.create_schedule(mock_session, user_id=5, schedule_in=schedule_in)
 
         assert "fully booked" in str(exc_info.value)
+
+    async def test_blackout_date_blocks_scheduling(self):
+        """Ensure booking fails when date is marked as blackout holiday."""
+        dao = VehicleScheduleDAO()
+        mock_session = AsyncMock()
+
+        mock_token = MagicMock()
+        mock_token.id = 1
+        mock_token.application_id = 10
+        mock_token.phase = 1
+        mock_token.status = ApplicationPhaseStatus.ACTIVE
+
+        token_res = MagicMock()
+        token_res.scalar_one_or_none.return_value = mock_token
+
+        mock_slot = MagicMock()
+        mock_slot.id = 2
+        mock_slot.name = "Slot 1 (08:00 AM - 10:00 AM)"
+        mock_slot.max_capacity = 20
+        mock_slot.applicable_days = "MON,TUE,WED,THU,FRI,SAT,SUN"
+        mock_slot.is_active = True
+
+        slot_res = MagicMock()
+        slot_res.scalar_one_or_none.return_value = mock_slot
+
+        mock_blackout = MagicMock()
+        mock_blackout.reason = "Mount Abu Summer Festival"
+        mock_blackout.is_full_day = True
+        mock_blackout.slot_id = None
+
+        blackout_res = MagicMock()
+        blackout_res.scalars.return_value.all.return_value = [mock_blackout]
+
+        mock_session.execute.side_effect = [token_res, slot_res, blackout_res]
+        dao.get_active_schedule_by_token = AsyncMock(return_value=None)
+
+        schedule_in = VehicleScheduleCreate(
+            token_id=1,
+            slot_id=2,
+            schedule_date=date(2026, 9, 3),
+            vehicle_number="RJ 27 GA 1234",
+        )
+
+        with pytest.raises(ValueError) as exc_info:
+            await dao.create_schedule(mock_session, user_id=5, schedule_in=schedule_in)
+
+        assert "Mount Abu Summer Festival" in str(exc_info.value)
 
     async def test_naka_entry_requires_mandatory_remarks(self):
         """Ensure Naka entry validation requires remarks."""
@@ -119,3 +170,4 @@ class TestVehicleScheduling:
         )
         assert entry.remarks == "Normal on-time material transit"
         assert entry.schedule_compliance_status == ScheduleComplianceStatus.ON_TIME
+

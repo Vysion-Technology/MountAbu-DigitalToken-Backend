@@ -85,8 +85,14 @@ class VehicleScheduleService:
             has_active_schedule=True, active_schedule=self._to_response(active)
         )
 
+    async def get_capacity_heatmap(
+        self, session: AsyncSession, start_date: date, days: int = 14
+    ) -> CapacityHeatmapResponse:
+        return await self.schedule_dao.get_capacity_heatmap(session, start_date, days)
+
     async def cancel_schedule(
         self, session: AsyncSession, schedule_id: int, user_id: int
     ) -> VehicleScheduleResponse:
         cancelled = await self.schedule_dao.cancel_schedule(session, schedule_id, user_id)
         return self._to_response(cancelled)
+
