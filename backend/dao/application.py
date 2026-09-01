@@ -593,6 +593,101 @@ class ApplicationDAO(BaseDAO):
 
         return responses, total_count
 
+    async def get_authority_pending_stats(
+        self, authority_role: UserRole
+    ) -> dict[str, int]:
+        """Compute pending, objected, and over 15 days application counts for a role."""
+        query = select(Application).options(*_APPLICATION_LOAD_OPTIONS).where(
+            and_(
+                Application.status != ApplicationStatus.PENDING,
+                Application.status != ApplicationStatus.WITHDRAWN,
+                Application.status != ApplicationStatus.REJECTED,
+                Application.status != ApplicationStatus.TOKEN_GENERATED,
+            )
+        )
+        
+        all_applications = list((await self.session.scalars(query)).unique().all())
+        
+        pending_count = 0
+        objected_count = 0
+        over15days_count = 0
+        now = datetime.now()
+        
+        for app in all_applications:
+            is_pending_for_role = False
+            pending_start_ts: Optional[datetime] = None
+            is_obj = (app.status == ApplicationStatus.OBJECTED)
+            
+            if authority_role == UserRole.NODAL_OFFICER:
+                if app.type == ApplicationType.NEW and app.status == ApplicationStatus.SUBMITTED:
+                    is_pending_for_role = True
+                    pending_start_ts = app.created_at
+                elif app.status in (ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED) and app.phase_materials and len(app.phase_materials) > 0:
+                    is_pending_for_role = True
+                    insp_ts = [i.inspected_at for i in app.inspections if i.inspected_at]
+                    pending_start_ts = max(insp_ts) if insp_ts else _get_app_last_updated_at(app)
+                elif app.status == ApplicationStatus.OBJECTED:
+                    pending_objs = [o for o in app.objections if o.status == ObjectionStatus.PENDING and o.objected_to_role in (UserRole.CITIZEN, UserRole.JEN)]
+                    if pending_objs:
+                        is_pending_for_role = True
+                        pending_start_ts = min([o.created_at for o in pending_objs if o.created_at])
+
+            elif authority_role == UserRole.COMMISSIONER:
+                if app.status == ApplicationStatus.OBJECTED:
+                    comm_objs = [o for o in app.objections if o.status == ObjectionStatus.PENDING and o.objected_to_role == UserRole.COMMISSIONER]
+                    if comm_objs:
+                        is_pending_for_role = True
+                        pending_start_ts = min([o.created_at for o in comm_objs if o.created_at])
+                    elif app.type == ApplicationType.RENOVATION:
+                        is_pending_for_role = True
+                        pending_start_ts = _get_app_last_updated_at(app)
+                elif app.type == ApplicationType.RENOVATION:
+                    if app.status == ApplicationStatus.SUBMITTED:
+                        is_pending_for_role = True
+                        pending_start_ts = app.created_at
+                    elif app.status == ApplicationStatus.FORWARDED:
+                        is_pending_for_role = True
+                        pending_start_ts = _get_app_last_updated_at(app)
+
+            elif authority_role == UserRole.JEN:
+                if app.status in (ApplicationStatus.SUBMITTED, ApplicationStatus.FORWARDED, ApplicationStatus.APPROVED) and (not app.inspections or not app.phase_materials):
+                    is_pending_for_role = True
+                    pending_start_ts = _get_app_last_updated_at(app)
+                elif app.status == ApplicationStatus.OBJECTED:
+                    pending_objs = [o for o in app.objections if o.status == ObjectionStatus.PENDING and o.objected_to_role == UserRole.JEN]
+                    if pending_objs:
+                        is_pending_for_role = True
+                        pending_start_ts = min([o.created_at for o in pending_objs if o.created_at])
+
+            elif authority_role in (UserRole.DEPT_LAND, UserRole.DEPT_LEGAL, UserRole.DEPT_ATP):
+                if app.type == ApplicationType.RENOVATION and app.status == ApplicationStatus.FORWARDED:
+                    commented_roles = {c.commenter.role for c in app.comments if c.commenter and c.commenter.role}
+                    if authority_role not in commented_roles:
+                        is_pending_for_role = True
+                        pending_start_ts = _get_app_last_updated_at(app)
+                elif app.status == ApplicationStatus.OBJECTED:
+                    pending_objs = [o for o in app.objections if o.status == ObjectionStatus.PENDING and o.objected_to_role == authority_role]
+                    if pending_objs:
+                        is_pending_for_role = True
+                        pending_start_ts = min([o.created_at for o in pending_objs if o.created_at])
+
+            if is_pending_for_role:
+                if is_obj:
+                    objected_count += 1
+                else:
+                    pending_count += 1
+                
+                if pending_start_ts:
+                    days_elapsed = (now - pending_start_ts).days
+                    if days_elapsed > 15:
+                        over15days_count += 1
+                        
+        return {
+            "pending": pending_count,
+            "objected": objected_count,
+            "over15days": over15days_count
+        }
+
     async def approve_application(self, application_id: int) -> SuccessResponse:
         """Approve an Application (legacy simple path, use perform_workflow_action instead)."""
         application = await self.session.get(Application, application_id)
@@ -1140,7 +1235,13 @@ class ApplicationDAO(BaseDAO):
             elif action == WorkflowAction.REJECT:
                 await sms_service.send_application_sms(application.mobile, app_number, "rejected")
             elif action == WorkflowAction.OBJECT:
-                await sms_service.send_application_sms(application.mobile, app_number, "objected")
+                target_roles = []
+                if objection_to_roles:
+                    target_roles = [r for r in objection_to_roles if r]
+                elif objection_to_role:
+                    target_roles = [objection_to_role]
+                if UserRole.CITIZEN in target_roles:
+                    await sms_service.send_application_sms(application.mobile, app_number, "objected")
             elif action == WorkflowAction.GENERATE_TOKENS:
                 # Notify that tokens are generated for the application
                 await sms_service.send_token_sms(application.mobile, app_number, "generated")
@@ -1220,13 +1321,17 @@ class ApplicationDAO(BaseDAO):
         if not application:
             raise HTTPException(status_code=404, detail="Application not found")
         if application.type == ApplicationType.RENOVATION:
-            if application.status != ApplicationStatus.FORWARDED:
+            if application.status != ApplicationStatus.FORWARDED and not (
+                application.status == ApplicationStatus.OBJECTED and application.objection_to_role == UserRole.JEN
+            ):
                 raise HTTPException(
                     status_code=400,
                     detail="Inspection is only allowed on FORWARDED applications for renovation",
                 )
         else:
-            if application.status != ApplicationStatus.APPROVED:
+            if application.status != ApplicationStatus.APPROVED and not (
+                application.status == ApplicationStatus.OBJECTED and application.objection_to_role == UserRole.JEN
+            ):
                 raise HTTPException(
                     status_code=400,
                     detail="Inspection is only allowed on APPROVED applications",
@@ -1294,13 +1399,17 @@ class ApplicationDAO(BaseDAO):
             raise HTTPException(status_code=404, detail="Application not found")
 
         if application.type == ApplicationType.RENOVATION:
-            if application.status not in (ApplicationStatus.FORWARDED, ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED):
+            if application.status not in (ApplicationStatus.FORWARDED, ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED) and not (
+                application.status == ApplicationStatus.OBJECTED and application.objection_to_role == UserRole.JEN
+            ):
                 raise HTTPException(
                     status_code=400,
                     detail="Inspection update is only allowed on FORWARDED, APPROVED, or TOKEN_GENERATED applications for renovation",
                 )
         else:
-            if application.status not in (ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED):
+            if application.status not in (ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED) and not (
+                application.status == ApplicationStatus.OBJECTED and application.objection_to_role == UserRole.JEN
+            ):
                 raise HTTPException(
                     status_code=400,
                     detail="Inspection update is only allowed on APPROVED or TOKEN_GENERATED applications",
@@ -1764,7 +1873,7 @@ class ApplicationDAO(BaseDAO):
         end_date: Optional[datetime] = None,
         offset: int = 0,
         limit: int = 50,
-    ) -> list[dict]:
+    ) -> tuple[list[dict], int]:
         """Get all vehicle entries for authority view, grouped by trip with advanced filtering."""
         from backend.dbmodels.user import User
         from backend.dbmodels.application import (
@@ -1900,6 +2009,23 @@ class ApplicationDAO(BaseDAO):
         if filters:
             stmt = stmt.where(and_(*filters))
 
+        # Count total matching vehicle entries
+        count_stmt = (
+            select(func.count(VehicleEntry.id))
+            .join(Application, VehicleEntry.application_id == Application.id)
+            .join(User, VehicleEntry.entry_by == User.id)
+            .outerjoin(
+                ApprovedApplicationPhase,
+                and_(
+                    ApprovedApplicationPhase.application_id == VehicleEntry.application_id,
+                    ApprovedApplicationPhase.phase == VehicleEntry.phase,
+                ),
+            )
+        )
+        if filters:
+            count_stmt = count_stmt.where(and_(*filters))
+        total = (await self.session.execute(count_stmt)).scalar() or 0
+
         stmt = stmt.order_by(VehicleEntry.entry_at.desc()).offset(offset).limit(limit)
 
         result = await self.session.execute(stmt)
@@ -2021,7 +2147,7 @@ class ApplicationDAO(BaseDAO):
                 }
             )
 
-        return grouped_results
+        return grouped_results, total
 
     async def get_phase_material_summary(self, application_id: int, phase: int) -> dict:
         """Get material summary for a phase at the naka checkpoint.
@@ -2584,7 +2710,7 @@ class ApplicationDAO(BaseDAO):
         search: Optional[str] = None,
         offset: int = 0,
         limit: int = 10,
-    ) -> list[dict]:
+    ) -> tuple[list[dict], int]:
         """Get all tokens (phases) with optional user_id filtering.
 
         Supports filtering by phase status and searching by token/application number.
@@ -2628,7 +2754,7 @@ class ApplicationDAO(BaseDAO):
             ]
 
         # Paginate
-        return tokens[offset : offset + limit]
+        return tokens[offset : offset + limit], len(tokens)
 
     async def get_application_tokens(self, application_id: int) -> list[dict]:
         """Get all tokens (phases) for a single application with material summaries."""
@@ -2641,6 +2767,87 @@ class ApplicationDAO(BaseDAO):
         result = await self.session.execute(stmt)
         phases = list(result.scalars().all())
         return await self._build_token_list_dicts(phases)
+
+    async def verify_toll_plaza_entry(
+        self, application_id: int, phase: int, vehicle_number: str
+    ) -> dict:
+        """Verify the latest Naka vehicle entry at the toll plaza."""
+        import re
+        normalized_vehicle = re.sub(r'[^A-Z0-9]', '', vehicle_number.upper())
+
+        stmt = (
+            select(VehicleEntry)
+            .where(
+                VehicleEntry.application_id == application_id,
+                VehicleEntry.phase == phase,
+            )
+            .order_by(VehicleEntry.entry_at.desc())
+        )
+        result = await self.session.execute(stmt)
+        entries = result.scalars().all()
+
+        matched_entry = None
+        for entry in entries:
+            entry_norm = re.sub(r'[^A-Z0-9]', '', (entry.vehicle_number or "").upper())
+            if entry_norm == normalized_vehicle:
+                matched_entry = entry
+                break
+
+        if not matched_entry:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No Naka vehicle entry found for vehicle {vehicle_number}"
+            )
+
+        if matched_entry.plaza_verified_at is not None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Naka entry for vehicle {vehicle_number} has already been verified at the Toll Plaza"
+            )
+
+        now = datetime.now()
+        if now - matched_entry.entry_at > timedelta(hours=2):
+            raise HTTPException(
+                status_code=400,
+                detail="Naka verification window has expired (validity is 2 hours from checkpoint entry)"
+            )
+
+        matched_entry.plaza_verified_at = now
+        await self.session.flush()
+        await self.session.commit()
+
+        materials_stmt = (
+            select(VehicleMaterial)
+            .where(VehicleMaterial.vehicle_entry_id == matched_entry.id)
+        )
+        mat_result = await self.session.execute(materials_stmt)
+        vehicle_materials = mat_result.scalars().all()
+
+        materials_list = []
+        for vm in vehicle_materials:
+            m_name = vm.custom_name
+            m_unit = vm.custom_unit
+            if vm.material_id:
+                mat = await self.session.get(Material, vm.material_id)
+                if mat:
+                    m_name = mat.name
+                    m_unit = mat.unit
+            materials_list.append({
+                "material_id": vm.material_id,
+                "material_name": m_name or "Unknown",
+                "unit": m_unit or "Units",
+                "quantity": vm.quantity
+            })
+
+        return {
+            "verified": True,
+            "naka_entry_id": matched_entry.id,
+            "vehicle_number": matched_entry.vehicle_number,
+            "entry_at": matched_entry.entry_at,
+            "verified_at": matched_entry.plaza_verified_at,
+            "materials": materials_list
+        }
+
 
 
 async def get_application_dao(

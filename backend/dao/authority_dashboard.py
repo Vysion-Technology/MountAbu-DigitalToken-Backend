@@ -44,6 +44,7 @@ class AuthorityDashboardDAO(BaseDAO):
         prev_end: datetime,
         ward_id: Optional[int] = None,
         department_id: Optional[int] = None,
+        application_type: Optional[ApplicationType] = None,
     ) -> list[dict]:
         """KPI cards with period-over-period % change."""
 
@@ -52,6 +53,8 @@ class AuthorityDashboardDAO(BaseDAO):
                 stmt = stmt.where(Application.ward_id == ward_id)
             if department_id:
                 stmt = stmt.where(Application.department_id == department_id)
+            if application_type:
+                stmt = stmt.where(Application.type == application_type)
             if dt_col is not None:
                 if start is not None and end is not None:
                     stmt = stmt.where(and_(dt_col >= start, dt_col < end))
@@ -213,6 +216,7 @@ class AuthorityDashboardDAO(BaseDAO):
         since: Optional[datetime] = None,
         ward_id: Optional[int] = None,
         department_id: Optional[int] = None,
+        application_type: Optional[ApplicationType] = None,
     ) -> list[dict]:
         stmt = select(
             Application.status, func.count(Application.id).label("count")
@@ -225,6 +229,8 @@ class AuthorityDashboardDAO(BaseDAO):
             stmt = stmt.where(Application.ward_id == ward_id)
         if department_id:
             stmt = stmt.where(Application.department_id == department_id)
+        if application_type:
+            stmt = stmt.where(Application.type == application_type)
         rows = (await self.session.execute(stmt)).all()
         return [{"status": r[0].value, "count": r[1]} for r in rows]
 
@@ -261,7 +267,7 @@ class AuthorityDashboardDAO(BaseDAO):
         ]
 
     async def ward_activity(
-        self, since: Optional[datetime] = None, department_id: Optional[int] = None
+        self, since: Optional[datetime] = None, department_id: Optional[int] = None, application_type: Optional[ApplicationType] = None
     ) -> list[dict]:
         """Per-ward counts: applications, approved, tokens, complaints."""
         app_sq = select(
@@ -295,6 +301,8 @@ class AuthorityDashboardDAO(BaseDAO):
             app_sq = app_sq.where(Application.created_at >= since)
         if department_id:
             app_sq = app_sq.where(Application.department_id == department_id)
+        if application_type:
+            app_sq = app_sq.where(Application.type == application_type)
         app_sq = app_sq.subquery()
 
         comp_sq = select(

@@ -9,7 +9,7 @@ from backend.dao.authority_dashboard import (
     AuthorityDashboardDAO,
     get_authority_dashboard_dao,
 )
-from backend.meta import UserRole
+from backend.meta import UserRole, ApplicationType
 from backend.schemas.response.authority_dashboard import (
     AuthorityDashboardResponse,
     AvgVerificationTimeTrend,
@@ -41,6 +41,7 @@ class AuthorityDashboardService(BaseService):
         days: int = 7,
         ward_id: Optional[int] = None,
         department_id: Optional[int] = None,
+        application_type: Optional[ApplicationType] = None,
     ) -> AuthorityDashboardResponse:
         now = datetime.now()
         since = now - timedelta(days=days)
@@ -49,7 +50,7 @@ class AuthorityDashboardService(BaseService):
 
         # Dispatch to role-specific builder
         if role == UserRole.SUPERADMIN:
-            return await self._superadmin(since, prev_start, prev_end, ward_id, department_id)
+            return await self._superadmin(since, prev_start, prev_end, ward_id, department_id, application_type=application_type)
         elif role == UserRole.JEN:
             return await self._jen(user_id, since, days, ward_id)
         elif role == UserRole.NAKA_INCHARGE:
@@ -61,10 +62,10 @@ class AuthorityDashboardService(BaseService):
                 since, ward_id, assigned_to_id=user_id, role=role
             )
         elif role == UserRole.NODAL_OFFICER:
-            return await self._superadmin(since, prev_start, prev_end, ward_id, department_id, role=role)
+            return await self._superadmin(since, prev_start, prev_end, ward_id, department_id, role=role, application_type=application_type)
         else:
-            # DEPT_LAND / DEPT_LEGAL / DEPT_ATP → same as superadmin (read-only overview)
-            return await self._superadmin(since, prev_start, prev_end, ward_id, department_id, role=role)
+            # DEPT_LAND / DEPT_LEGAL / DEPT_ATP / COLLECTOR → same as superadmin (read-only overview)
+            return await self._superadmin(since, prev_start, prev_end, ward_id, department_id, role=role, application_type=application_type)
 
     # ── builders ──────────────────────────────────────────────────────────
 
@@ -76,11 +77,12 @@ class AuthorityDashboardService(BaseService):
         ward_id: Optional[int],
         department_id: Optional[int],
         role: UserRole = UserRole.SUPERADMIN,
+        application_type: Optional[ApplicationType] = None,
     ) -> AuthorityDashboardResponse:
-        kpis_raw = await self.dao.superadmin_kpis(since, prev_start, prev_end, ward_id, department_id)
-        status_raw = await self.dao.application_status_breakdown(since, ward_id, department_id)
+        kpis_raw = await self.dao.superadmin_kpis(since, prev_start, prev_end, ward_id, department_id, application_type=application_type)
+        status_raw = await self.dao.application_status_breakdown(since, ward_id, department_id, application_type=application_type)
         category_raw = await self.dao.complaints_by_category(since, ward_id, department_id)
-        ward_raw = await self.dao.ward_activity(since, department_id)
+        ward_raw = await self.dao.ward_activity(since, department_id, application_type=application_type)
 
         return AuthorityDashboardResponse(
             role=role.value,

@@ -13,6 +13,7 @@ class SMSService(BaseService):
     OTP_TEMPLATE_ID = "69edd13d2ee1bac60804bdb2"
     APPLICATION_TEMPLATE_ID = "69f0774ab51957fcc6088a84"
     TOKEN_TEMPLATE_ID = "69f075f0a665146853008054"
+    WEEKLY_ALERTS_TEMPLATE_ID = "1077449880055212574"
     COMPLAINT_TEMPLATE_ID = "69f078c7bbab984c20070bd2"
 
     async def send_otp(self, mobile: str, otp: str) -> bool:
@@ -80,6 +81,25 @@ class SMSService(BaseService):
             ]
         }
         return await self._send_flow_sms(payload, f"Complaint {complaint_id} - {status}")
+
+    async def send_weekly_alert_sms(self, mobile: str, name: str, pending: int, objected: int, over15days: int) -> bool:
+        """
+        Send weekly authority alert update SMS.
+        Template: Dear ##name##, Pending applications: ##pending##, objected applications: ##objected##, pending with more than 15 days: ##over15days##
+        """
+        payload = {
+            "template_id": self.WEEKLY_ALERTS_TEMPLATE_ID,
+            "recipients": [
+                {
+                    "mobiles": self._format_mobile(mobile),
+                    "name": name,
+                    "pending": str(pending),
+                    "objected": str(objected),
+                    "over15days": str(over15days)
+                }
+            ]
+        }
+        return await self._send_flow_sms(payload, f"Weekly Alert for {name} - pending: {pending}, objected: {objected}, over15days: {over15days}")
 
     def _format_mobile(self, mobile: str) -> str:
         if not mobile.startswith("91") and len(mobile) == 10:
