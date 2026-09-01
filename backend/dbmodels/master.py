@@ -86,3 +86,38 @@ class ComplaintCategory(Base):
 
     created_by: Mapped["User"] = relationship("User")
     department = relationship("Department")
+
+
+class SlotDefinition(Base):
+    __tablename__ = "slot_definitions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String, index=True)
+    start_time: Mapped[str] = mapped_column(String)  # e.g., "08:00"
+    end_time: Mapped[str] = mapped_column(String)    # e.g., "10:00"
+    max_capacity: Mapped[int] = mapped_column(Integer, default=20)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, default=datetime.now, nullable=True
+    )
+    created_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id"), nullable=True, default=1
+    )
+
+    created_by: Mapped["User"] = relationship("User")
+
+
+class VehicleType(Base):
+    __tablename__ = "vehicle_types"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String, index=True)  # e.g., "Pickup (4 Wheeler)"
+    code: Mapped[str] = mapped_column(String, index=True, unique=True)  # e.g., "PICKUP_4W"
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, default=datetime.now, nullable=True
+    )
+    created_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id"), nullable=True, default=1
+    )
+
+    created_by: Mapped["User"] = relationship("User")
+

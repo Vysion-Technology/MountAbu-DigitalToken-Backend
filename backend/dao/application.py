@@ -15,12 +15,25 @@ from backend.dbmodels.application import (
     ApplicationComment,
     ApplicationActionLog,
     InspectionReport,
+    VehicleSchedule,
     VehicleEntry,
     VehicleMaterial,
     VehicleEntryDumpingPhoto,
 )
 from backend.dao.base import BaseDAO
-from backend.meta import ApplicationStatus, CommentType, WorkflowAction, ObjectionStatus, UserRole, ApplicationFlags, ApplicationType, ApplicationPhaseStatus, PropertyUsageType
+from backend.meta import (
+    ApplicationStatus,
+    CommentType,
+    WorkflowAction,
+    ObjectionStatus,
+    UserRole,
+    ApplicationFlags,
+    ApplicationType,
+    ApplicationPhaseStatus,
+    PropertyUsageType,
+    VehicleScheduleStatus,
+    ScheduleComplianceStatus,
+)
 from backend.schemas.request.application import ApplicationCreate
 from backend.schemas.response.application import ApplicationResponse
 from backend.schemas.response.meta import SuccessResponse
@@ -1455,6 +1468,8 @@ class ApplicationDAO(BaseDAO):
         longitude: Optional[float] = None,
         remarks: Optional[str] = None,
         media: Optional[dict] = None,
+        schedule_id: Optional[int] = None,
+        schedule_compliance_status: Optional[ScheduleComplianceStatus] = None,
     ) -> SuccessResponse:
         """Log a material checkpoint entry at Naka."""
         # Verify application status
@@ -1531,6 +1546,34 @@ class ApplicationDAO(BaseDAO):
                     ),
                 )
 
+        # Match schedule if provided or auto-detect active schedule
+        matched_schedule_id = schedule_id
+        matched_compliance = schedule_compliance_status
+
+        if not matched_schedule_id:
+            sched_stmt = select(VehicleSchedule).where(
+                VehicleSchedule.application_id == application_id,
+                VehicleSchedule.phase == phase,
+                VehicleSchedule.status == VehicleScheduleStatus.SCHEDULED,
+            )
+            sched_res = await self.session.execute(sched_stmt)
+            active_sched = sched_res.scalars().first()
+            if active_sched:
+                matched_schedule_id = active_sched.id
+                if not matched_compliance:
+                    today_date = datetime.now().date()
+                    if active_sched.schedule_date.date() == today_date:
+                        matched_compliance = ScheduleComplianceStatus.ON_TIME
+                    else:
+                        matched_compliance = ScheduleComplianceStatus.SLOT_MISMATCH
+
+        if not matched_compliance:
+            matched_compliance = (
+                ScheduleComplianceStatus.UNSCHEDULED_WALK_IN
+                if not matched_schedule_id
+                else ScheduleComplianceStatus.ON_TIME
+            )
+
         # Create 1 vehicle entry
         vehicle_entry = VehicleEntry(
             application_id=application_id,
@@ -1543,9 +1586,18 @@ class ApplicationDAO(BaseDAO):
             longitude=longitude,
             remarks=remarks,
             media=media,
+            schedule_id=matched_schedule_id,
+            schedule_compliance_status=matched_compliance,
         )
         self.session.add(vehicle_entry)
         await self.session.flush()  # Get ID
+
+        # Mark matched schedule as COMPLETED
+        if matched_schedule_id:
+            sched_obj = await self.session.get(VehicleSchedule, matched_schedule_id)
+            if sched_obj and sched_obj.status == VehicleScheduleStatus.SCHEDULED:
+                sched_obj.status = VehicleScheduleStatus.COMPLETED
+
 
         # Create N vehicle materials
         for mat in materials:
@@ -2232,11 +2284,47 @@ class ApplicationDAO(BaseDAO):
                 }
             )
 
+        # Check active schedule for this phase
+        sched_stmt = (
+            select(VehicleSchedule)
+            .where(
+                VehicleSchedule.application_id == application_id,
+                VehicleSchedule.phase == phase,
+                VehicleSchedule.status == VehicleScheduleStatus.SCHEDULED,
+            )
+            .options(
+                selectinload(VehicleSchedule.slot),
+                selectinload(VehicleSchedule.vehicle_type),
+            )
+            .order_by(VehicleSchedule.schedule_date.asc())
+        )
+        sched_res = await self.session.execute(sched_stmt)
+        active_sched = sched_res.scalars().first()
+
+        schedule_info = None
+        if active_sched:
+            today_date = datetime.now().date()
+            is_today = active_sched.schedule_date.date() == today_date
+            schedule_info = {
+                "schedule_id": active_sched.id,
+                "schedule_code": active_sched.schedule_code,
+                "schedule_date": active_sched.schedule_date.strftime("%Y-%m-%d"),
+                "slot_name": active_sched.slot.name if active_sched.slot else "Custom Slot",
+                "start_time": active_sched.slot.start_time if active_sched.slot else "",
+                "end_time": active_sched.slot.end_time if active_sched.slot else "",
+                "vehicle_number": active_sched.vehicle_number,
+                "vehicle_type": active_sched.vehicle_type.name if active_sched.vehicle_type else None,
+                "is_today": is_today,
+                "status": active_sched.status.value,
+            }
+
         return {
             "phase": phase_record.phase,
             "phase_status": phase_record.status,
             "materials": materials,
+            "schedule_info": schedule_info,
         }
+
 
     # ── Phase management ──────────────────────────────────────────────────
     async def get_phases(self, application_id: int) -> list[ApprovedApplicationPhase]:
@@ -2681,9 +2769,11 @@ class ApplicationDAO(BaseDAO):
             )
 
         return {
+            "token_id": phase_rec.id,
             "transport_code": transport_code,
             "token_number": token_number,
             "phase": phase_rec.phase,
+
             "status": phase_rec.status,
             "valid_from": phase_rec.activated_at,
             "valid_till": valid_till,

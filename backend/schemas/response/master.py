@@ -71,3 +71,28 @@ class MaterialResponse(BaseModel):
     created_by: Optional[UserSummary] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class SlotDefinitionResponse(BaseModel):
+    id: int
+    name: str
+    start_time: str
+    end_time: str
+    max_capacity: int
+    is_active: bool
+    created_at: Optional[datetime] = None
+    created_by: Optional[UserSummary] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class VehicleTypeResponse(BaseModel):
+    id: int
+    name: str
+    code: str
+    is_active: bool
+    created_at: Optional[datetime] = None
+    created_by: Optional[UserSummary] = None
+
+    model_config = ConfigDict(from_attributes=True)
+

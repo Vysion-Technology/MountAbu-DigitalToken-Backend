@@ -319,7 +319,10 @@ class ApplicationService(BaseService):
             longitude=entry.longitude,
             remarks=entry.remarks,
             media=media,
+            schedule_id=entry.schedule_id,
+            schedule_compliance_status=entry.schedule_compliance_status,
         )
+
 
     async def upload_dumping_photo(
         self, application_id: int, entry_id: int, document: UploadFile, user_id: int

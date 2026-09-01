@@ -4,7 +4,14 @@ from sqlalchemy.orm import joinedload, selectinload
 from typing import List, Optional, Type, TypeVar
 
 from backend.database import Base
-from backend.dbmodels.master import Ward, Department, Role, ComplaintCategory
+from backend.dbmodels.master import (
+    Ward,
+    Department,
+    Role,
+    ComplaintCategory,
+    SlotDefinition,
+    VehicleType,
+)
 from backend.dbmodels.application import Material
 from backend.schemas.request.master import (
     WardCreate,
@@ -17,8 +24,11 @@ from backend.schemas.request.master import (
     ComplaintCategoryUpdate,
     MaterialCreate,
     MaterialUpdate,
+    SlotDefinitionCreate,
+    SlotDefinitionUpdate,
+    VehicleTypeCreate,
+    VehicleTypeUpdate,
 )
-# Note: Material is imported inside methods to avoid potential circular deps or just clean structure
 
 T = TypeVar("T", bound=Base)
 
@@ -37,10 +47,11 @@ class MasterDataDAO:
 
     async def _get(self, session: AsyncSession, model: Type[T], id: int, active_only: bool = False) -> Optional[T]:
         stmt = select(model).where(model.id == id)
-        if active_only and hasattr(model, "status"):
-            # Master data tables use boolean 'status'
-            if model in [Ward, Department, Role, ComplaintCategory]:
-                stmt = stmt.where(model.status == True)
+        if active_only:
+            if hasattr(model, "status"):
+                stmt = stmt.where(getattr(model, "status") == True)
+            elif hasattr(model, "is_active"):
+                stmt = stmt.where(getattr(model, "is_active") == True)
         if hasattr(model, "created_by"):
             stmt = stmt.options(joinedload(getattr(model, "created_by")))
         result = await session.execute(stmt)
@@ -62,10 +73,11 @@ class MasterDataDAO:
 
     async def _list(self, session: AsyncSession, model: Type[T], active_only: bool = False) -> List[T]:
         stmt = select(model)
-        if active_only and hasattr(model, "status"):
-            from backend.dbmodels.application import Material
-            if model in [Ward, Department, Role, ComplaintCategory, Material]:
-                stmt = stmt.where(model.status == True)
+        if active_only:
+            if hasattr(model, "status"):
+                stmt = stmt.where(getattr(model, "status") == True)
+            elif hasattr(model, "is_active"):
+                stmt = stmt.where(getattr(model, "is_active") == True)
         if hasattr(model, "created_by"):
             stmt = stmt.options(joinedload(getattr(model, "created_by")))
         result = await session.execute(stmt)
@@ -260,3 +272,68 @@ class MasterDataDAO:
         from backend.dbmodels.application import Material
 
         return await self._delete(session, Material, material_id)
+
+    # Slot Definition Operations
+    async def create_slot(
+        self,
+        session: AsyncSession,
+        slot: SlotDefinitionCreate,
+        created_by_id: Optional[int] = None,
+    ) -> SlotDefinition:
+        data = slot.model_dump()
+        if created_by_id:
+            data["created_by_id"] = created_by_id
+        return await self._create(session, SlotDefinition, data)
+
+    async def get_slot(
+        self, session: AsyncSession, slot_id: int, active_only: bool = False
+    ) -> Optional[SlotDefinition]:
+        return await self._get(session, SlotDefinition, slot_id, active_only=active_only)
+
+    async def list_slots(
+        self, session: AsyncSession, active_only: bool = False
+    ) -> List[SlotDefinition]:
+        return await self._list(session, SlotDefinition, active_only=active_only)
+
+    async def update_slot(
+        self, session: AsyncSession, slot_id: int, slot: SlotDefinitionUpdate
+    ) -> Optional[SlotDefinition]:
+        return await self._update(
+            session, SlotDefinition, slot_id, slot.model_dump(exclude_unset=True)
+        )
+
+    async def delete_slot(self, session: AsyncSession, slot_id: int) -> bool:
+        return await self._delete(session, SlotDefinition, slot_id)
+
+    # Vehicle Type Operations
+    async def create_vehicle_type(
+        self,
+        session: AsyncSession,
+        vehicle_type: VehicleTypeCreate,
+        created_by_id: Optional[int] = None,
+    ) -> VehicleType:
+        data = vehicle_type.model_dump()
+        if created_by_id:
+            data["created_by_id"] = created_by_id
+        return await self._create(session, VehicleType, data)
+
+    async def get_vehicle_type(
+        self, session: AsyncSession, vehicle_type_id: int, active_only: bool = False
+    ) -> Optional[VehicleType]:
+        return await self._get(session, VehicleType, vehicle_type_id, active_only=active_only)
+
+    async def list_vehicle_types(
+        self, session: AsyncSession, active_only: bool = False
+    ) -> List[VehicleType]:
+        return await self._list(session, VehicleType, active_only=active_only)
+
+    async def update_vehicle_type(
+        self, session: AsyncSession, vehicle_type_id: int, vehicle_type: VehicleTypeUpdate
+    ) -> Optional[VehicleType]:
+        return await self._update(
+            session, VehicleType, vehicle_type_id, vehicle_type.model_dump(exclude_unset=True)
+        )
+
+    async def delete_vehicle_type(self, session: AsyncSession, vehicle_type_id: int) -> bool:
+        return await self._delete(session, VehicleType, vehicle_type_id)
+

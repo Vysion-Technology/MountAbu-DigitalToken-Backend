@@ -11,6 +11,8 @@ from backend.meta import (
     StructureType,
     JurisdictionZone,
     UserRole,
+    VehicleScheduleStatus,
+    ScheduleComplianceStatus,
 )
 from pydantic import BaseModel, ConfigDict, model_validator
 
@@ -341,10 +343,12 @@ class TokenDetailResponse(BaseModel):
     """
 
     # Identity
+    token_id: Optional[int] = None
     transport_code: str
     token_number: str
     phase: int
     status: ApplicationPhaseStatus
+
     valid_from: Optional[datetime] = None  # activated_at
     valid_till: Optional[datetime] = None
 
@@ -704,6 +708,10 @@ class AuthorityVehicleEntryResponse(BaseModel):
     naka_incharge_name: str
     has_dumping_photos: bool
     materials: List[VehicleEntryMaterialItem]
+    remarks: Optional[str] = None
+    schedule_id: Optional[int] = None
+    schedule_compliance_status: Optional[ScheduleComplianceStatus] = None
+    schedule_time_slot: Optional[str] = None
     media: Optional[dict] = None
     access_urls: Optional[dict] = None
 
@@ -783,11 +791,16 @@ class VehicleEntryDetailResponse(BaseModel):
     longitude: Optional[float] = None
     entry_at: datetime
     naka_incharge_name: str
+    remarks: Optional[str] = None
+    schedule_id: Optional[int] = None
+    schedule_compliance_status: Optional[ScheduleComplianceStatus] = None
+    schedule_time_slot: Optional[str] = None
 
     material_entry_details: List[TokenMaterialResponse] = []
     vehicle_image: Optional[str] = None  # Signed URL
     entry_proof: List[str] = []  # List of signed URLs
     dumping_photos: List[DumpingPhotoResponse] = []
+
 
 
 class ApplicationPaginatedResponse(BaseModel):

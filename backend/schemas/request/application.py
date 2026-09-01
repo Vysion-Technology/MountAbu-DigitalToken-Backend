@@ -9,6 +9,7 @@ from backend.meta import (
     StructureType,
     JurisdictionZone,
     UserRole,
+    ScheduleComplianceStatus,
 )
 from pydantic import BaseModel, Field, model_validator
 
@@ -236,9 +237,14 @@ class NakaEntryCreate(BaseModel):
     vehicle_type: Optional[str] = Field(None, description="Vehicle type")
     latitude: Optional[float] = Field(None, description="GPS Latitude")
     longitude: Optional[float] = Field(None, description="GPS Longitude")
-    remarks: Optional[str] = Field(None, description="Remarks")
+    remarks: str = Field(..., min_length=1, description="Mandatory remarks for vehicle entry")
     vehicle_plate_image: Optional[str] = Field(None, description="Vehicle number plate image path")
     entry_proof_images: List[str] = Field(default_factory=list, description="Entry proof image paths")
+    schedule_id: Optional[int] = Field(None, description="Linked Vehicle Schedule ID")
+    schedule_compliance_status: Optional[ScheduleComplianceStatus] = Field(
+        None, description="Schedule compliance status (ON_TIME, SLOT_MISMATCH, UNSCHEDULED_WALK_IN)"
+    )
+
 
 
 # Resolve forward reference

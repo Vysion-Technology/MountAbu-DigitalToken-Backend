@@ -34,6 +34,10 @@ from backend.schemas.request.master import (
     ComplaintCategoryUpdate,
     MaterialCreate,
     MaterialUpdate,
+    SlotDefinitionCreate,
+    SlotDefinitionUpdate,
+    VehicleTypeCreate,
+    VehicleTypeUpdate,
 )
 from backend.schemas.response.master import (
     WardResponse,
@@ -41,6 +45,8 @@ from backend.schemas.response.master import (
     RoleResponse,
     ComplaintCategoryResponse,
     MaterialResponse,
+    SlotDefinitionResponse,
+    VehicleTypeResponse,
     UserSummary,
 )
 
@@ -447,3 +453,148 @@ async def list_jens(
     stmt = select(User).where(User.role.in_(allowed_roles)).order_by(User.name)
     result = await session.execute(stmt)
     return result.scalars().all()
+
+
+# ── Vehicle Slots Master Data ────────────────────────────────────────────────
+@router.post("/slots", response_model=SlotDefinitionResponse)
+async def create_slot(
+    slot: SlotDefinitionCreate,
+    current_user: UserDetails = Depends(get_superadmin),
+    session: AsyncSession = Depends(get_db),
+):
+    response = await dao.create_slot(session, slot, created_by_id=current_user.user_id)
+    await audit_service.log(
+        session,
+        "SLOT_DEFINITION",
+        AuditAction.CREATED,
+        current_user.user_id,
+        new_state=response.model_dump() if hasattr(response, "model_dump") else None,
+    )
+    await session.commit()
+    return response
+
+
+@router.get("/slots", response_model=List[SlotDefinitionResponse])
+async def list_slots(
+    session: AsyncSession = Depends(get_db),
+    user: Optional[UserDetails] = Depends(get_optional_user),
+):
+    active_only = True if not user or user.role != UserRole.SUPERADMIN else False
+    return await dao.list_slots(session, active_only=active_only)
+
+
+@router.put("/slots/{slot_id}", response_model=SlotDefinitionResponse)
+async def update_slot(
+    slot_id: int,
+    slot: SlotDefinitionUpdate,
+    current_user: UserDetails = Depends(get_superadmin),
+    session: AsyncSession = Depends(get_db),
+):
+    updated = await dao.update_slot(session, slot_id, slot)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Slot not found")
+
+    await audit_service.log(
+        session,
+        "SLOT_DEFINITION",
+        AuditAction.CHANGED,
+        current_user.user_id,
+        new_state=updated.model_dump() if hasattr(updated, "model_dump") else None,
+    )
+    await session.commit()
+    return updated
+
+
+@router.delete("/slots/{slot_id}")
+async def delete_slot(
+    slot_id: int,
+    current_user: UserDetails = Depends(get_superadmin),
+    session: AsyncSession = Depends(get_db),
+):
+    success = await dao.delete_slot(session, slot_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Slot not found")
+
+    await audit_service.log(
+        session,
+        "SLOT_DEFINITION",
+        AuditAction.DELETED,
+        current_user.user_id,
+        new_state={"slot_id": slot_id},
+    )
+    await session.commit()
+    return {"message": "Slot deleted successfully"}
+
+
+# ── Vehicle Types Master Data ────────────────────────────────────────────────
+@router.post("/vehicle-types", response_model=VehicleTypeResponse)
+async def create_vehicle_type(
+    vehicle_type: VehicleTypeCreate,
+    current_user: UserDetails = Depends(get_superadmin),
+    session: AsyncSession = Depends(get_db),
+):
+    response = await dao.create_vehicle_type(
+        session, vehicle_type, created_by_id=current_user.user_id
+    )
+    await audit_service.log(
+        session,
+        "VEHICLE_TYPE",
+        AuditAction.CREATED,
+        current_user.user_id,
+        new_state=response.model_dump() if hasattr(response, "model_dump") else None,
+    )
+    await session.commit()
+    return response
+
+
+@router.get("/vehicle-types", response_model=List[VehicleTypeResponse])
+async def list_vehicle_types(
+    session: AsyncSession = Depends(get_db),
+    user: Optional[UserDetails] = Depends(get_optional_user),
+):
+    active_only = True if not user or user.role != UserRole.SUPERADMIN else False
+    return await dao.list_vehicle_types(session, active_only=active_only)
+
+
+@router.put("/vehicle-types/{type_id}", response_model=VehicleTypeResponse)
+async def update_vehicle_type(
+    type_id: int,
+    vehicle_type: VehicleTypeUpdate,
+    current_user: UserDetails = Depends(get_superadmin),
+    session: AsyncSession = Depends(get_db),
+):
+    updated = await dao.update_vehicle_type(session, type_id, vehicle_type)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Vehicle type not found")
+
+    await audit_service.log(
+        session,
+        "VEHICLE_TYPE",
+        AuditAction.CHANGED,
+        current_user.user_id,
+        new_state=updated.model_dump() if hasattr(updated, "model_dump") else None,
+    )
+    await session.commit()
+    return updated
+
+
+@router.delete("/vehicle-types/{type_id}")
+async def delete_vehicle_type(
+    type_id: int,
+    current_user: UserDetails = Depends(get_superadmin),
+    session: AsyncSession = Depends(get_db),
+):
+    success = await dao.delete_vehicle_type(session, type_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Vehicle type not found")
+
+    await audit_service.log(
+        session,
+        "VEHICLE_TYPE",
+        AuditAction.DELETED,
+        current_user.user_id,
+        new_state={"vehicle_type_id": type_id},
+    )
+    await session.commit()
+    return {"message": "Vehicle type deleted successfully"}
+

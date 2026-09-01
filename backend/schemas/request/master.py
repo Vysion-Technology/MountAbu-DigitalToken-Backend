@@ -72,3 +72,32 @@ class MaterialUpdate(BaseModel):
     name: Optional[str] = None
     unit: Optional[str] = None
     status: Optional[bool] = None
+
+
+class SlotDefinitionCreate(BaseModel):
+    name: str = Field(..., description="Name of the slot (e.g., Slot 1: 08:00 AM - 10:00 AM)")
+    start_time: str = Field(..., description="Start time (e.g., 08:00)")
+    end_time: str = Field(..., description="End time (e.g., 10:00)")
+    max_capacity: int = Field(20, description="Maximum vehicle capacity for this slot")
+    is_active: bool = Field(True, description="Is slot active")
+
+
+class SlotDefinitionUpdate(BaseModel):
+    name: Optional[str] = None
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
+    max_capacity: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+class VehicleTypeCreate(BaseModel):
+    name: str = Field(..., description="Vehicle type name (e.g., Pickup (4 Wheeler))")
+    code: str = Field(..., description="Unique vehicle type code (e.g., PICKUP_4W)")
+    is_active: bool = Field(True, description="Is vehicle type active")
+
+
+class VehicleTypeUpdate(BaseModel):
+    name: Optional[str] = None
+    code: Optional[str] = None
+    is_active: Optional[bool] = None
+
