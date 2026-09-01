@@ -11,6 +11,7 @@ from backend.dbmodels.master import (
     ComplaintCategory,
     SlotDefinition,
     VehicleType,
+    ScheduleBlackout,
 )
 from backend.dbmodels.application import Material
 from backend.schemas.request.master import (
@@ -28,7 +29,10 @@ from backend.schemas.request.master import (
     SlotDefinitionUpdate,
     VehicleTypeCreate,
     VehicleTypeUpdate,
+    ScheduleBlackoutCreate,
+    ScheduleBlackoutUpdate,
 )
+
 
 T = TypeVar("T", bound=Base)
 
