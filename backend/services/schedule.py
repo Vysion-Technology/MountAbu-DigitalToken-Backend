@@ -10,7 +10,9 @@ from backend.schemas.response.schedule import (
     AvailableSlotsResponse,
     VehicleScheduleResponse,
     TokenScheduleStatusResponse,
+    CapacityHeatmapResponse,
 )
+
 
 
 class VehicleScheduleService:
