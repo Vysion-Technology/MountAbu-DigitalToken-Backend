@@ -171,3 +171,33 @@ class TestVehicleScheduling:
         assert entry.remarks == "Normal on-time material transit"
         assert entry.schedule_compliance_status == ScheduleComplianceStatus.ON_TIME
 
+    async def test_get_active_schedule_by_token_resolves_phase(self):
+        """Ensure get_active_schedule_by_token looks up token phase before querying VehicleSchedule."""
+        dao = VehicleScheduleDAO()
+        mock_session = AsyncMock()
+
+        mock_token = MagicMock(spec=ApprovedApplicationPhase)
+        mock_token.id = 153
+        mock_token.application_id = 42
+        mock_token.phase = 2
+
+        token_res = MagicMock()
+        token_res.scalar_one_or_none.return_value = mock_token
+
+        mock_schedule = MagicMock(spec=VehicleSchedule)
+        mock_schedule.id = 10
+        mock_schedule.application_id = 42
+        mock_schedule.phase = 2
+        mock_schedule.status = VehicleScheduleStatus.SCHEDULED
+
+        sched_res = MagicMock()
+        sched_res.scalar_one_or_none.return_value = mock_schedule
+
+        mock_session.execute.side_effect = [token_res, sched_res]
+
+        res = await dao.get_active_schedule_by_token(mock_session, token_id=153)
+        assert res is not None
+        assert res.id == 10
+        assert mock_session.execute.call_count == 2
+
+

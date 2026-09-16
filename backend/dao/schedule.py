@@ -29,11 +29,20 @@ class VehicleScheduleDAO:
         self, session: AsyncSession, token_id: int
     ) -> Optional[VehicleSchedule]:
         """Check if an active (SCHEDULED) booking exists for this token."""
+        token_stmt = select(ApprovedApplicationPhase).where(
+            ApprovedApplicationPhase.id == token_id
+        )
+        token_res = await session.execute(token_stmt)
+        token = token_res.scalar_one_or_none()
+        if not token:
+            return None
+
         stmt = (
             select(VehicleSchedule)
             .where(
                 and_(
-                    VehicleSchedule.token_id == token_id,
+                    VehicleSchedule.application_id == token.application_id,
+                    VehicleSchedule.phase == token.phase,
                     VehicleSchedule.status == VehicleScheduleStatus.SCHEDULED,
                 )
             )
@@ -50,11 +59,20 @@ class VehicleScheduleDAO:
         self, session: AsyncSession, token_id: int, target_date: date
     ) -> Optional[VehicleSchedule]:
         """Fetch scheduled booking for this token on a specific date."""
+        token_stmt = select(ApprovedApplicationPhase).where(
+            ApprovedApplicationPhase.id == token_id
+        )
+        token_res = await session.execute(token_stmt)
+        token = token_res.scalar_one_or_none()
+        if not token:
+            return None
+
         stmt = (
             select(VehicleSchedule)
             .where(
                 and_(
-                    VehicleSchedule.token_id == token_id,
+                    VehicleSchedule.application_id == token.application_id,
+                    VehicleSchedule.phase == token.phase,
                     cast(VehicleSchedule.schedule_date, Date) == target_date,
                     VehicleSchedule.status == VehicleScheduleStatus.SCHEDULED,
                 )
@@ -67,6 +85,7 @@ class VehicleScheduleDAO:
         )
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
+
 
     async def get_slot_booked_count(
         self, session: AsyncSession, slot_id: int, target_date: date

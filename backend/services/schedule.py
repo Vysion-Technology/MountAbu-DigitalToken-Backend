@@ -19,7 +19,9 @@ class VehicleScheduleService:
     def __init__(self):
         self.schedule_dao = VehicleScheduleDAO()
 
-    def _to_response(self, schedule: VehicleSchedule) -> VehicleScheduleResponse:
+    def _to_response(
+        self, schedule: VehicleSchedule, token_id: Optional[int] = None
+    ) -> VehicleScheduleResponse:
         """Helper to transform ORM VehicleSchedule to Pydantic response."""
         slot_name = schedule.slot.name if schedule.slot else None
         start_time = schedule.slot.start_time if schedule.slot else None
@@ -30,11 +32,15 @@ class VehicleScheduleService:
         )
         transport_code = encode_transport_code(schedule.application_id, schedule.phase)
 
+        resolved_token_id = token_id or 0
+        if not resolved_token_id and hasattr(schedule, "token_id") and schedule.token_id:
+            resolved_token_id = schedule.token_id
+
         return VehicleScheduleResponse(
             id=schedule.id,
             schedule_code=schedule.schedule_code,
             application_id=schedule.application_id,
-            token_id=schedule.token_id if hasattr(schedule, "token_id") and schedule.token_id else 0,
+            token_id=resolved_token_id,
             phase=schedule.phase,
             user_id=schedule.user_id,
             slot_id=schedule.slot_id,
@@ -61,7 +67,7 @@ class VehicleScheduleService:
         self, session: AsyncSession, user_id: int, schedule_in: VehicleScheduleCreate
     ) -> VehicleScheduleResponse:
         db_schedule = await self.schedule_dao.create_schedule(session, user_id, schedule_in)
-        return self._to_response(db_schedule)
+        return self._to_response(db_schedule, token_id=schedule_in.token_id)
 
     async def get_my_schedules(
         self, session: AsyncSession, user_id: int
@@ -84,8 +90,9 @@ class VehicleScheduleService:
         if not active:
             return TokenScheduleStatusResponse(has_active_schedule=False, active_schedule=None)
         return TokenScheduleStatusResponse(
-            has_active_schedule=True, active_schedule=self._to_response(active)
+            has_active_schedule=True, active_schedule=self._to_response(active, token_id=token_id)
         )
+
 
     async def get_capacity_heatmap(
         self, session: AsyncSession, start_date: date, days: int = 14
