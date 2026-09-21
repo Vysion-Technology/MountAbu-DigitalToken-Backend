@@ -640,7 +640,13 @@ async def list_blackouts(
     session: AsyncSession = Depends(get_db),
     user: Optional[UserDetails] = Depends(get_optional_user),
 ):
-    active_only = True if not user or user.role != UserRole.SUPERADMIN else False
+    active_only = (
+        True
+        if not user
+        or user.role not in [UserRole.SUPERADMIN, UserRole.ADMIN, UserRole.NODAL_OFFICER]
+        else False
+    )
+
     blackouts = await dao.list_blackouts(session, active_only=active_only)
     return [
         ScheduleBlackoutResponse(

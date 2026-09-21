@@ -1,5 +1,6 @@
 import secrets
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
+
 from typing import List, Optional, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, cast, Date
@@ -229,10 +230,28 @@ class VehicleScheduleDAO:
         schedule_in: VehicleScheduleCreate,
     ) -> VehicleSchedule:
         """Create a vehicle schedule booking with strict validations."""
+        # 0. Enforce T+1 basis (at least 1 day in advance) and 1-week (7 days) maximum advance booking window
+        today = date.today()
+        min_booking_date = today + timedelta(days=1)
+        max_booking_date = today + timedelta(days=7)
+
+        if schedule_in.schedule_date < min_booking_date:
+            raise ValueError(
+                f"Vehicle scheduling must be booked at least 1 day in advance (T+1 basis). "
+                f"Same-day or past bookings are not permitted. Earliest available date is {min_booking_date.strftime('%Y-%m-%d')}."
+            )
+
+        if schedule_in.schedule_date > max_booking_date:
+            raise ValueError(
+                f"Vehicle bookings can only be scheduled up to 1 week in advance (maximum date: {max_booking_date.strftime('%Y-%m-%d')}). "
+                f"Selected date {schedule_in.schedule_date.strftime('%Y-%m-%d')} is beyond the allowed advance window."
+            )
+
         # 1. Verify token exists and is active
         token_stmt = select(ApprovedApplicationPhase).where(
             ApprovedApplicationPhase.id == schedule_in.token_id
         )
+
         token_res = await session.execute(token_stmt)
         token = token_res.scalar_one_or_none()
         if not token:

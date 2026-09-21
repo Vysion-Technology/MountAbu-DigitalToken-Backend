@@ -50,7 +50,7 @@ class TestVehicleScheduling:
         schedule_in = VehicleScheduleCreate(
             token_id=1,
             slot_id=2,
-            schedule_date=date(2026, 9, 3),
+            schedule_date=date.today() + timedelta(days=2),
             vehicle_number="RJ 27 GA 1234",
         )
 
@@ -95,7 +95,7 @@ class TestVehicleScheduling:
         schedule_in = VehicleScheduleCreate(
             token_id=1,
             slot_id=2,
-            schedule_date=date(2026, 9, 3),
+            schedule_date=date.today() + timedelta(days=2),
             vehicle_number="RJ 27 GA 1234",
         )
 
@@ -142,7 +142,7 @@ class TestVehicleScheduling:
         schedule_in = VehicleScheduleCreate(
             token_id=1,
             slot_id=2,
-            schedule_date=date(2026, 9, 3),
+            schedule_date=date.today() + timedelta(days=2),
             vehicle_number="RJ 27 GA 1234",
         )
 
@@ -150,6 +150,41 @@ class TestVehicleScheduling:
             await dao.create_schedule(mock_session, user_id=5, schedule_in=schedule_in)
 
         assert "Mount Abu Summer Festival" in str(exc_info.value)
+
+    async def test_same_day_booking_rejected_t_plus_1(self):
+        """Ensure booking fails when attempting same-day (T+0) or past bookings."""
+        dao = VehicleScheduleDAO()
+        mock_session = AsyncMock()
+
+        schedule_in = VehicleScheduleCreate(
+            token_id=1,
+            slot_id=2,
+            schedule_date=date.today(),
+            vehicle_number="RJ 27 GA 1234",
+        )
+
+        with pytest.raises(ValueError) as exc_info:
+            await dao.create_schedule(mock_session, user_id=5, schedule_in=schedule_in)
+
+        assert "at least 1 day in advance (T+1 basis)" in str(exc_info.value)
+
+    async def test_beyond_1_week_booking_rejected(self):
+        """Ensure booking fails when attempting booking beyond 1 week (T+8 days)."""
+        dao = VehicleScheduleDAO()
+        mock_session = AsyncMock()
+
+        schedule_in = VehicleScheduleCreate(
+            token_id=1,
+            slot_id=2,
+            schedule_date=date.today() + timedelta(days=8),
+            vehicle_number="RJ 27 GA 1234",
+        )
+
+        with pytest.raises(ValueError) as exc_info:
+            await dao.create_schedule(mock_session, user_id=5, schedule_in=schedule_in)
+
+        assert "up to 1 week in advance" in str(exc_info.value)
+
 
     async def test_naka_entry_requires_mandatory_remarks(self):
         """Ensure Naka entry validation requires remarks."""

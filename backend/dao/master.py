@@ -351,17 +351,37 @@ class MasterDataDAO:
         data = blackout.model_dump()
         if created_by_id:
             data["created_by_id"] = created_by_id
-        return await self._create(session, ScheduleBlackout, data)
+        db_obj = ScheduleBlackout(**data)
+        session.add(db_obj)
+        await session.commit()
+        return await self.get_blackout(session, db_obj.id, active_only=False)
 
     async def get_blackout(
         self, session: AsyncSession, blackout_id: int, active_only: bool = False
     ) -> Optional[ScheduleBlackout]:
-        return await self._get(session, ScheduleBlackout, blackout_id, active_only=active_only)
+        stmt = (
+            select(ScheduleBlackout)
+            .where(ScheduleBlackout.id == blackout_id)
+            .options(
+                joinedload(ScheduleBlackout.slot),
+                joinedload(ScheduleBlackout.created_by),
+            )
+        )
+        if active_only:
+            stmt = stmt.where(ScheduleBlackout.is_active == True)
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
 
     async def list_blackouts(
         self, session: AsyncSession, active_only: bool = False
     ) -> List[ScheduleBlackout]:
-        stmt = select(ScheduleBlackout).options(selectinload(ScheduleBlackout.slot))
+        stmt = (
+            select(ScheduleBlackout)
+            .options(
+                joinedload(ScheduleBlackout.slot),
+                joinedload(ScheduleBlackout.created_by),
+            )
+        )
         if active_only:
             stmt = stmt.where(ScheduleBlackout.is_active == True)
         stmt = stmt.order_by(ScheduleBlackout.blackout_date.asc())
@@ -371,11 +391,20 @@ class MasterDataDAO:
     async def update_blackout(
         self, session: AsyncSession, blackout_id: int, blackout: ScheduleBlackoutUpdate
     ) -> Optional[ScheduleBlackout]:
-        return await self._update(
-            session, ScheduleBlackout, blackout_id, blackout.model_dump(exclude_unset=True)
+        stmt = (
+            update(ScheduleBlackout)
+            .where(ScheduleBlackout.id == blackout_id)
+            .values(**blackout.model_dump(exclude_unset=True))
+            .returning(ScheduleBlackout.id)
         )
+        result = await session.execute(stmt)
+        row = result.fetchone()
+        if not row:
+            return None
+        return await self.get_blackout(session, row[0], active_only=False)
 
     async def delete_blackout(self, session: AsyncSession, blackout_id: int) -> bool:
         return await self._delete(session, ScheduleBlackout, blackout_id)
+
 
 
