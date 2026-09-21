@@ -2929,8 +2929,32 @@ class ApplicationDAO(BaseDAO):
                 "quantity": vm.quantity
             })
 
+        # Retrieve phase record for formatted token number (TKN-YYYY-ID)
+        phase_stmt = (
+            select(ApprovedApplicationPhase)
+            .where(
+                ApprovedApplicationPhase.application_id == application_id,
+                ApprovedApplicationPhase.phase == phase,
+            )
+        )
+        phase_res = await self.session.execute(phase_stmt)
+        phase_rec = phase_res.scalar_one_or_none()
+
+        if phase_rec and hasattr(phase_rec, "id") and isinstance(phase_rec.id, int):
+            year = (
+                phase_rec.activated_at.year
+                if phase_rec.activated_at and hasattr(phase_rec.activated_at, "year")
+                else datetime.now().year
+            )
+            token_number = f"TKN-{year}-{phase_rec.id:03d}"
+        elif phase_rec and hasattr(phase_rec, "id"):
+            token_number = f"TKN-{datetime.now().year}-{str(phase_rec.id).zfill(3)}"
+        else:
+            token_number = f"TKN-{datetime.now().year}-{phase:03d}"
+
         return {
             "verified": True,
+            "token_number": token_number,
             "naka_entry_id": matched_entry.id,
             "vehicle_number": matched_entry.vehicle_number,
             "entry_at": matched_entry.entry_at,
