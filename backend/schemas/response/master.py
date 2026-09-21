@@ -119,7 +119,7 @@ class AnnouncementResponse(BaseModel):
     title: str
     message: str
     is_active: bool
-    valid_till: Optional[date] = None
+    valid_till: Optional[datetime] = None
     created_at: Optional[datetime] = None
     created_by: Optional[UserSummary] = None
 

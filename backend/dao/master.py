@@ -498,6 +498,8 @@ class MasterDataDAO:
         data = announcement.model_dump()
         if created_by_id:
             data["created_by_id"] = created_by_id
+        if data.get("valid_till") and hasattr(data["valid_till"], "tzinfo") and data["valid_till"].tzinfo:
+            data["valid_till"] = data["valid_till"].replace(tzinfo=None)
         db_obj = Announcement(**data)
         session.add(db_obj)
         await session.commit()
@@ -532,10 +534,13 @@ class MasterDataDAO:
     async def update_announcement(
         self, session: AsyncSession, announcement_id: int, announcement: AnnouncementUpdate
     ) -> Optional[Announcement]:
+        data = announcement.model_dump(exclude_unset=True)
+        if data.get("valid_till") and hasattr(data["valid_till"], "tzinfo") and data["valid_till"].tzinfo:
+            data["valid_till"] = data["valid_till"].replace(tzinfo=None)
         stmt = (
             update(Announcement)
             .where(Announcement.id == announcement_id)
-            .values(**announcement.model_dump(exclude_unset=True))
+            .values(**data)
             .returning(Announcement.id)
         )
         result = await session.execute(stmt)

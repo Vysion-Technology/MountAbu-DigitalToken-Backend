@@ -744,7 +744,7 @@ async def create_announcement(
         title=created.title,
         message=created.message,
         is_active=created.is_active,
-        valid_till=created.valid_till.date() if hasattr(created.valid_till, "date") and created.valid_till else created.valid_till,
+        valid_till=created.valid_till,
         created_at=created.created_at,
         created_by=UserSummary.model_validate(created.created_by) if created.created_by else None,
     )
@@ -763,7 +763,7 @@ async def list_announcements(
             title=item.title,
             message=item.message,
             is_active=item.is_active,
-            valid_till=item.valid_till.date() if hasattr(item.valid_till, "date") and item.valid_till else item.valid_till,
+            valid_till=item.valid_till,
             created_at=item.created_at,
             created_by=UserSummary.model_validate(item.created_by) if item.created_by else None,
         )
@@ -782,7 +782,7 @@ async def get_active_announcements(
             title=item.title,
             message=item.message,
             is_active=item.is_active,
-            valid_till=item.valid_till.date() if hasattr(item.valid_till, "date") and item.valid_till else item.valid_till,
+            valid_till=item.valid_till,
             created_at=item.created_at,
             created_by=UserSummary.model_validate(item.created_by) if item.created_by else None,
         )
@@ -814,7 +814,7 @@ async def update_announcement(
         title=updated.title,
         message=updated.message,
         is_active=updated.is_active,
-        valid_till=updated.valid_till.date() if hasattr(updated.valid_till, "date") and updated.valid_till else updated.valid_till,
+        valid_till=updated.valid_till,
         created_at=updated.created_at,
         created_by=UserSummary.model_validate(updated.created_by) if updated.created_by else None,
     )
