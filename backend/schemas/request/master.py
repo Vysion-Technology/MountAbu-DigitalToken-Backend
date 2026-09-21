@@ -129,3 +129,17 @@ class ScheduleBlackoutUpdate(BaseModel):
     is_active: Optional[bool] = None
 
 
+class AnnouncementCreate(BaseModel):
+    title: str = Field(..., description="Title of announcement")
+    message: str = Field(..., description="Announcement content/message")
+    is_active: bool = Field(True, description="Whether announcement is active")
+    valid_till: Optional[date] = Field(None, description="Optional expiry date")
+
+
+class AnnouncementUpdate(BaseModel):
+    title: Optional[str] = None
+    message: Optional[str] = None
+    is_active: Optional[bool] = None
+    valid_till: Optional[date] = None
+
+

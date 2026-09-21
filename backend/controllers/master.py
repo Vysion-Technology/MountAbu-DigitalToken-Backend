@@ -40,6 +40,8 @@ from backend.schemas.request.master import (
     VehicleTypeUpdate,
     ScheduleBlackoutCreate,
     ScheduleBlackoutUpdate,
+    AnnouncementCreate,
+    AnnouncementUpdate,
 )
 from backend.schemas.response.master import (
     WardResponse,
@@ -50,6 +52,7 @@ from backend.schemas.response.master import (
     SlotDefinitionResponse,
     VehicleTypeResponse,
     ScheduleBlackoutResponse,
+    AnnouncementResponse,
     UserSummary,
 )
 
@@ -715,5 +718,127 @@ async def delete_blackout(
     )
     await session.commit()
     return {"message": "Blackout entry deleted successfully"}
+
+
+# ── Announcements ────────────────────────────────────────────────────────────
+
+@router.post("/announcements", response_model=AnnouncementResponse)
+async def create_announcement(
+    announcement: AnnouncementCreate,
+    current_user: UserDetails = Depends(get_superadmin),
+    session: AsyncSession = Depends(get_db),
+):
+    created = await dao.create_announcement(
+        session, announcement, created_by_id=current_user.user_id
+    )
+    await audit_service.log(
+        session,
+        "ANNOUNCEMENT",
+        AuditAction.CREATED,
+        current_user.user_id,
+        new_state=created.model_dump() if hasattr(created, "model_dump") else None,
+    )
+    await session.commit()
+    return AnnouncementResponse(
+        id=created.id,
+        title=created.title,
+        message=created.message,
+        is_active=created.is_active,
+        valid_till=created.valid_till.date() if hasattr(created.valid_till, "date") and created.valid_till else created.valid_till,
+        created_at=created.created_at,
+        created_by=UserSummary.model_validate(created.created_by) if created.created_by else None,
+    )
+
+
+@router.get("/announcements", response_model=List[AnnouncementResponse])
+async def list_announcements(
+    is_active_only: bool = False,
+    session: AsyncSession = Depends(get_db),
+    user: Optional[UserDetails] = Depends(get_optional_user),
+):
+    items = await dao.list_announcements(session, active_only=is_active_only)
+    return [
+        AnnouncementResponse(
+            id=item.id,
+            title=item.title,
+            message=item.message,
+            is_active=item.is_active,
+            valid_till=item.valid_till.date() if hasattr(item.valid_till, "date") and item.valid_till else item.valid_till,
+            created_at=item.created_at,
+            created_by=UserSummary.model_validate(item.created_by) if item.created_by else None,
+        )
+        for item in items
+    ]
+
+
+@router.get("/announcements/active", response_model=List[AnnouncementResponse])
+async def get_active_announcements(
+    session: AsyncSession = Depends(get_db),
+):
+    items = await dao.list_announcements(session, active_only=True)
+    return [
+        AnnouncementResponse(
+            id=item.id,
+            title=item.title,
+            message=item.message,
+            is_active=item.is_active,
+            valid_till=item.valid_till.date() if hasattr(item.valid_till, "date") and item.valid_till else item.valid_till,
+            created_at=item.created_at,
+            created_by=UserSummary.model_validate(item.created_by) if item.created_by else None,
+        )
+        for item in items
+    ]
+
+
+@router.put("/announcements/{announcement_id}", response_model=AnnouncementResponse)
+async def update_announcement(
+    announcement_id: int,
+    announcement: AnnouncementUpdate,
+    current_user: UserDetails = Depends(get_superadmin),
+    session: AsyncSession = Depends(get_db),
+):
+    updated = await dao.update_announcement(session, announcement_id, announcement)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Announcement not found")
+
+    await audit_service.log(
+        session,
+        "ANNOUNCEMENT",
+        AuditAction.CHANGED,
+        current_user.user_id,
+        new_state=updated.model_dump() if hasattr(updated, "model_dump") else None,
+    )
+    await session.commit()
+    return AnnouncementResponse(
+        id=updated.id,
+        title=updated.title,
+        message=updated.message,
+        is_active=updated.is_active,
+        valid_till=updated.valid_till.date() if hasattr(updated.valid_till, "date") and updated.valid_till else updated.valid_till,
+        created_at=updated.created_at,
+        created_by=UserSummary.model_validate(updated.created_by) if updated.created_by else None,
+    )
+
+
+@router.delete("/announcements/{announcement_id}")
+async def delete_announcement(
+    announcement_id: int,
+    current_user: UserDetails = Depends(get_superadmin),
+    session: AsyncSession = Depends(get_db),
+):
+    success = await dao.delete_announcement(session, announcement_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Announcement not found")
+
+    await audit_service.log(
+        session,
+        "ANNOUNCEMENT",
+        AuditAction.DELETED,
+        current_user.user_id,
+        new_state={"announcement_id": announcement_id},
+    )
+    await session.commit()
+    return {"message": "Announcement deleted successfully"}
+
 
 

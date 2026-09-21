@@ -114,3 +114,15 @@ class ScheduleBlackoutResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AnnouncementResponse(BaseModel):
+    id: int
+    title: str
+    message: str
+    is_active: bool
+    valid_till: Optional[date] = None
+    created_at: Optional[datetime] = None
+    created_by: Optional[UserSummary] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+

@@ -149,3 +149,21 @@ class ScheduleBlackout(Base):
     created_by: Mapped["User"] = relationship("User")
 
 
+class Announcement(Base):
+    __tablename__ = "announcements"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    title: Mapped[str] = mapped_column(String, index=True)
+    message: Mapped[str] = mapped_column(String)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    valid_till: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, default=datetime.now, nullable=True
+    )
+    created_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id"), nullable=True, default=1
+    )
+
+    created_by: Mapped["User"] = relationship("User")
+
+
+

@@ -16,6 +16,7 @@ from backend.dbmodels.master import (
     SlotDefinition,
     VehicleType,
     ScheduleBlackout,
+    Announcement,
 )
 from backend.dbmodels.application import Material
 from backend.schemas.request.master import (
@@ -35,6 +36,8 @@ from backend.schemas.request.master import (
     VehicleTypeUpdate,
     ScheduleBlackoutCreate,
     ScheduleBlackoutUpdate,
+    AnnouncementCreate,
+    AnnouncementUpdate,
 )
 
 
@@ -484,6 +487,66 @@ class MasterDataDAO:
 
     async def delete_blackout(self, session: AsyncSession, blackout_id: int) -> bool:
         return await self._delete(session, ScheduleBlackout, blackout_id)
+
+    # ── Announcements ────────────────────────────────────────────────────────
+    async def create_announcement(
+        self,
+        session: AsyncSession,
+        announcement: AnnouncementCreate,
+        created_by_id: Optional[int] = None,
+    ) -> Announcement:
+        data = announcement.model_dump()
+        if created_by_id:
+            data["created_by_id"] = created_by_id
+        db_obj = Announcement(**data)
+        session.add(db_obj)
+        await session.commit()
+        return await self.get_announcement(session, db_obj.id, active_only=False)
+
+    async def get_announcement(
+        self, session: AsyncSession, announcement_id: int, active_only: bool = False
+    ) -> Optional[Announcement]:
+        stmt = (
+            select(Announcement)
+            .where(Announcement.id == announcement_id)
+            .options(joinedload(Announcement.created_by))
+        )
+        if active_only:
+            stmt = stmt.where(Announcement.is_active == True)
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def list_announcements(
+        self, session: AsyncSession, active_only: bool = False
+    ) -> List[Announcement]:
+        stmt = (
+            select(Announcement)
+            .options(joinedload(Announcement.created_by))
+        )
+        if active_only:
+            stmt = stmt.where(Announcement.is_active == True)
+        stmt = stmt.order_by(Announcement.id.desc())
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def update_announcement(
+        self, session: AsyncSession, announcement_id: int, announcement: AnnouncementUpdate
+    ) -> Optional[Announcement]:
+        stmt = (
+            update(Announcement)
+            .where(Announcement.id == announcement_id)
+            .values(**announcement.model_dump(exclude_unset=True))
+            .returning(Announcement.id)
+        )
+        result = await session.execute(stmt)
+        row = result.fetchone()
+        if not row:
+            return None
+        return await self.get_announcement(session, row[0], active_only=False)
+
+    async def delete_announcement(self, session: AsyncSession, announcement_id: int) -> bool:
+        return await self._delete(session, Announcement, announcement_id)
+
 
 
 
