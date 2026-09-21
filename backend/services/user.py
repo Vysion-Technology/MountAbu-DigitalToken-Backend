@@ -131,5 +131,183 @@ class UserService:
             print("Superadmin already exists")
 
 
+    async def get_user_deletion_preview(self, session: AsyncSession, mobile: str) -> Optional[dict]:
+        from sqlalchemy import select, func, or_
+        from backend.dbmodels.application import (
+            Application,
+            ApprovedApplicationPhase,
+            VehicleSchedule,
+        )
+        from backend.dbmodels.complaint import Complaint
+
+        user = await self.user_dao.get_by_mobile(session, mobile)
+        if not user:
+            return None
+
+        # Check applications count
+        app_stmt = select(func.count(Application.id)).where(Application.user_id == user.id)
+        app_res = await session.execute(app_stmt)
+        apps_count = app_res.scalar() or 0
+
+        # Check complaints count
+        complaint_stmt = select(func.count(Complaint.id)).where(
+            or_(Complaint.user_id == user.id, Complaint.mobile == mobile)
+        )
+        complaint_res = await session.execute(complaint_stmt)
+        complaints_count = complaint_res.scalar() or 0
+
+        # Check tokens / phases
+        phase_stmt = (
+            select(func.count(ApprovedApplicationPhase.id))
+            .join(Application, ApprovedApplicationPhase.application_id == Application.id)
+            .where(Application.user_id == user.id)
+        )
+        phase_res = await session.execute(phase_stmt)
+        tokens_count = phase_res.scalar() or 0
+
+        # Check vehicle schedules
+        sched_stmt = (
+            select(func.count(VehicleSchedule.id))
+            .join(ApprovedApplicationPhase, VehicleSchedule.token_id == ApprovedApplicationPhase.id)
+            .join(Application, ApprovedApplicationPhase.application_id == Application.id)
+            .where(Application.user_id == user.id)
+        )
+        sched_res = await session.execute(sched_stmt)
+        schedules_count = sched_res.scalar() or 0
+
+        return {
+            "user_id": user.id,
+            "name": user.name,
+            "mobile": user.mobile,
+            "role": user.role.value if hasattr(user.role, "value") else str(user.role),
+            "is_active": user.is_active,
+            "created_at": user.created_at.isoformat() if getattr(user, "created_at", None) else None,
+            "applications_count": apps_count,
+            "complaints_count": complaints_count,
+            "tokens_count": tokens_count,
+            "schedules_count": schedules_count,
+            "has_active_data": (apps_count > 0 or complaints_count > 0 or tokens_count > 0 or schedules_count > 0),
+        }
+
+    async def purge_and_delete_user(self, session: AsyncSession, mobile: str) -> bool:
+        from sqlalchemy import select, delete, or_
+        from backend.dbmodels.application import (
+            Application,
+            ApplicationMaterial,
+            ApplicationComment,
+            ApplicationDocument,
+            ApprovedApplicationPhase,
+            ApplicationPhaseMaterial,
+            ApplicationApproval,
+            VehicleSchedule,
+            VehicleEntry,
+            VehicleMaterial,
+            VehicleEntryDumpingPhoto,
+            InspectionReport,
+            ApplicationActionLog,
+            ApplicationObjection,
+        )
+        from backend.dbmodels.complaint import (
+            Complaint,
+            ComplaintMedia,
+            ComplaintComment,
+        )
+
+        user = await self.user_dao.get_by_mobile(session, mobile)
+        if not user:
+            return False
+
+        user_id = user.id
+
+        # 1. Fetch user application ids
+        app_stmt = select(Application.id).where(Application.user_id == user_id)
+        app_res = await session.execute(app_stmt)
+        app_ids = [row[0] for row in app_res.fetchall()]
+
+        if app_ids:
+            phase_stmt = select(ApprovedApplicationPhase.id).where(
+                ApprovedApplicationPhase.application_id.in_(app_ids)
+            )
+            phase_res = await session.execute(phase_stmt)
+            phase_ids = [row[0] for row in phase_res.fetchall()]
+
+            entry_stmt = select(VehicleEntry.id).where(VehicleEntry.application_id.in_(app_ids))
+            entry_res = await session.execute(entry_stmt)
+            entry_ids = [row[0] for row in entry_res.fetchall()]
+
+            if phase_ids:
+                await session.execute(
+                    delete(VehicleSchedule).where(VehicleSchedule.token_id.in_(phase_ids))
+                )
+
+            if entry_ids:
+                await session.execute(
+                    delete(VehicleEntryDumpingPhoto).where(VehicleEntryDumpingPhoto.vehicle_entry_id.in_(entry_ids))
+                )
+                await session.execute(
+                    delete(VehicleMaterial).where(VehicleMaterial.vehicle_entry_id.in_(entry_ids))
+                )
+                await session.execute(
+                    delete(VehicleEntry).where(VehicleEntry.id.in_(entry_ids))
+                )
+
+            await session.execute(
+                delete(ApplicationPhaseMaterial).where(ApplicationPhaseMaterial.application_id.in_(app_ids))
+            )
+            await session.execute(
+                delete(ApprovedApplicationPhase).where(ApprovedApplicationPhase.application_id.in_(app_ids))
+            )
+            await session.execute(
+                delete(ApplicationApproval).where(ApplicationApproval.application_id.in_(app_ids))
+            )
+            await session.execute(
+                delete(ApplicationDocument).where(ApplicationDocument.application_id.in_(app_ids))
+            )
+            await session.execute(
+                delete(ApplicationComment).where(ApplicationComment.application_id.in_(app_ids))
+            )
+            await session.execute(
+                delete(ApplicationMaterial).where(ApplicationMaterial.application_id.in_(app_ids))
+            )
+            await session.execute(
+                delete(InspectionReport).where(InspectionReport.application_id.in_(app_ids))
+            )
+            await session.execute(
+                delete(ApplicationActionLog).where(ApplicationActionLog.application_id.in_(app_ids))
+            )
+            await session.execute(
+                delete(ApplicationObjection).where(ApplicationObjection.application_id.in_(app_ids))
+            )
+            await session.execute(
+                delete(Application).where(Application.id.in_(app_ids))
+            )
+
+        # 2. Fetch and delete user complaints
+        complaint_stmt = select(Complaint.id).where(
+            or_(Complaint.user_id == user_id, Complaint.mobile == mobile)
+        )
+        complaint_res = await session.execute(complaint_stmt)
+        complaint_ids = [row[0] for row in complaint_res.fetchall()]
+
+        if complaint_ids:
+            await session.execute(
+                delete(ComplaintMedia).where(ComplaintMedia.complaint_id.in_(complaint_ids))
+            )
+            await session.execute(
+                delete(ComplaintComment).where(ComplaintComment.complaint_id.in_(complaint_ids))
+            )
+            await session.execute(
+                delete(Complaint).where(Complaint.id.in_(complaint_ids))
+            )
+
+        # 3. Delete OTP records
+        await self.user_dao.delete_otp_records(session, mobile)
+
+        # 4. Hard delete user
+        await session.delete(user)
+        await session.commit()
+        return True
+
+
 async def get_user_service() -> UserService:
     return UserService()
