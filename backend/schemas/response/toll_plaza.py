@@ -10,6 +10,7 @@ class TollPlazaMaterialItem(BaseModel):
 
 class TollPlazaVerifyResponse(BaseModel):
     verified: bool = Field(..., description="Whether verification was successful")
+    token_number: str = Field(..., description="Token number formatted as TKN-YYYY-ID")
     naka_entry_id: int = Field(..., description="The ID of the Naka vehicle entry")
     vehicle_number: str = Field(..., description="The vehicle plate number")
     entry_at: datetime = Field(..., description="Timestamp when the Naka incharge logged the entry")

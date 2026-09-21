@@ -14,9 +14,11 @@ from backend.meta import (
     StructureType,
     JurisdictionZone,
     ObjectionStatus,
+    VehicleScheduleStatus,
+    ScheduleComplianceStatus,
 )
 from backend.dbmodels.user import User
-from backend.dbmodels.master import Ward, Department
+from backend.dbmodels.master import Ward, Department, SlotDefinition, VehicleType
 
 
 class Material(Base):
@@ -291,12 +293,38 @@ __all__ = [
     "ApplicationDocument",
     "ApprovedApplicationPhase",
     "ApplicationPhaseMaterial",
+    "VehicleSchedule",
     "VehicleEntry",
     "VehicleMaterial",
     "VehicleEntryDumpingPhoto",
     "InspectionReport",
     "ApplicationActionLog",
 ]
+
+
+class VehicleSchedule(Base):
+    """Citizen vehicle scheduling for naka entry."""
+
+    __tablename__ = "vehicle_schedules"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    schedule_code: Mapped[str] = mapped_column(String, index=True, unique=True)
+    application_id: Mapped[int] = mapped_column(ForeignKey("applications.id"), index=True)
+    phase: Mapped[int] = mapped_column(Integer, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    slot_id: Mapped[int] = mapped_column(ForeignKey("slot_definitions.id"), index=True)
+    schedule_date: Mapped[datetime] = mapped_column(DateTime, index=True)
+    vehicle_number: Mapped[str] = mapped_column(String, index=True)
+    vehicle_type_id: Mapped[Optional[int]] = mapped_column(ForeignKey("vehicle_types.id"), nullable=True)
+    status: Mapped[VehicleScheduleStatus] = mapped_column(
+        Enum(VehicleScheduleStatus), default=VehicleScheduleStatus.SCHEDULED, index=True
+    )
+    created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, default=datetime.now, nullable=True)
+    cancelled_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    application: Mapped["Application"] = relationship("Application")
+    user: Mapped["User"] = relationship("User")
+    slot: Mapped["SlotDefinition"] = relationship("SlotDefinition")
+    vehicle_type: Mapped[Optional["VehicleType"]] = relationship("VehicleType")
 
 
 class VehicleEntry(Base):
@@ -328,6 +356,15 @@ class VehicleEntry(Base):
     remarks: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     media: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
+    # Vehicle Scheduling Integration
+    schedule_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("vehicle_schedules.id"), nullable=True, index=True
+    )
+    schedule_compliance_status: Mapped[Optional[ScheduleComplianceStatus]] = mapped_column(
+        Enum(ScheduleComplianceStatus), nullable=True
+    )
+
+    schedule: Mapped[Optional["VehicleSchedule"]] = relationship("VehicleSchedule")
     application: Mapped["Application"] = relationship(
         "Application", back_populates="vehicle_entries"
     )

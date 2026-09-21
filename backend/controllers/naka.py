@@ -14,7 +14,7 @@ from backend.middlewares.auth import get_current_user
 from backend.schemas.base.auth import UserDetails
 from backend.schemas.request.application import NakaEntryCreate
 from backend.schemas.response.meta import SuccessResponse
-from backend.schemas.response.naka import NakaPhaseResponse, NakaMaterialSummary
+from backend.schemas.response.naka import NakaPhaseResponse, NakaMaterialSummary, NakaScheduleInfo
 from backend.services.application import ApplicationService, get_application_service
 
 router = APIRouter()
@@ -58,7 +58,9 @@ async def get_naka_phase_summary(
         phase=summary["phase"],
         phase_status=summary["phase_status"],
         materials=[NakaMaterialSummary(**m) for m in summary["materials"]],
+        schedule_info=NakaScheduleInfo(**summary["schedule_info"]) if summary.get("schedule_info") else None,
     )
+
 
 
 @router.post("/naka/{transport_code}/entry", response_model=SuccessResponse)

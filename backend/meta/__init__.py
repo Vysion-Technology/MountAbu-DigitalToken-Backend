@@ -227,3 +227,17 @@ class StructureType(str, PyEnum):
 class JurisdictionZone(str, PyEnum):
     ULB = "ULB"
     UIT = "UIT"
+
+
+class VehicleScheduleStatus(str, PyEnum):
+    SCHEDULED = "SCHEDULED"
+    COMPLETED = "COMPLETED"
+    CANCELLED = "CANCELLED"
+    EXPIRED = "EXPIRED"
+
+
+class ScheduleComplianceStatus(str, PyEnum):
+    ON_TIME = "ON_TIME"
+    SLOT_MISMATCH = "SLOT_MISMATCH"
+    UNSCHEDULED_WALK_IN = "UNSCHEDULED_WALK_IN"
+

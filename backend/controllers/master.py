@@ -34,6 +34,14 @@ from backend.schemas.request.master import (
     ComplaintCategoryUpdate,
     MaterialCreate,
     MaterialUpdate,
+    SlotDefinitionCreate,
+    SlotDefinitionUpdate,
+    VehicleTypeCreate,
+    VehicleTypeUpdate,
+    ScheduleBlackoutCreate,
+    ScheduleBlackoutUpdate,
+    AnnouncementCreate,
+    AnnouncementUpdate,
 )
 from backend.schemas.response.master import (
     WardResponse,
@@ -41,8 +49,13 @@ from backend.schemas.response.master import (
     RoleResponse,
     ComplaintCategoryResponse,
     MaterialResponse,
+    SlotDefinitionResponse,
+    VehicleTypeResponse,
+    ScheduleBlackoutResponse,
+    AnnouncementResponse,
     UserSummary,
 )
+
 
 router = APIRouter(prefix="/master", tags=["Master Data"])
 dao = MasterDataDAO()
@@ -447,3 +460,385 @@ async def list_jens(
     stmt = select(User).where(User.role.in_(allowed_roles)).order_by(User.name)
     result = await session.execute(stmt)
     return result.scalars().all()
+
+
+# ── Vehicle Slots Master Data ────────────────────────────────────────────────
+@router.post("/slots", response_model=SlotDefinitionResponse)
+async def create_slot(
+    slot: SlotDefinitionCreate,
+    current_user: UserDetails = Depends(get_superadmin),
+    session: AsyncSession = Depends(get_db),
+):
+    response = await dao.create_slot(session, slot, created_by_id=current_user.user_id)
+    await audit_service.log(
+        session,
+        "SLOT_DEFINITION",
+        AuditAction.CREATED,
+        current_user.user_id,
+        new_state=response.model_dump() if hasattr(response, "model_dump") else None,
+    )
+    await session.commit()
+    return response
+
+
+@router.get("/slots", response_model=List[SlotDefinitionResponse])
+async def list_slots(
+    session: AsyncSession = Depends(get_db),
+    user: Optional[UserDetails] = Depends(get_optional_user),
+):
+    active_only = True if not user or user.role != UserRole.SUPERADMIN else False
+    return await dao.list_slots(session, active_only=active_only)
+
+
+@router.put("/slots/{slot_id}", response_model=SlotDefinitionResponse)
+async def update_slot(
+    slot_id: int,
+    slot: SlotDefinitionUpdate,
+    current_user: UserDetails = Depends(get_superadmin),
+    session: AsyncSession = Depends(get_db),
+):
+    updated = await dao.update_slot(session, slot_id, slot)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Slot not found")
+
+    await audit_service.log(
+        session,
+        "SLOT_DEFINITION",
+        AuditAction.CHANGED,
+        current_user.user_id,
+        new_state=updated.model_dump() if hasattr(updated, "model_dump") else None,
+    )
+    await session.commit()
+    return updated
+
+
+@router.delete("/slots/{slot_id}")
+async def delete_slot(
+    slot_id: int,
+    current_user: UserDetails = Depends(get_superadmin),
+    session: AsyncSession = Depends(get_db),
+):
+    success = await dao.delete_slot(session, slot_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Slot not found")
+
+    await audit_service.log(
+        session,
+        "SLOT_DEFINITION",
+        AuditAction.DELETED,
+        current_user.user_id,
+        new_state={"slot_id": slot_id},
+    )
+    await session.commit()
+    return {"message": "Slot deleted successfully"}
+
+
+# ── Vehicle Types Master Data ────────────────────────────────────────────────
+@router.post("/vehicle-types", response_model=VehicleTypeResponse)
+async def create_vehicle_type(
+    vehicle_type: VehicleTypeCreate,
+    current_user: UserDetails = Depends(get_superadmin),
+    session: AsyncSession = Depends(get_db),
+):
+    response = await dao.create_vehicle_type(
+        session, vehicle_type, created_by_id=current_user.user_id
+    )
+    await audit_service.log(
+        session,
+        "VEHICLE_TYPE",
+        AuditAction.CREATED,
+        current_user.user_id,
+        new_state=response.model_dump() if hasattr(response, "model_dump") else None,
+    )
+    await session.commit()
+    return response
+
+
+@router.get("/vehicle-types", response_model=List[VehicleTypeResponse])
+async def list_vehicle_types(
+    session: AsyncSession = Depends(get_db),
+    user: Optional[UserDetails] = Depends(get_optional_user),
+):
+    active_only = True if not user or user.role != UserRole.SUPERADMIN else False
+    return await dao.list_vehicle_types(session, active_only=active_only)
+
+
+@router.put("/vehicle-types/{type_id}", response_model=VehicleTypeResponse)
+async def update_vehicle_type(
+    type_id: int,
+    vehicle_type: VehicleTypeUpdate,
+    current_user: UserDetails = Depends(get_superadmin),
+    session: AsyncSession = Depends(get_db),
+):
+    updated = await dao.update_vehicle_type(session, type_id, vehicle_type)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Vehicle type not found")
+
+    await audit_service.log(
+        session,
+        "VEHICLE_TYPE",
+        AuditAction.CHANGED,
+        current_user.user_id,
+        new_state=updated.model_dump() if hasattr(updated, "model_dump") else None,
+    )
+    await session.commit()
+    return updated
+
+
+@router.delete("/vehicle-types/{type_id}")
+async def delete_vehicle_type(
+    type_id: int,
+    current_user: UserDetails = Depends(get_superadmin),
+    session: AsyncSession = Depends(get_db),
+):
+    success = await dao.delete_vehicle_type(session, type_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Vehicle type not found")
+
+    await audit_service.log(
+        session,
+        "VEHICLE_TYPE",
+        AuditAction.DELETED,
+        current_user.user_id,
+        new_state={"vehicle_type_id": type_id},
+    )
+    await session.commit()
+    return {"message": "Vehicle type deleted successfully"}
+
+
+# ── Schedule Blackout Calendar Master Data ───────────────────────────────────
+@router.post("/blackouts", response_model=ScheduleBlackoutResponse)
+async def create_blackout(
+    blackout: ScheduleBlackoutCreate,
+    current_user: UserDetails = Depends(get_superadmin),
+    session: AsyncSession = Depends(get_db),
+):
+    response = await dao.create_blackout(
+        session, blackout, created_by_id=current_user.user_id
+    )
+    await audit_service.log(
+        session,
+        "SCHEDULE_BLACKOUT",
+        AuditAction.CREATED,
+        current_user.user_id,
+        new_state=response.model_dump() if hasattr(response, "model_dump") else None,
+    )
+    await session.commit()
+    # Format response with slot_name
+    return ScheduleBlackoutResponse(
+        id=response.id,
+        blackout_date=response.blackout_date.date() if hasattr(response.blackout_date, "date") else response.blackout_date,
+        reason=response.reason,
+        is_full_day=response.is_full_day,
+        slot_id=response.slot_id,
+        slot_name=response.slot.name if response.slot else None,
+        is_active=response.is_active,
+        created_at=response.created_at,
+        created_by=UserSummary.model_validate(response.created_by) if response.created_by else None,
+    )
+
+
+@router.get("/blackouts", response_model=List[ScheduleBlackoutResponse])
+async def list_blackouts(
+    session: AsyncSession = Depends(get_db),
+    user: Optional[UserDetails] = Depends(get_optional_user),
+):
+    active_only = (
+        True
+        if not user
+        or user.role not in [UserRole.SUPERADMIN, UserRole.ADMIN, UserRole.NODAL_OFFICER]
+        else False
+    )
+
+    blackouts = await dao.list_blackouts(session, active_only=active_only)
+    return [
+        ScheduleBlackoutResponse(
+            id=b.id,
+            blackout_date=b.blackout_date.date() if hasattr(b.blackout_date, "date") else b.blackout_date,
+            reason=b.reason,
+            is_full_day=b.is_full_day,
+            slot_id=b.slot_id,
+            slot_name=b.slot.name if b.slot else None,
+            is_active=b.is_active,
+            created_at=b.created_at,
+            created_by=UserSummary.model_validate(b.created_by) if b.created_by else None,
+        )
+        for b in blackouts
+    ]
+
+
+@router.put("/blackouts/{blackout_id}", response_model=ScheduleBlackoutResponse)
+async def update_blackout(
+    blackout_id: int,
+    blackout: ScheduleBlackoutUpdate,
+    current_user: UserDetails = Depends(get_superadmin),
+    session: AsyncSession = Depends(get_db),
+):
+    updated = await dao.update_blackout(session, blackout_id, blackout)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Blackout entry not found")
+
+    await audit_service.log(
+        session,
+        "SCHEDULE_BLACKOUT",
+        AuditAction.CHANGED,
+        current_user.user_id,
+        new_state=updated.model_dump() if hasattr(updated, "model_dump") else None,
+    )
+    await session.commit()
+    return ScheduleBlackoutResponse(
+        id=updated.id,
+        blackout_date=updated.blackout_date.date() if hasattr(updated.blackout_date, "date") else updated.blackout_date,
+        reason=updated.reason,
+        is_full_day=updated.is_full_day,
+        slot_id=updated.slot_id,
+        slot_name=updated.slot.name if updated.slot else None,
+        is_active=updated.is_active,
+        created_at=updated.created_at,
+        created_by=UserSummary.model_validate(updated.created_by) if updated.created_by else None,
+    )
+
+
+@router.delete("/blackouts/{blackout_id}")
+async def delete_blackout(
+    blackout_id: int,
+    current_user: UserDetails = Depends(get_superadmin),
+    session: AsyncSession = Depends(get_db),
+):
+    success = await dao.delete_blackout(session, blackout_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Blackout entry not found")
+
+    await audit_service.log(
+        session,
+        "SCHEDULE_BLACKOUT",
+        AuditAction.DELETED,
+        current_user.user_id,
+        new_state={"blackout_id": blackout_id},
+    )
+    await session.commit()
+    return {"message": "Blackout entry deleted successfully"}
+
+
+# ── Announcements ────────────────────────────────────────────────────────────
+
+@router.post("/announcements", response_model=AnnouncementResponse)
+async def create_announcement(
+    announcement: AnnouncementCreate,
+    current_user: UserDetails = Depends(get_superadmin),
+    session: AsyncSession = Depends(get_db),
+):
+    created = await dao.create_announcement(
+        session, announcement, created_by_id=current_user.user_id
+    )
+    await audit_service.log(
+        session,
+        "ANNOUNCEMENT",
+        AuditAction.CREATED,
+        current_user.user_id,
+        new_state=created.model_dump() if hasattr(created, "model_dump") else None,
+    )
+    await session.commit()
+    return AnnouncementResponse(
+        id=created.id,
+        title=created.title,
+        message=created.message,
+        is_active=created.is_active,
+        valid_till=created.valid_till,
+        created_at=created.created_at,
+        created_by=UserSummary.model_validate(created.created_by) if created.created_by else None,
+    )
+
+
+@router.get("/announcements", response_model=List[AnnouncementResponse])
+async def list_announcements(
+    is_active_only: bool = False,
+    session: AsyncSession = Depends(get_db),
+    user: Optional[UserDetails] = Depends(get_optional_user),
+):
+    items = await dao.list_announcements(session, active_only=is_active_only)
+    return [
+        AnnouncementResponse(
+            id=item.id,
+            title=item.title,
+            message=item.message,
+            is_active=item.is_active,
+            valid_till=item.valid_till,
+            created_at=item.created_at,
+            created_by=UserSummary.model_validate(item.created_by) if item.created_by else None,
+        )
+        for item in items
+    ]
+
+
+@router.get("/announcements/active", response_model=List[AnnouncementResponse])
+async def get_active_announcements(
+    session: AsyncSession = Depends(get_db),
+):
+    items = await dao.list_announcements(session, active_only=True)
+    return [
+        AnnouncementResponse(
+            id=item.id,
+            title=item.title,
+            message=item.message,
+            is_active=item.is_active,
+            valid_till=item.valid_till,
+            created_at=item.created_at,
+            created_by=UserSummary.model_validate(item.created_by) if item.created_by else None,
+        )
+        for item in items
+    ]
+
+
+@router.put("/announcements/{announcement_id}", response_model=AnnouncementResponse)
+async def update_announcement(
+    announcement_id: int,
+    announcement: AnnouncementUpdate,
+    current_user: UserDetails = Depends(get_superadmin),
+    session: AsyncSession = Depends(get_db),
+):
+    updated = await dao.update_announcement(session, announcement_id, announcement)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Announcement not found")
+
+    await audit_service.log(
+        session,
+        "ANNOUNCEMENT",
+        AuditAction.CHANGED,
+        current_user.user_id,
+        new_state=updated.model_dump() if hasattr(updated, "model_dump") else None,
+    )
+    await session.commit()
+    return AnnouncementResponse(
+        id=updated.id,
+        title=updated.title,
+        message=updated.message,
+        is_active=updated.is_active,
+        valid_till=updated.valid_till,
+        created_at=updated.created_at,
+        created_by=UserSummary.model_validate(updated.created_by) if updated.created_by else None,
+    )
+
+
+@router.delete("/announcements/{announcement_id}")
+async def delete_announcement(
+    announcement_id: int,
+    current_user: UserDetails = Depends(get_superadmin),
+    session: AsyncSession = Depends(get_db),
+):
+    success = await dao.delete_announcement(session, announcement_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Announcement not found")
+
+    await audit_service.log(
+        session,
+        "ANNOUNCEMENT",
+        AuditAction.DELETED,
+        current_user.user_id,
+        new_state={"announcement_id": announcement_id},
+    )
+    await session.commit()
+    return {"message": "Announcement deleted successfully"}
+
+
+

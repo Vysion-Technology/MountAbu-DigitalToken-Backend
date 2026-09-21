@@ -36,14 +36,22 @@ class TestTollPlazaVerification(unittest.IsolatedAsyncioTestCase):
         mock_material.name = "Gravel"
         mock_material.unit = "Tons"
 
+        # Mock ApprovedApplicationPhase
+        mock_phase = MagicMock()
+        mock_phase.id = 14
+        mock_phase.activated_at = datetime(2026, 5, 10, 10, 0, 0)
+
         # Setup mock db query responses
         async def mock_execute(stmt):
             res = MagicMock()
             sql_str = str(stmt).lower()
             if "vehicle_materials" in sql_str:
                 res.scalars = MagicMock(return_value=MagicMock(all=MagicMock(return_value=[mock_vm])))
+            elif "approved_application_phases" in sql_str:
+                res.scalar_one_or_none = MagicMock(return_value=mock_phase)
             else:
                 res.scalars = MagicMock(return_value=MagicMock(all=MagicMock(return_value=[mock_entry])))
+                res.scalar_one_or_none = MagicMock(return_value=None)
             return res
 
         async def mock_get(model_class, pk):
@@ -64,6 +72,8 @@ class TestTollPlazaVerification(unittest.IsolatedAsyncioTestCase):
         # Assertions
         self.assertTrue(response["verified"])
         self.assertEqual(response["naka_entry_id"], 101)
+        self.assertIn("token_number", response)
+        self.assertTrue(response["token_number"].startswith("TKN-"))
         self.assertIsNotNone(mock_entry.plaza_verified_at)
         self.assertEqual(len(response["materials"]), 1)
         self.assertEqual(response["materials"][0]["material_name"], "Gravel")
