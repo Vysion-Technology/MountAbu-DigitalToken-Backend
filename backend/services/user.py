@@ -151,7 +151,7 @@ class UserService:
 
         # Check complaints count
         complaint_stmt = select(func.count(Complaint.id)).where(
-            or_(Complaint.user_id == user.id, Complaint.mobile == mobile)
+            or_(Complaint.user_id == user.id, Complaint.applicant_mobile == mobile)
         )
         complaint_res = await session.execute(complaint_stmt)
         complaints_count = complaint_res.scalar() or 0
@@ -284,7 +284,7 @@ class UserService:
 
         # 2. Fetch and delete user complaints
         complaint_stmt = select(Complaint.id).where(
-            or_(Complaint.user_id == user_id, Complaint.mobile == mobile)
+            or_(Complaint.user_id == user_id, Complaint.applicant_mobile == mobile)
         )
         complaint_res = await session.execute(complaint_stmt)
         complaint_ids = [row[0] for row in complaint_res.fetchall()]
