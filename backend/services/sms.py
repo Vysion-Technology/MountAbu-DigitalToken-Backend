@@ -99,9 +99,24 @@ class SMSService(BaseService):
                 }
             ]
         }
-        return await self._send_flow_sms(payload, f"Weekly Alert for {name} - pending: {pending}, objected: {objected}, over15days: {over15days}")
+    async def send_schedule_cancellation_sms(
+        self, mobile: str, vehicle_number: str, schedule_date: str, reason: str
+    ) -> bool:
+        """
+        Send schedule cancellation notification to citizen when an authority declares a blackout.
+        Logs mock SMS notification until official template ID is configured.
+        """
+        log_msg = (
+            f"Dear Citizen, your vehicle scheduling for vehicle {vehicle_number} on {schedule_date} "
+            f"has been cancelled due to a declared holiday/blackout ({reason}). "
+            f"Please login to the portal to re-schedule your vehicle transit."
+        )
+        logger.info(f"[MOCK SMS - SCHEDULE CANCELLED] Mobile: {mobile} | {log_msg}")
+        print(f"\n[MOCK SMS - SCHEDULE CANCELLED] To: {mobile}\n{log_msg}\n")
+        return True
 
     def _format_mobile(self, mobile: str) -> str:
+
         if not mobile.startswith("91") and len(mobile) == 10:
             return f"91{mobile}"
         return mobile

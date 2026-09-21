@@ -1,7 +1,11 @@
+from datetime import datetime
+import logging
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, delete
+from sqlalchemy import select, update, delete, and_, cast, Date
 from sqlalchemy.orm import joinedload, selectinload
 from typing import List, Optional, Type, TypeVar
+
+logger = logging.getLogger(__name__)
 
 from backend.database import Base
 from backend.dbmodels.master import (
@@ -342,6 +346,74 @@ class MasterDataDAO:
         return await self._delete(session, VehicleType, vehicle_type_id)
 
     # Schedule Blackout Operations
+    async def _cancel_schedules_for_blackout(
+        self, session: AsyncSession, blackout: ScheduleBlackout
+    ) -> int:
+        """Auto-cancel active vehicle schedules affected by a blackout and dispatch mock cancellation SMS to citizens."""
+        from backend.dbmodels.application import VehicleSchedule
+        from backend.meta import VehicleScheduleStatus
+        from backend.services.sms import sms_service
+
+        target_date = (
+            blackout.blackout_date.date()
+            if hasattr(blackout.blackout_date, "date")
+            else blackout.blackout_date
+        )
+
+        stmt = (
+            select(VehicleSchedule)
+            .where(
+                and_(
+                    cast(VehicleSchedule.schedule_date, Date) == target_date,
+                    VehicleSchedule.status == VehicleScheduleStatus.SCHEDULED,
+                )
+            )
+            .options(
+                joinedload(VehicleSchedule.user),
+                joinedload(VehicleSchedule.application),
+            )
+        )
+        if not blackout.is_full_day and blackout.slot_id is not None:
+            stmt = stmt.where(VehicleSchedule.slot_id == blackout.slot_id)
+
+        res = await session.execute(stmt)
+        affected_schedules = res.scalars().all()
+
+        cancelled_count = 0
+        now = datetime.now()
+        for sched in affected_schedules:
+            sched.status = VehicleScheduleStatus.CANCELLED
+            sched.cancelled_at = now
+            cancelled_count += 1
+
+            # Dispatch notification / mock SMS to citizen
+            citizen_mobile = None
+            if sched.user and hasattr(sched.user, "mobile") and sched.user.mobile:
+                citizen_mobile = sched.user.mobile
+            elif sched.application and hasattr(sched.application, "mobile") and sched.application.mobile:
+                citizen_mobile = sched.application.mobile
+
+            if citizen_mobile:
+                try:
+                    await sms_service.send_schedule_cancellation_sms(
+                        mobile=citizen_mobile,
+                        vehicle_number=sched.vehicle_number,
+                        schedule_date=str(target_date),
+                        reason=blackout.reason,
+                    )
+                except Exception as ex:
+                    logger.error(
+                        f"Failed to send cancellation SMS for schedule {sched.id}: {ex}"
+                    )
+
+        if cancelled_count > 0:
+            await session.commit()
+            logger.info(
+                f"Auto-cancelled {cancelled_count} vehicle schedule(s) for blackout on {target_date} ({blackout.reason})"
+            )
+
+        return cancelled_count
+
     async def create_blackout(
         self,
         session: AsyncSession,
@@ -354,6 +426,10 @@ class MasterDataDAO:
         db_obj = ScheduleBlackout(**data)
         session.add(db_obj)
         await session.commit()
+
+        if db_obj.is_active:
+            await self._cancel_schedules_for_blackout(session, db_obj)
+
         return await self.get_blackout(session, db_obj.id, active_only=False)
 
     async def get_blackout(
@@ -401,10 +477,14 @@ class MasterDataDAO:
         row = result.fetchone()
         if not row:
             return None
-        return await self.get_blackout(session, row[0], active_only=False)
+        updated_blackout = await self.get_blackout(session, row[0], active_only=False)
+        if updated_blackout and updated_blackout.is_active:
+            await self._cancel_schedules_for_blackout(session, updated_blackout)
+        return updated_blackout
 
     async def delete_blackout(self, session: AsyncSession, blackout_id: int) -> bool:
         return await self._delete(session, ScheduleBlackout, blackout_id)
+
 
 
 

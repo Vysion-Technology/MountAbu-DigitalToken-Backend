@@ -235,4 +235,49 @@ class TestVehicleScheduling:
         assert res.id == 10
         assert mock_session.execute.call_count == 2
 
+    async def test_blackout_auto_cancels_existing_schedules(self):
+        """Ensure creating a blackout auto-cancels existing SCHEDULED bookings on that date."""
+        from backend.dao.master import MasterDataDAO
+        from backend.dbmodels.master import ScheduleBlackout
+        from backend.schemas.request.master import ScheduleBlackoutCreate
+
+        master_dao = MasterDataDAO()
+        mock_session = AsyncMock()
+
+        target_date = date.today() + timedelta(days=3)
+
+        mock_schedule = MagicMock(spec=VehicleSchedule)
+        mock_schedule.id = 55
+        mock_schedule.vehicle_number = "RJ 27 GA 9999"
+        mock_schedule.schedule_date = datetime.combine(target_date, datetime.min.time())
+        mock_schedule.status = VehicleScheduleStatus.SCHEDULED
+        mock_schedule.user = MagicMock()
+        mock_schedule.user.mobile = "9876543210"
+
+        res_sched = MagicMock()
+        res_sched.scalars.return_value.all.return_value = [mock_schedule]
+        mock_session.execute.return_value = res_sched
+
+        blackout_obj = ScheduleBlackout(
+            id=1,
+            blackout_date=datetime.combine(target_date, datetime.min.time()),
+            reason="Emergency Maintenance",
+            is_full_day=True,
+            slot_id=None,
+            is_active=True,
+        )
+
+        with patch("backend.services.sms.sms_service.send_schedule_cancellation_sms", new_callable=AsyncMock) as mock_sms:
+            cancelled_count = await master_dao._cancel_schedules_for_blackout(mock_session, blackout_obj)
+            assert cancelled_count == 1
+            assert mock_schedule.status == VehicleScheduleStatus.CANCELLED
+            assert mock_schedule.cancelled_at is not None
+            mock_sms.assert_awaited_once_with(
+                mobile="9876543210",
+                vehicle_number="RJ 27 GA 9999",
+                schedule_date=str(target_date),
+                reason="Emergency Maintenance",
+            )
+
+
 
