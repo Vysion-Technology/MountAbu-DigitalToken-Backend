@@ -166,12 +166,7 @@ class UserService:
         tokens_count = phase_res.scalar() or 0
 
         # Check vehicle schedules
-        sched_stmt = (
-            select(func.count(VehicleSchedule.id))
-            .join(ApprovedApplicationPhase, VehicleSchedule.token_id == ApprovedApplicationPhase.id)
-            .join(Application, ApprovedApplicationPhase.application_id == Application.id)
-            .where(Application.user_id == user.id)
-        )
+        sched_stmt = select(func.count(VehicleSchedule.id)).where(VehicleSchedule.user_id == user.id)
         sched_res = await session.execute(sched_stmt)
         schedules_count = sched_res.scalar() or 0
 
@@ -219,6 +214,11 @@ class UserService:
 
         user_id = user.id
 
+        # 0. Delete vehicle schedules
+        await session.execute(
+            delete(VehicleSchedule).where(VehicleSchedule.user_id == user_id)
+        )
+
         # 1. Fetch user application ids
         app_stmt = select(Application.id).where(Application.user_id == user_id)
         app_res = await session.execute(app_stmt)
@@ -237,7 +237,7 @@ class UserService:
 
             if phase_ids:
                 await session.execute(
-                    delete(VehicleSchedule).where(VehicleSchedule.token_id.in_(phase_ids))
+                    delete(VehicleSchedule).where(VehicleSchedule.application_id.in_(app_ids))
                 )
 
             if entry_ids:
