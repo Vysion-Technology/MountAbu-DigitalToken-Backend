@@ -76,6 +76,9 @@ class TestCompletePhaseRollover(unittest.IsolatedAsyncioTestCase):
                 else:
                     res.scalars = MagicMock(return_value=MagicMock(all=MagicMock(return_value=[next_mat])))
                 return res
+            elif "applications.num_stages" in sql_str or "applications" in sql_str and "num_stages" in sql_str:
+                res.scalar = MagicMock(return_value=2)
+                return res
             elif "application_phases" in sql_str:
                 if params.get("phase_1") == 1:
                     res.scalar_one_or_none = MagicMock(return_value=phase_rec)

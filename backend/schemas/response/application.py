@@ -359,6 +359,7 @@ class TokenDetailResponse(BaseModel):
     property_address: str
     property_usage: PropertyUsageType
     application_type: ApplicationType
+    total_phases: int = 1
 
     # Authority & system info
     authority: TokenAuthorityInfo

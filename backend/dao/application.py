@@ -2393,63 +2393,78 @@ class ApplicationDAO(BaseDAO):
         cur_pm_res = await self.session.execute(cur_pm_stmt)
         cur_phase_materials = cur_pm_res.scalars().all()
 
-        # 3. Check next phase allocated materials
-        next_pm_stmt = select(ApplicationPhaseMaterial).where(
-            ApplicationPhaseMaterial.application_id == application_id,
-            ApplicationPhaseMaterial.phase == phase_num + 1,
-        )
-        next_pm_res = await self.session.execute(next_pm_stmt)
-        next_pm_rows = next_pm_res.scalars().all()
-        next_pm_map = {
-            (pm.material_id, pm.custom_name): pm
-            for pm in next_pm_rows
-        }
+        # Check if this is the final phase
+        app_stmt = select(Application.num_stages).where(Application.id == application_id)
+        app_res = await self.session.execute(app_stmt)
+        total_phases = app_res.scalar() or 1
+        is_final_phase = phase_num >= total_phases
 
         rolled_over_items = []
-        for pm in cur_phase_materials:
-            consumed = brought_map.get((pm.material_id, pm.custom_name), 0)
-            remaining = max(0, pm.quantity - int(consumed))
+        if not is_final_phase:
+            # 3. Check next phase allocated materials
+            next_pm_stmt = select(ApplicationPhaseMaterial).where(
+                ApplicationPhaseMaterial.application_id == application_id,
+                ApplicationPhaseMaterial.phase == phase_num + 1,
+            )
+            next_pm_res = await self.session.execute(next_pm_stmt)
+            next_pm_rows = next_pm_res.scalars().all()
+            next_pm_map = {
+                (pm.material_id, pm.custom_name): pm
+                for pm in next_pm_rows
+            }
 
-            if remaining > 0:
-                key = (pm.material_id, pm.custom_name)
-                if key in next_pm_map:
-                    next_pm_map[key].quantity += remaining
-                else:
-                    new_pm = ApplicationPhaseMaterial(
-                        application_id=application_id,
-                        phase=phase_num + 1,
-                        material_id=pm.material_id,
-                        custom_name=pm.custom_name,
-                        custom_unit=pm.custom_unit,
-                        quantity=remaining,
-                    )
-                    self.session.add(new_pm)
-                    next_pm_map[key] = new_pm
+            for pm in cur_phase_materials:
+                consumed = brought_map.get((pm.material_id, pm.custom_name), 0)
+                remaining = max(0, pm.quantity - int(consumed))
 
-                label = pm.custom_name or f"Material #{pm.material_id}"
-                unit = pm.custom_unit or "units"
-                rolled_over_items.append(f"{remaining} {unit} of {label}")
-                # Adjust current phase allocation to consumed quantity so total application materials remain preserved
+                if remaining > 0:
+                    key = (pm.material_id, pm.custom_name)
+                    if key in next_pm_map:
+                        next_pm_map[key].quantity += remaining
+                    else:
+                        new_pm = ApplicationPhaseMaterial(
+                            application_id=application_id,
+                            phase=phase_num + 1,
+                            material_id=pm.material_id,
+                            custom_name=pm.custom_name,
+                            custom_unit=pm.custom_unit,
+                            quantity=remaining,
+                        )
+                        self.session.add(new_pm)
+                        next_pm_map[key] = new_pm
+
+                    label = pm.custom_name or f"Material #{pm.material_id}"
+                    unit = pm.custom_unit or "units"
+                    rolled_over_items.append(f"{remaining} {unit} of {label}")
+                    # Adjust current phase allocation to consumed quantity
+                    pm.quantity = int(consumed)
+        else:
+            # Final phase: cap allocation to consumed quantity so excess quota is closed
+            for pm in cur_phase_materials:
+                consumed = brought_map.get((pm.material_id, pm.custom_name), 0)
                 pm.quantity = int(consumed)
 
         phase_record.status = ApplicationPhaseStatus.COMPLETED
         phase_record.completed_at = datetime.now()
 
         # Activate next phase if exists in PENDING status
-        next_stmt = select(ApprovedApplicationPhase).where(
-            ApprovedApplicationPhase.application_id == application_id,
-            ApprovedApplicationPhase.phase == phase_num + 1,
-        )
-        next_result = await self.session.execute(next_stmt)
-        next_phase = next_result.scalar_one_or_none()
-        if next_phase and next_phase.status == ApplicationPhaseStatus.PENDING:
-            next_phase.status = ApplicationPhaseStatus.ACTIVE
-            next_phase.activated_at = datetime.now()
+        if not is_final_phase:
+            next_stmt = select(ApprovedApplicationPhase).where(
+                ApprovedApplicationPhase.application_id == application_id,
+                ApprovedApplicationPhase.phase == phase_num + 1,
+            )
+            next_result = await self.session.execute(next_stmt)
+            next_phase = next_result.scalar_one_or_none()
+            if next_phase and next_phase.status == ApplicationPhaseStatus.PENDING:
+                next_phase.status = ApplicationPhaseStatus.ACTIVE
+                next_phase.activated_at = datetime.now()
 
         # Audit log
         log_remarks = remarks
         if not log_remarks:
-            if rolled_over_items:
+            if is_final_phase:
+                log_remarks = f"Final Phase {phase_num} token completed. Project material transit finalized."
+            elif rolled_over_items:
                 log_remarks = f"Phase {phase_num} token completed. Rolled over to Phase {phase_num + 1}: {', '.join(rolled_over_items)}."
             else:
                 log_remarks = f"Phase {phase_num} token completed."
@@ -2867,6 +2882,7 @@ class ApplicationDAO(BaseDAO):
             "property_address": application.property_address,
             "property_usage": application.property_usage,
             "application_type": application.type,
+            "total_phases": application.num_stages or 1,
             "authority": {
                 "issued_by": issued_by,
                 "issued_on": issued_on,
