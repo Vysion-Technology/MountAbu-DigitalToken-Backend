@@ -45,14 +45,17 @@ async def lifespan(app: FastAPI):
 
     # Start background daily token expiry cron task
     from backend.tasks.token_expiry import schedule_daily_token_expiry
+    from backend.tasks.weekly_alerts import schedule_weekly_authority_alerts
     expiry_task = asyncio.create_task(schedule_daily_token_expiry())
+    alerts_task = asyncio.create_task(schedule_weekly_authority_alerts())
 
     yield
 
-    # Clean up background task on shutdown
+    # Clean up background tasks on shutdown
     expiry_task.cancel()
+    alerts_task.cancel()
     try:
-        await expiry_task
+        await asyncio.gather(expiry_task, alerts_task, return_exceptions=True)
     except asyncio.CancelledError:
         pass
 
