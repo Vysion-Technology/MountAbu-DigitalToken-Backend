@@ -76,33 +76,35 @@ class TestExtendTokenValidity(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ctx.exception.status_code, 400)
         self.assertIn("within the next 15 days", ctx.exception.detail)
 
-    async def test_extend_validity_already_expired(self):
-        """Token expired 2 days ago cannot be extended."""
+    async def test_extend_validity_expired_token(self):
+        """Expired token should be successfully revived and extended by 30 days from now to ACTIVE status."""
         app_id = 1
         phase_num = 1
         user_id = 10
 
-        # Activated 62 days ago
+        # Activated 62 days ago, status EXPIRED
         activated_at = datetime.now() - timedelta(days=62)
         phase_rec = MagicMock(spec=ApprovedApplicationPhase)
         phase_rec.id = 101
         phase_rec.application_id = app_id
         phase_rec.phase = phase_num
-        phase_rec.status = ApplicationPhaseStatus.ACTIVE
+        phase_rec.status = ApplicationPhaseStatus.EXPIRED
         phase_rec.activated_at = activated_at
-        phase_rec.valid_till = None
+        phase_rec.valid_till = activated_at + timedelta(days=60)
 
         mock_res = MagicMock()
         mock_res.scalar_one_or_none = MagicMock(return_value=phase_rec)
         self.mock_session.execute = AsyncMock(return_value=mock_res)
 
-        with self.assertRaises(HTTPException) as ctx:
-            await self.dao.extend_token_validity(app_id, phase_num, user_id)
+        response = await self.dao.extend_token_validity(app_id, phase_num, user_id)
 
-        self.assertEqual(ctx.exception.status_code, 400)
-        self.assertIn("already expired", ctx.exception.detail)
+        self.assertIn("successfully extended", response.message)
+        self.assertEqual(phase_rec.status, ApplicationPhaseStatus.ACTIVE)
+        self.assertIsNotNone(phase_rec.valid_till)
+        # Expected new valid_till is ~ now + 30 days
+        self.assertGreater(phase_rec.valid_till, datetime.now())
 
-    async def test_extend_validity_not_active(self):
+    async def test_extend_validity_not_active_or_expired(self):
         """Token with WITHHELD status cannot be extended."""
         app_id = 1
         phase_num = 1
@@ -124,4 +126,4 @@ class TestExtendTokenValidity(unittest.IsolatedAsyncioTestCase):
             await self.dao.extend_token_validity(app_id, phase_num, user_id)
 
         self.assertEqual(ctx.exception.status_code, 400)
-        self.assertIn("Only ACTIVE tokens can be extended", ctx.exception.detail)
+        self.assertIn("Only ACTIVE or EXPIRED tokens can be extended", ctx.exception.detail)

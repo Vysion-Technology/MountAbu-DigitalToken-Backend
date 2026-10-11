@@ -1497,6 +1497,21 @@ class ApplicationDAO(BaseDAO):
                 detail=f"Phase {phase} is '{phase_record.status.value}', must be ACTIVE for naka entry",
             )
 
+        # Check token validity / expiry at time of Naka entry
+        from backend.schemas.response.application import TOKEN_VALIDITY_DAYS
+        current_valid_till = getattr(phase_record, "valid_till", None)
+        if not current_valid_till and getattr(phase_record, "activated_at", None):
+            if isinstance(phase_record.activated_at, datetime):
+                current_valid_till = phase_record.activated_at + timedelta(days=TOKEN_VALIDITY_DAYS)
+
+        if isinstance(current_valid_till, datetime) and datetime.now() > current_valid_till:
+            phase_record.status = ApplicationPhaseStatus.EXPIRED
+            await self.session.commit()
+            raise HTTPException(
+                status_code=400,
+                detail=f"Token for Phase {phase} has expired on {current_valid_till.strftime('%d %b %Y, %I:%M %p')}. Vehicle entry cannot be logged. Please contact Nodal Officer.",
+            )
+
         # Validate each material against phase allocation and quantity limits
         for mat in materials:
             mid = mat.get("material_id")
@@ -2230,6 +2245,21 @@ class ApplicationDAO(BaseDAO):
         if not phase_record:
             raise HTTPException(status_code=404, detail="Phase not found")
 
+        # Check if active token has expired and update status
+        from backend.schemas.response.application import TOKEN_VALIDITY_DAYS
+        current_valid_till = phase_record.valid_till or (
+            phase_record.activated_at + timedelta(days=TOKEN_VALIDITY_DAYS)
+            if phase_record.activated_at
+            else None
+        )
+        if (
+            phase_record.status == ApplicationPhaseStatus.ACTIVE
+            and current_valid_till
+            and datetime.now() > current_valid_till
+        ):
+            phase_record.status = ApplicationPhaseStatus.EXPIRED
+            await self.session.commit()
+
         # Get phase materials with material details (outer join for custom)
         pm_stmt = (
             select(ApplicationPhaseMaterial, Material)
@@ -2575,45 +2605,50 @@ class ApplicationDAO(BaseDAO):
         if not phase_record:
             raise HTTPException(status_code=404, detail=f"Phase {phase_num} not found")
 
-        if phase_record.status != ApplicationPhaseStatus.ACTIVE:
+        if phase_record.status not in (ApplicationPhaseStatus.ACTIVE, ApplicationPhaseStatus.EXPIRED):
             raise HTTPException(
                 status_code=400,
-                detail=f"Only ACTIVE tokens can be extended. Current status is {phase_record.status.value}",
+                detail=f"Only ACTIVE or EXPIRED tokens can be extended. Current status is {phase_record.status.value}",
             )
 
+        now = datetime.now()
         current_valid_till = phase_record.valid_till or (
             phase_record.activated_at + timedelta(days=TOKEN_VALIDITY_DAYS)
             if phase_record.activated_at
             else None
         )
 
-        if not current_valid_till:
-            raise HTTPException(
-                status_code=400,
-                detail="Token has not been activated yet or has no valid expiry date",
-            )
+        is_already_expired = (
+            phase_record.status == ApplicationPhaseStatus.EXPIRED
+            or (current_valid_till is not None and current_valid_till < now)
+        )
 
-        now = datetime.now()
-        # Check if the token is already expired or expires beyond 15 days
-        time_to_expiry = current_valid_till - now
-        if time_to_expiry.total_seconds() < 0:
-            raise HTTPException(
-                status_code=400,
-                detail="Token has already expired and cannot be extended",
-            )
+        if not is_already_expired:
+            if not current_valid_till:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Token has not been activated yet or has no valid expiry date",
+                )
 
-        if time_to_expiry > timedelta(days=15):
-            raise HTTPException(
-                status_code=400,
-                detail="Token validity can only be extended when expiring within the next 15 days",
-            )
+            time_to_expiry = current_valid_till - now
+            if time_to_expiry > timedelta(days=15):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Token validity can only be extended when expiring within the next 15 days",
+                )
 
-        # Extend by 30 days
-        new_valid_till = current_valid_till + timedelta(days=30)
+            # Extend by 30 days from current expiry date
+            new_valid_till = current_valid_till + timedelta(days=30)
+        else:
+            # Token is expired: Revive validity by +30 days from now (T+30) and reactivate status
+            new_valid_till = now + timedelta(days=30)
+            phase_record.status = ApplicationPhaseStatus.ACTIVE
+
         phase_record.valid_till = new_valid_till
 
         # Audit log
-        log_remarks = remarks or f"Phase {phase_num} token validity extended by 30 days until {new_valid_till.strftime('%d %b %Y, %I:%M %p')}"
+        action_desc = "revived and extended by 30 days" if is_already_expired else "validity extended by 30 days"
+        log_remarks = remarks or f"Phase {phase_num} token {action_desc} until {new_valid_till.strftime('%d %b %Y, %I:%M %p')}"
         self.session.add(
             ApplicationActionLog(
                 application_id=application_id,
@@ -2737,6 +2772,14 @@ class ApplicationDAO(BaseDAO):
                     ((total_approved - total_brought) / total_approved) * 100, 1
                 )
 
+            token_status = phase_rec.status
+            if (
+                phase_rec.status == ApplicationPhaseStatus.ACTIVE
+                and valid_till
+                and datetime.now() > valid_till
+            ):
+                token_status = ApplicationPhaseStatus.EXPIRED
+
             transport_code = encode_transport_code(
                 phase_rec.application_id, phase_rec.phase
             )
@@ -2749,7 +2792,7 @@ class ApplicationDAO(BaseDAO):
                     "phase": phase_rec.phase,
                     "remaining_quantity_pct": remaining_pct,
                     "valid_till": valid_till,
-                    "status": phase_rec.status,
+                    "status": token_status,
                     "applicant_name": phase_rec.application.applicant_name,
                     "mobile": phase_rec.application.mobile,
                 }
@@ -2778,6 +2821,20 @@ class ApplicationDAO(BaseDAO):
         phase_rec = phase_result.scalar_one_or_none()
         if not phase_rec:
             raise HTTPException(status_code=404, detail="Token not found")
+
+        # Auto-update status to EXPIRED if past validity
+        current_valid_till = phase_rec.valid_till or (
+            phase_rec.activated_at + timedelta(days=TOKEN_VALIDITY_DAYS)
+            if phase_rec.activated_at
+            else None
+        )
+        if (
+            phase_rec.status == ApplicationPhaseStatus.ACTIVE
+            and current_valid_till
+            and datetime.now() > current_valid_till
+        ):
+            phase_rec.status = ApplicationPhaseStatus.EXPIRED
+            await self.session.commit()
 
         # ── Application record ────────────────────────────────────────
         app_stmt = (
