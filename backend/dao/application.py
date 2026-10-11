@@ -222,12 +222,18 @@ class ApplicationDAO(BaseDAO):
             else:
                 if user_role == UserRole.NODAL_OFFICER:
                     # 1. NEW in SUBMITTED (needing approval)
-                    # 2. NEW in APPROVED (has inspection + phase materials, needs token generation)
-                    # 3. RENOVATION in APPROVED (has inspection + phase materials, needs token generation)
+                    # 2. NEW/RENOVATION in APPROVED (has inspection + phase materials, needs token generation)
+                    # 3. Next phase token generation (previous phase COMPLETED/TERMINATED, next phase not generated)
                     if tp == ApplicationType.NEW and st == ApplicationStatus.SUBMITTED:
                         is_pending_with_me = True
-                    elif st == ApplicationStatus.APPROVED and len(application.inspections) > 0 and application.phase_materials:
-                        is_pending_with_me = True
+                    elif st in (ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED) and len(application.inspections) > 0 and application.phase_materials:
+                        phases = sorted(application.phases, key=lambda p: p.phase) if application.phases else []
+                        if not phases:
+                            is_pending_with_me = True
+                        else:
+                            last_phase = phases[-1]
+                            if last_phase.status in (ApplicationPhaseStatus.COMPLETED, ApplicationPhaseStatus.TERMINATED):
+                                is_pending_with_me = True
                 
                 elif user_role == UserRole.COMMISSIONER:
                     # 1. RENOVATION in SUBMITTED (needing forwarding)
@@ -491,18 +497,54 @@ class ApplicationDAO(BaseDAO):
                 pending_start_ts: Optional[datetime] = None
 
                 # Rule 6.2/Workflow check for role
-                if authority_role == UserRole.NODAL_OFFICER:
-                    if app.type == ApplicationType.NEW and app.status == ApplicationStatus.SUBMITTED:
-                        is_pending_for_role = True
-                        pending_start_ts = app.created_at
-                    elif app.status in (ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED) and app.phase_materials and len(app.phase_materials) > 0:
-                        # Pending token generation (only when phase materials have been submitted by JEN)
-                        is_pending_for_role = True
-                        insp_ts = [i.inspected_at for i in app.inspections if i.inspected_at]
-                        pending_start_ts = max(insp_ts) if insp_ts else _get_app_last_updated_at(app)
-                    elif app.status == ApplicationStatus.OBJECTED:
+                if authority_role in (UserRole.NODAL_OFFICER, UserRole.SUPERADMIN):
+                    is_pending_approval = (app.type == ApplicationType.NEW and app.status == ApplicationStatus.SUBMITTED)
+                    
+                    # Token generation is needed if:
+                    # 1) Approved, JEN has entered inspection + phase materials, and phase 1 not generated yet
+                    # 2) Token generated, previous phase is COMPLETED or TERMINATED, and next phase not yet generated
+                    is_pending_token_gen = False
+                    if app.status in (ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED) and app.phase_materials and len(app.phase_materials) > 0:
+                        phases = sorted(app.phases, key=lambda p: p.phase) if app.phases else []
+                        if not phases:
+                            is_pending_token_gen = True
+                        else:
+                            last_phase = phases[-1]
+                            if last_phase.status in (ApplicationPhaseStatus.COMPLETED, ApplicationPhaseStatus.TERMINATED):
+                                is_pending_token_gen = True
+
+                    is_pending_objection = False
+                    if app.status == ApplicationStatus.OBJECTED:
                         pending_objs = [o for o in app.objections if o.status == ObjectionStatus.PENDING and o.objected_to_role in (UserRole.CITIZEN, UserRole.JEN)]
                         if pending_objs:
+                            is_pending_objection = True
+
+                    if action_name == "PENDING_APPROVAL":
+                        if is_pending_approval:
+                            is_pending_for_role = True
+                            pending_start_ts = app.created_at
+                    elif action_name == "PENDING_TOKEN_GENERATION":
+                        if is_pending_token_gen:
+                            is_pending_for_role = True
+                            phases = sorted(app.phases, key=lambda p: p.phase) if app.phases else []
+                            if phases and phases[-1].completed_at:
+                                pending_start_ts = phases[-1].completed_at
+                            else:
+                                insp_ts = [i.inspected_at for i in app.inspections if i.inspected_at]
+                                pending_start_ts = max(insp_ts) if insp_ts else _get_app_last_updated_at(app)
+                    else:
+                        if is_pending_approval:
+                            is_pending_for_role = True
+                            pending_start_ts = app.created_at
+                        elif is_pending_token_gen:
+                            is_pending_for_role = True
+                            phases = sorted(app.phases, key=lambda p: p.phase) if app.phases else []
+                            if phases and phases[-1].completed_at:
+                                pending_start_ts = phases[-1].completed_at
+                            else:
+                                insp_ts = [i.inspected_at for i in app.inspections if i.inspected_at]
+                                pending_start_ts = max(insp_ts) if insp_ts else _get_app_last_updated_at(app)
+                        elif is_pending_objection:
                             is_pending_for_role = True
                             pending_start_ts = min([o.created_at for o in pending_objs if o.created_at])
 
@@ -631,14 +673,30 @@ class ApplicationDAO(BaseDAO):
             pending_start_ts: Optional[datetime] = None
             is_obj = (app.status == ApplicationStatus.OBJECTED)
             
-            if authority_role == UserRole.NODAL_OFFICER:
-                if app.type == ApplicationType.NEW and app.status == ApplicationStatus.SUBMITTED:
+            if authority_role in (UserRole.NODAL_OFFICER, UserRole.SUPERADMIN):
+                is_pending_approval = (app.type == ApplicationType.NEW and app.status == ApplicationStatus.SUBMITTED)
+                
+                is_pending_token_gen = False
+                if app.status in (ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED) and app.phase_materials and len(app.phase_materials) > 0:
+                    phases = sorted(app.phases, key=lambda p: p.phase) if app.phases else []
+                    if not phases:
+                        is_pending_token_gen = True
+                    else:
+                        last_phase = phases[-1]
+                        if last_phase.status in (ApplicationPhaseStatus.COMPLETED, ApplicationPhaseStatus.TERMINATED):
+                            is_pending_token_gen = True
+
+                if is_pending_approval:
                     is_pending_for_role = True
                     pending_start_ts = app.created_at
-                elif app.status in (ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED) and app.phase_materials and len(app.phase_materials) > 0:
+                elif is_pending_token_gen:
                     is_pending_for_role = True
-                    insp_ts = [i.inspected_at for i in app.inspections if i.inspected_at]
-                    pending_start_ts = max(insp_ts) if insp_ts else _get_app_last_updated_at(app)
+                    phases = sorted(app.phases, key=lambda p: p.phase) if app.phases else []
+                    if phases and phases[-1].completed_at:
+                        pending_start_ts = phases[-1].completed_at
+                    else:
+                        insp_ts = [i.inspected_at for i in app.inspections if i.inspected_at]
+                        pending_start_ts = max(insp_ts) if insp_ts else _get_app_last_updated_at(app)
                 elif app.status == ApplicationStatus.OBJECTED:
                     pending_objs = [o for o in app.objections if o.status == ObjectionStatus.PENDING and o.objected_to_role in (UserRole.CITIZEN, UserRole.JEN)]
                     if pending_objs:
