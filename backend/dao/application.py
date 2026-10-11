@@ -1808,8 +1808,11 @@ class ApplicationDAO(BaseDAO):
         )
         app_number = f"APP-{year}-{app.id:05d}"
         valid_till = None
-        if phase_rec and phase_rec.activated_at:
-            valid_till = phase_rec.activated_at + timedelta(days=TOKEN_VALIDITY_DAYS)
+        if phase_rec:
+            if phase_rec.valid_till:
+                valid_till = phase_rec.valid_till
+            elif phase_rec.activated_at:
+                valid_till = phase_rec.activated_at + timedelta(days=TOKEN_VALIDITY_DAYS)
 
         # 4. Fetch phase material limits and total brought quantities for this phase
         phase_limits = {}
@@ -2553,6 +2556,82 @@ class ApplicationDAO(BaseDAO):
 
         return SuccessResponse(message=f"Phase {phase_num} status updated to {status.value}")
 
+    async def extend_token_validity(
+        self,
+        application_id: int,
+        phase_num: int,
+        user_id: int,
+        remarks: Optional[str] = None,
+    ) -> SuccessResponse:
+        """Extend a token's validity by 30 days if it is active and expiring within the next 15 days."""
+        from backend.schemas.response.application import TOKEN_VALIDITY_DAYS
+
+        stmt = select(ApprovedApplicationPhase).where(
+            ApprovedApplicationPhase.application_id == application_id,
+            ApprovedApplicationPhase.phase == phase_num,
+        )
+        result = await self.session.execute(stmt)
+        phase_record = result.scalar_one_or_none()
+        if not phase_record:
+            raise HTTPException(status_code=404, detail=f"Phase {phase_num} not found")
+
+        if phase_record.status != ApplicationPhaseStatus.ACTIVE:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Only ACTIVE tokens can be extended. Current status is {phase_record.status.value}",
+            )
+
+        current_valid_till = phase_record.valid_till or (
+            phase_record.activated_at + timedelta(days=TOKEN_VALIDITY_DAYS)
+            if phase_record.activated_at
+            else None
+        )
+
+        if not current_valid_till:
+            raise HTTPException(
+                status_code=400,
+                detail="Token has not been activated yet or has no valid expiry date",
+            )
+
+        now = datetime.now()
+        # Check if the token is already expired or expires beyond 15 days
+        time_to_expiry = current_valid_till - now
+        if time_to_expiry.total_seconds() < 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Token has already expired and cannot be extended",
+            )
+
+        if time_to_expiry > timedelta(days=15):
+            raise HTTPException(
+                status_code=400,
+                detail="Token validity can only be extended when expiring within the next 15 days",
+            )
+
+        # Extend by 30 days
+        new_valid_till = current_valid_till + timedelta(days=30)
+        phase_record.valid_till = new_valid_till
+
+        # Audit log
+        log_remarks = remarks or f"Phase {phase_num} token validity extended by 30 days until {new_valid_till.strftime('%d %b %Y, %I:%M %p')}"
+        self.session.add(
+            ApplicationActionLog(
+                application_id=application_id,
+                action=WorkflowAction.APPROVE,
+                from_status=ApplicationStatus.TOKEN_GENERATED,
+                to_status=ApplicationStatus.TOKEN_GENERATED,
+                performed_by=user_id,
+                performed_at=datetime.now(),
+                remarks=log_remarks,
+                phase=phase_num,
+            )
+        )
+
+        await self.session.commit()
+        return SuccessResponse(
+            message=f"Phase {phase_num} token validity successfully extended to {new_valid_till.strftime('%d %b %Y')}"
+        )
+
     # ── Comment (enhanced) ────────────────────────────────────────────────
     async def comment_on_application(
         self,
@@ -2643,7 +2722,9 @@ class ApplicationDAO(BaseDAO):
             application_number = f"APP-{year}-{phase_rec.application_id:05d}"
 
             valid_till = None
-            if phase_rec.activated_at:
+            if phase_rec.valid_till:
+                valid_till = phase_rec.valid_till
+            elif phase_rec.activated_at:
                 valid_till = phase_rec.activated_at + timedelta(
                     days=TOKEN_VALIDITY_DAYS
                 )
@@ -2723,7 +2804,9 @@ class ApplicationDAO(BaseDAO):
         application_number = f"APP-{year}-{application_id:05d}"
 
         valid_till = None
-        if phase_rec.activated_at:
+        if phase_rec.valid_till:
+            valid_till = phase_rec.valid_till
+        elif phase_rec.activated_at:
             valid_till = phase_rec.activated_at + timedelta(days=TOKEN_VALIDITY_DAYS)
 
         transport_code = encode_transport_code(application_id, phase)

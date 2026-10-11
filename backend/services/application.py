@@ -444,6 +444,18 @@ class ApplicationService(BaseService):
             application_id, phase, request.status, user_id
         )
 
+    async def extend_token_validity(
+        self,
+        application_id: int,
+        phase: int,
+        user_id: int,
+        remarks: Optional[str] = None,
+    ) -> SuccessResponse:
+        """Extend a token's validity by 30 days if expiring within 15 days."""
+        return await self.dao.extend_token_validity(
+            application_id, phase, user_id, remarks=remarks
+        )
+
     # ── Token queries ─────────────────────────────────────────────────────
     async def get_tokens(
         self,
