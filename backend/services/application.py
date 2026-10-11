@@ -421,10 +421,16 @@ class ApplicationService(BaseService):
         return [PhaseResponse.model_validate(p) for p in phases]
 
     async def complete_phase(
-        self, application_id: int, phase: int, user_id: int
+        self,
+        application_id: int,
+        phase: int,
+        user_id: int,
+        remarks: Optional[str] = None,
     ) -> SuccessResponse:
         """Mark a phase as completed."""
-        return await self.dao.complete_phase(application_id, phase, user_id)
+        return await self.dao.complete_phase(
+            application_id, phase, user_id, remarks=remarks
+        )
 
     async def update_phase_status(
         self,

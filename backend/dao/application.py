@@ -2338,9 +2338,13 @@ class ApplicationDAO(BaseDAO):
         return list(result.scalars().all())
 
     async def complete_phase(
-        self, application_id: int, phase_num: int, user_id: int
+        self,
+        application_id: int,
+        phase_num: int,
+        user_id: int,
+        remarks: Optional[str] = None,
     ) -> SuccessResponse:
-        """Mark a phase as COMPLETED and activate the next one."""
+        """Mark a phase as COMPLETED, roll over remaining materials to next phase, and unlock next phase."""
         stmt = select(ApprovedApplicationPhase).where(
             ApprovedApplicationPhase.application_id == application_id,
             ApprovedApplicationPhase.phase == phase_num,
@@ -2349,16 +2353,89 @@ class ApplicationDAO(BaseDAO):
         phase_record = result.scalar_one_or_none()
         if not phase_record:
             raise HTTPException(status_code=404, detail=f"Phase {phase_num} not found")
-        if phase_record.status != ApplicationPhaseStatus.ACTIVE:
+        if phase_record.status == ApplicationPhaseStatus.COMPLETED:
             raise HTTPException(
                 status_code=400,
-                detail=f"Phase {phase_num} must be ACTIVE to complete, current status: {phase_record.status.value}",
+                detail=f"Phase {phase_num} is already COMPLETED",
             )
+        if phase_record.status == ApplicationPhaseStatus.TERMINATED:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Phase {phase_num} is TERMINATED and cannot be completed",
+            )
+
+        # 1. Calculate consumed materials for this phase
+        brought_stmt = (
+            select(
+                VehicleMaterial.material_id,
+                VehicleMaterial.custom_name,
+                func.coalesce(func.sum(VehicleMaterial.quantity), 0).label("total_brought"),
+            )
+            .select_from(VehicleEntry)
+            .join(VehicleMaterial)
+            .where(
+                VehicleEntry.application_id == application_id,
+                VehicleEntry.phase == phase_num,
+            )
+            .group_by(VehicleMaterial.material_id, VehicleMaterial.custom_name)
+        )
+        brought_res = await self.session.execute(brought_stmt)
+        brought_map = {
+            (row.material_id, row.custom_name): row.total_brought
+            for row in brought_res
+        }
+
+        # 2. Fetch current phase allocated materials
+        cur_pm_stmt = select(ApplicationPhaseMaterial).where(
+            ApplicationPhaseMaterial.application_id == application_id,
+            ApplicationPhaseMaterial.phase == phase_num,
+        )
+        cur_pm_res = await self.session.execute(cur_pm_stmt)
+        cur_phase_materials = cur_pm_res.scalars().all()
+
+        # 3. Check next phase allocated materials
+        next_pm_stmt = select(ApplicationPhaseMaterial).where(
+            ApplicationPhaseMaterial.application_id == application_id,
+            ApplicationPhaseMaterial.phase == phase_num + 1,
+        )
+        next_pm_res = await self.session.execute(next_pm_stmt)
+        next_pm_rows = next_pm_res.scalars().all()
+        next_pm_map = {
+            (pm.material_id, pm.custom_name): pm
+            for pm in next_pm_rows
+        }
+
+        rolled_over_items = []
+        for pm in cur_phase_materials:
+            consumed = brought_map.get((pm.material_id, pm.custom_name), 0)
+            remaining = max(0, pm.quantity - int(consumed))
+
+            if remaining > 0:
+                key = (pm.material_id, pm.custom_name)
+                if key in next_pm_map:
+                    next_pm_map[key].quantity += remaining
+                else:
+                    new_pm = ApplicationPhaseMaterial(
+                        application_id=application_id,
+                        phase=phase_num + 1,
+                        material_id=pm.material_id,
+                        custom_name=pm.custom_name,
+                        custom_unit=pm.custom_unit,
+                        quantity=remaining,
+                    )
+                    self.session.add(new_pm)
+                    next_pm_map[key] = new_pm
+
+                label = pm.custom_name or f"Material #{pm.material_id}"
+                unit = pm.custom_unit or "units"
+                rolled_over_items.append(f"{remaining} {unit} of {label}")
+                # Adjust current phase allocation to consumed quantity so total application materials remain preserved
+                pm.quantity = int(consumed)
 
         phase_record.status = ApplicationPhaseStatus.COMPLETED
         phase_record.completed_at = datetime.now()
 
-        # Activate next phase if exists
+        # Activate next phase if exists in PENDING status
         next_stmt = select(ApprovedApplicationPhase).where(
             ApprovedApplicationPhase.application_id == application_id,
             ApprovedApplicationPhase.phase == phase_num + 1,
@@ -2370,15 +2447,22 @@ class ApplicationDAO(BaseDAO):
             next_phase.activated_at = datetime.now()
 
         # Audit log
+        log_remarks = remarks
+        if not log_remarks:
+            if rolled_over_items:
+                log_remarks = f"Phase {phase_num} token completed. Rolled over to Phase {phase_num + 1}: {', '.join(rolled_over_items)}."
+            else:
+                log_remarks = f"Phase {phase_num} token completed."
+
         self.session.add(
             ApplicationActionLog(
                 application_id=application_id,
-                action=WorkflowAction.APPROVE,  # reuse APPROVE for phase completion
+                action=WorkflowAction.APPROVE,
                 from_status=ApplicationStatus.TOKEN_GENERATED,
                 to_status=ApplicationStatus.TOKEN_GENERATED,
                 performed_by=user_id,
                 performed_at=datetime.now(),
-                remarks=f"Phase {phase_num} completed",
+                remarks=log_remarks,
                 phase=phase_num,
             )
         )

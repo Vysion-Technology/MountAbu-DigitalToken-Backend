@@ -20,6 +20,12 @@ class PhaseStatusUpdateRequest(BaseModel):
     status: ApplicationPhaseStatus = Field(..., description="Target status for the phase")
 
 
+class PhaseCompleteRequest(BaseModel):
+    """Request schema for manually completing a phase."""
+
+    remarks: Optional[str] = Field(None, description="Optional remarks for phase completion")
+
+
 class ApplicationMaterialCreate(BaseModel):
     name: str = Field(..., description="Material Name")
     unit: str = Field(..., description="Material Unit")
