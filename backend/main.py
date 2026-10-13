@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import asyncio
 import subprocess
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -18,12 +19,15 @@ from backend.controllers.tenders import router as tenders_router
 from backend.controllers.events import router as events_router
 from backend.controllers.leaders import router as leaders_router
 from backend.controllers.naka import router as naka_router
+from backend.controllers.toll_plaza import router as toll_plaza_router
 
 from backend.controllers.dashboard import router as dashboard_router
 from backend.controllers.user_management import router as user_management_router
 from backend.controllers.audit import router as audit_router
 from backend.controllers.contact_diary import router as contact_diary_router
+from backend.controllers.schedule import router as schedule_router
 from backend.middlewares.security import XSSMiddleware
+
 
 
 @asynccontextmanager
@@ -38,7 +42,22 @@ async def lifespan(app: FastAPI):
         print("Migrations completed successfully.")
     except Exception as e:
         print(f"Migration failed: {e}")
+
+    # Start background daily token expiry cron task
+    from backend.tasks.token_expiry import schedule_daily_token_expiry
+    from backend.tasks.weekly_alerts import schedule_weekly_authority_alerts
+    expiry_task = asyncio.create_task(schedule_daily_token_expiry())
+    alerts_task = asyncio.create_task(schedule_weekly_authority_alerts())
+
     yield
+
+    # Clean up background tasks on shutdown
+    expiry_task.cancel()
+    alerts_task.cancel()
+    try:
+        await asyncio.gather(expiry_task, alerts_task, return_exceptions=True)
+    except asyncio.CancelledError:
+        pass
 
 
 app = FastAPI(
@@ -86,6 +105,7 @@ app.include_router(events_router, prefix="/api", tags=["Events"])
 app.include_router(leaders_router, prefix="/api", tags=["Leaders"])
 app.include_router(complaint_router, prefix="/api", tags=["Complaints"])
 app.include_router(naka_router, prefix="/api", tags=["Naka"])
+app.include_router(toll_plaza_router, prefix="/api", tags=["Toll Plaza"])
 app.include_router(dashboard_router, prefix="/api", tags=["Dashboard"])
 app.include_router(city_profile_router, prefix="/api", tags=["City Profile"])
 app.include_router(user_management_router, prefix="/api", tags=["User Management"])
@@ -93,6 +113,8 @@ app.include_router(audit_router, prefix="/api", tags=["Audit Log"])
 app.include_router(
     contact_diary_router, prefix="/api/contact-diary", tags=["Contact Diary"]
 )
+app.include_router(schedule_router, prefix="/api", tags=["Vehicle Scheduling"])
+
 
 
 @app.get("/health")

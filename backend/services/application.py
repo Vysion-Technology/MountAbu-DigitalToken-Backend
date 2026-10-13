@@ -319,7 +319,10 @@ class ApplicationService(BaseService):
             longitude=entry.longitude,
             remarks=entry.remarks,
             media=media,
+            schedule_id=entry.schedule_id,
+            schedule_compliance_status=entry.schedule_compliance_status,
         )
+
 
     async def upload_dumping_photo(
         self, application_id: int, entry_id: int, document: UploadFile, user_id: int
@@ -386,9 +389,9 @@ class ApplicationService(BaseService):
         end_date: Optional[datetime] = None,
         offset: int = 0,
         limit: int = 50,
-    ) -> list[AuthorityVehicleEntryResponse]:
+    ) -> tuple[list[AuthorityVehicleEntryResponse], int]:
         """Get all vehicle entries for authority view, with role-based token_number hiding."""
-        entries_data = await self.dao.get_all_vehicle_entries(
+        entries_data, total = await self.dao.get_all_vehicle_entries(
             search=search,
             vehicle_number=vehicle_number,
             material_name=material_name,
@@ -406,7 +409,7 @@ class ApplicationService(BaseService):
 
             response.append(AuthorityVehicleEntryResponse.model_validate(item))
 
-        return response
+        return response, total
     async def get_phase_material_summary(self, application_id: int, phase: int) -> dict:
         """Get material summary for a phase (used by naka checkpoint)."""
         return await self.dao.get_phase_material_summary(application_id, phase)
@@ -418,10 +421,16 @@ class ApplicationService(BaseService):
         return [PhaseResponse.model_validate(p) for p in phases]
 
     async def complete_phase(
-        self, application_id: int, phase: int, user_id: int
+        self,
+        application_id: int,
+        phase: int,
+        user_id: int,
+        remarks: Optional[str] = None,
     ) -> SuccessResponse:
         """Mark a phase as completed."""
-        return await self.dao.complete_phase(application_id, phase, user_id)
+        return await self.dao.complete_phase(
+            application_id, phase, user_id, remarks=remarks
+        )
 
     async def update_phase_status(
         self,
@@ -435,6 +444,18 @@ class ApplicationService(BaseService):
             application_id, phase, request.status, user_id
         )
 
+    async def extend_token_validity(
+        self,
+        application_id: int,
+        phase: int,
+        user_id: int,
+        remarks: Optional[str] = None,
+    ) -> SuccessResponse:
+        """Extend a token's validity by 30 days if expiring within 15 days."""
+        return await self.dao.extend_token_validity(
+            application_id, phase, user_id, remarks=remarks
+        )
+
     # ── Token queries ─────────────────────────────────────────────────────
     async def get_tokens(
         self,
@@ -443,16 +464,16 @@ class ApplicationService(BaseService):
         search: Optional[str] = None,
         offset: int = 0,
         limit: int = 10,
-    ) -> list[TokenResponse]:
+    ) -> tuple[list[TokenResponse], int]:
         """Get all tokens with optional filters."""
-        token_dicts = await self.dao.get_tokens(
+        token_dicts, total = await self.dao.get_tokens(
             user_id=user_id,
             status_filter=status_filter,
             search=search,
             offset=offset,
             limit=limit,
         )
-        return [TokenResponse.model_validate(t) for t in token_dicts]
+        return [TokenResponse.model_validate(t) for t in token_dicts], total
 
     async def get_application_tokens(self, application_id: int) -> list[TokenResponse]:
         """Get all tokens for a specific application."""
@@ -465,6 +486,16 @@ class ApplicationService(BaseService):
         """Get full token detail for a single phase (by decoded transport code)."""
         detail_dict = await self.dao.get_token_detail(application_id, phase)
         return TokenDetailResponse.model_validate(detail_dict)
+
+    async def verify_toll_plaza_entry(
+        self, application_id: int, phase: int, vehicle_number: str
+    ) -> dict:
+        """Verify the latest Naka vehicle entry at the toll plaza."""
+        return await self.dao.verify_toll_plaza_entry(
+            application_id=application_id,
+            phase=phase,
+            vehicle_number=vehicle_number,
+        )
 
 
 class ApplicationMaterialService(BaseService):

@@ -148,3 +148,10 @@ class TestApplicationValidators(unittest.TestCase):
         app = ApplicationCreate(**data)
         self.assertEqual(app.existing_structure, StructureType.G_3)
         self.assertEqual(app.construction_floor, StructureType.G_3)
+
+    def test_create_without_material_requirements(self):
+        data = self.base_data.copy()
+        del data["material_requirements"]
+        app = ApplicationCreate(**data)
+        self.assertEqual(app.material_requirements, [])
+

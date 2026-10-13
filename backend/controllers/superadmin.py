@@ -1,19 +1,49 @@
+import secrets
+import string
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.config import settings
 from backend.middlewares.auth import get_superadmin
 from backend.database import get_db
+from backend.dao.user import UserDAO
 from backend.schemas.base.auth import UserDetails
 from backend.meta import UserRole, JurisdictionZone
 from backend.schemas.response.meta import MessageResponse, UserCreatedResponse
 from backend.services.user import UserService
+from backend.services.sms import sms_service
 from backend.core.security import decrypt_and_verify_payload
 
 router = APIRouter()
 user_service = UserService()
+user_dao = UserDAO()
+
+
+class CheckMobileResponse(BaseModel):
+    user_id: int
+    name: Optional[str] = None
+    mobile: str
+    role: str
+    is_active: bool
+    created_at: Optional[str] = None
+    applications_count: int = 0
+    complaints_count: int = 0
+    tokens_count: int = 0
+    schedules_count: int = 0
+    has_active_data: bool = False
+
+
+class SendClearOTPRequest(BaseModel):
+    mobile: str = Field(..., min_length=10, max_length=10, pattern=r"^[0-9]+$", description="10-digit mobile number")
+
+
+class VerifyClearOTPRequest(BaseModel):
+    mobile: str = Field(..., min_length=10, max_length=10, pattern=r"^[0-9]+$", description="10-digit mobile number")
+    otp: str = Field(..., min_length=6, max_length=6, pattern=r"^[0-9]+$", description="6-digit OTP")
 
 
 class CreateUserRequest(BaseModel):
@@ -227,3 +257,95 @@ async def delete_user(
         raise e
 
     return MessageResponse(message="User deleted successfully")
+
+
+@router.get("/users/check-mobile/{mobile}", response_model=CheckMobileResponse)
+async def check_user_mobile(
+    mobile: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: UserDetails = Depends(get_superadmin),
+) -> CheckMobileResponse:
+    """
+    Superadmin checks account details and associated active records for a mobile number.
+    """
+    preview = await user_service.get_user_deletion_preview(db, mobile)
+    if not preview:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No user account found with mobile number {mobile}"
+        )
+    return CheckMobileResponse(**preview)
+
+
+@router.post("/users/send-clear-otp", response_model=MessageResponse)
+async def send_clear_otp(
+    request: SendClearOTPRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: UserDetails = Depends(get_superadmin),
+) -> MessageResponse:
+    """
+    Send OTP to the mobile number to authorize account deletion and clearing.
+    Uses the exact same flow/template as login OTP.
+    """
+    user = await user_service.get_user_by_mobile(db, request.mobile)
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No user account found with mobile number {request.mobile}"
+        )
+
+    # Check for existing OTP record (cooldown check)
+    latest_otp = await user_dao.get_otp_record(db, request.mobile)
+    now = datetime.now()
+    cooldown_seconds = 60
+
+    if latest_otp:
+        elapsed = (now - latest_otp.created_at).total_seconds()
+        if elapsed < cooldown_seconds:
+            wait_time = int(cooldown_seconds - elapsed)
+            raise HTTPException(
+                status_code=429,
+                detail=f"Please wait {wait_time} seconds before requesting another OTP."
+            )
+
+    # Check if a valid (non-expired) OTP already exists to reuse it
+    existing_otp = await user_dao.get_valid_otp_record(db, request.mobile)
+    if existing_otp:
+        otp_value = existing_otp.otp
+        existing_otp.created_at = now
+        await db.commit()
+    else:
+        if settings.USE_REAL_OTP:
+            otp_value = "".join(secrets.choice(string.digits) for _ in range(6))
+        else:
+            otp_value = "123456"
+        await user_dao.create_otp(db, request.mobile, otp_value)
+
+    # Trigger SMS delivery using exact same template as login
+    await sms_service.send_otp(request.mobile, otp_value)
+    return MessageResponse(message=f"Verification OTP sent successfully to {request.mobile}")
+
+
+@router.post("/users/verify-and-delete", response_model=MessageResponse)
+async def verify_and_delete_user(
+    request: VerifyClearOTPRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: UserDetails = Depends(get_superadmin),
+) -> MessageResponse:
+    """
+    Verify OTP and permanently delete user account along with associated data.
+    """
+    # 1. Verify OTP
+    otp_record = await user_dao.get_otp_record(db, request.mobile)
+    if not otp_record or otp_record.otp != request.otp:
+        raise HTTPException(status_code=400, detail="Invalid OTP")
+
+    if otp_record.valid_till < datetime.now():
+        raise HTTPException(status_code=400, detail="OTP Expired")
+
+    # 2. Perform purge and deletion
+    success = await user_service.purge_and_delete_user(db, request.mobile)
+    if not success:
+        raise HTTPException(status_code=404, detail="User account not found")
+
+    return MessageResponse(message=f"Account with mobile {request.mobile} and all associated records deleted successfully.")

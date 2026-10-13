@@ -17,6 +17,7 @@ from backend.middlewares.auth import get_current_user_id, get_current_user
 from backend.services.user import UserService, get_user_service
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.database import get_db
+from backend.config import settings
 
 from backend.schemas.base.auth import UserDetails
 from backend.schemas.request.application import (
@@ -28,6 +29,8 @@ from backend.schemas.request.application import (
     InspectionReportUpdate,
     PhaseMaterialEntry,
     PhaseStatusUpdateRequest,
+    PhaseCompleteRequest,
+    PhaseExtendValidityRequest,
 )
 from backend.schemas.response.application import (
     ApplicationResponse,
@@ -35,8 +38,10 @@ from backend.schemas.response.application import (
     CommentResponse,
     PhaseResponse,
     TokenResponse,
+    TokenListResponse,
     TokenDetailResponse,
     AuthorityVehicleEntryResponse,
+    VehicleEntryListResponse,
     VehicleEntryDetailResponse,
 )
 from backend.schemas.response.meta import SuccessResponse, DocumentUploadResponse
@@ -154,6 +159,12 @@ async def create_application(
     db: AsyncSession = Depends(get_db),  # Inject DB session
 ) -> ApplicationResponse:
     """Create a new application."""
+    if not settings.ALLOW_NEW_APPLICATIONS:
+        raise HTTPException(
+            status_code=503,
+            detail="Due to some maintenance, we are not taking new applications at this time."
+        )
+
     # Fetch full user to get mobile
     user = await user_service.get_user_by_id(db, user_id)
     if not user:
@@ -188,7 +199,7 @@ async def get_vehicle_entry_detail(
 
 @router.get(
     "/authority/vehicle-entries",
-    response_model=List[AuthorityVehicleEntryResponse],
+    response_model=VehicleEntryListResponse,
 )
 async def get_all_vehicle_entries(
     search: Optional[str] = Query(
@@ -203,7 +214,7 @@ async def get_all_vehicle_entries(
     limit: int = Query(50, ge=1, le=500),
     application_service: ApplicationService = Depends(get_application_service),
     user: UserDetails = Depends(get_current_user),
-) -> List[AuthorityVehicleEntryResponse]:
+) -> VehicleEntryListResponse:
     """Get all vehicle entries for authority view with advanced filtering."""
     if user.role not in [
         UserRole.SUPERADMIN,
@@ -215,7 +226,7 @@ async def get_all_vehicle_entries(
             status_code=403,
             detail="You are not permitted to view the vehicle entries list.",
         )
-    return await application_service.get_all_vehicle_entries(
+    items, total = await application_service.get_all_vehicle_entries(
         user.role,
         search=search,
         vehicle_number=vehicle_number,
@@ -226,6 +237,7 @@ async def get_all_vehicle_entries(
         offset=offset,
         limit=limit,
     )
+    return VehicleEntryListResponse(items=items, total=total, offset=offset, limit=limit)
 
 
 @router.get("/applications/organizations", response_model=List[str])
@@ -700,18 +712,20 @@ async def get_phases(
 async def complete_phase(
     application_id: int,
     phase: int,
+    body: Optional[PhaseCompleteRequest] = None,
     application_service: ApplicationService = Depends(get_application_service),
     db: AsyncSession = Depends(get_db),
     user: UserDetails = Depends(get_current_user),
 ) -> SuccessResponse:
-    """Mark a phase as completed and activate the next one."""
+    """Mark a phase as completed, roll over remaining materials, and activate the next one."""
     if user.role not in (UserRole.NODAL_OFFICER, UserRole.SUPERADMIN):
         raise HTTPException(
             status_code=403,
             detail="Only NODAL_OFFICER or SUPERADMIN can complete phases",
         )
+    remarks = body.remarks if body else None
     response = await application_service.complete_phase(
-        application_id, phase, user.user_id
+        application_id, phase, user.user_id, remarks=remarks
     )
     await audit_service.log(
         db,
@@ -722,6 +736,7 @@ async def complete_phase(
             "application_id": application_id,
             "phase": phase,
             "action": "completed",
+            "remarks": remarks,
         },
     )
     await db.commit()
@@ -763,6 +778,49 @@ async def update_phase_status(
             "application_id": application_id,
             "phase": phase,
             "target_status": request.status.value,
+        },
+    )
+    await db.commit()
+    return response
+
+
+@router.put(
+    "/applications/{application_id}/phases/{phase}/extend-validity",
+    response_model=SuccessResponse,
+)
+async def extend_token_validity(
+    application_id: int,
+    phase: int,
+    body: Optional[PhaseExtendValidityRequest] = None,
+    application_service: ApplicationService = Depends(get_application_service),
+    db: AsyncSession = Depends(get_db),
+    user: UserDetails = Depends(get_current_user),
+) -> SuccessResponse:
+    """
+    Nodal Officer or Superadmin can extend a token's validity by 30 days.
+    Only permitted for ACTIVE tokens expiring within the next 15 days.
+    """
+    if user.role not in (UserRole.NODAL_OFFICER, UserRole.SUPERADMIN):
+        raise HTTPException(
+            status_code=403,
+            detail="Only NODAL_OFFICER or SUPERADMIN can extend token validity",
+        )
+
+    remarks = body.remarks if body else None
+    response = await application_service.extend_token_validity(
+        application_id, phase, user.user_id, remarks=remarks
+    )
+
+    await audit_service.log(
+        db,
+        "APPLICATION_PHASE",
+        AuditAction.CHANGED,
+        user.user_id,
+        new_state={
+            "application_id": application_id,
+            "phase": phase,
+            "action": "extended_validity",
+            "remarks": remarks,
         },
     )
     await db.commit()
@@ -866,7 +924,7 @@ async def delete_application(
 # ── Token endpoints ──────────────────────────────────────────────────────
 
 
-@router.get("/tokens", response_model=List[TokenResponse])
+@router.get("/tokens", response_model=TokenListResponse)
 async def list_tokens(
     status: Optional[str] = Query(
         None, description="Filter by token status: ACTIVE, PENDING, COMPLETED"
@@ -878,7 +936,7 @@ async def list_tokens(
     limit: int = Query(10, ge=1, le=100),
     application_service: ApplicationService = Depends(get_application_service),
     user: UserDetails = Depends(get_current_user),
-) -> List[TokenResponse]:
+) -> TokenListResponse:
     """List tokens (approved application phases) for the current citizen.
 
     Returns tokens with computed fields:
@@ -905,13 +963,14 @@ async def list_tokens(
     # Filter by user_id only for citizens
     filter_user_id = user.user_id if user.role == UserRole.CITIZEN else None
 
-    return await application_service.get_tokens(
+    items, total = await application_service.get_tokens(
         user_id=filter_user_id,
         status_filter=status,
         search=search,
         offset=offset,
         limit=limit,
     )
+    return TokenListResponse(items=items, total=total, offset=offset, limit=limit)
 
 
 @router.get("/applications/{application_id}/tokens", response_model=List[TokenResponse])

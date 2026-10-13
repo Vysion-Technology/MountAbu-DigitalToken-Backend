@@ -11,6 +11,8 @@ from backend.meta import (
     StructureType,
     JurisdictionZone,
     UserRole,
+    VehicleScheduleStatus,
+    ScheduleComplianceStatus,
 )
 from pydantic import BaseModel, ConfigDict, model_validator
 
@@ -294,6 +296,13 @@ class TokenResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class TokenListResponse(BaseModel):
+    items: List[TokenResponse] = []
+    total: int = 0
+    offset: int = 0
+    limit: int = 10
+
+
 class VehicleEntryResponse(BaseModel):
     """A single vehicle / naka entry shown under the Vehicle Entries tab."""
 
@@ -334,10 +343,12 @@ class TokenDetailResponse(BaseModel):
     """
 
     # Identity
+    token_id: Optional[int] = None
     transport_code: str
     token_number: str
     phase: int
     status: ApplicationPhaseStatus
+
     valid_from: Optional[datetime] = None  # activated_at
     valid_till: Optional[datetime] = None
 
@@ -348,6 +359,7 @@ class TokenDetailResponse(BaseModel):
     property_address: str
     property_usage: PropertyUsageType
     application_type: ApplicationType
+    total_phases: int = 1
 
     # Authority & system info
     authority: TokenAuthorityInfo
@@ -640,6 +652,8 @@ class ApplicationResponse(BaseModel):
                         break
 
         # Return dict or updated dict
+        from backend.meta import ApplicationDocumentType
+
         if hasattr(data, "__dict__"):
             d = {k: getattr(data, k, None) for k in data.__dict__.keys() if not k.startswith("_")}
             d["ward_zone"] = ward_name
@@ -648,10 +662,25 @@ class ApplicationResponse(BaseModel):
             for field in cls.model_fields.keys():
                 if field not in d and hasattr(data, field):
                     d[field] = getattr(data, field)
+            
+            if d.get("documents"):
+                d["documents"] = [
+                    doc for doc in d["documents"]
+                    if getattr(doc, "document_type", None) not in (ApplicationDocumentType.GEO_TAGGED_PHOTO, ApplicationDocumentType.SITE_INSPECTION)
+                    and getattr(doc, "document_type", None) not in ("GEO_TAGGED_PHOTO", "SITE_INSPECTION")
+                    and (not isinstance(doc, dict) or (doc.get("document_type") not in (ApplicationDocumentType.GEO_TAGGED_PHOTO, ApplicationDocumentType.SITE_INSPECTION) and doc.get("document_type") not in ("GEO_TAGGED_PHOTO", "SITE_INSPECTION")))
+                ]
             return d
         elif isinstance(data, dict):
             data["ward_zone"] = ward_name
             data["rejection_remarks"] = rejection_remarks
+            if data.get("documents"):
+                data["documents"] = [
+                    doc for doc in data["documents"]
+                    if getattr(doc, "document_type", None) not in (ApplicationDocumentType.GEO_TAGGED_PHOTO, ApplicationDocumentType.SITE_INSPECTION)
+                    and getattr(doc, "document_type", None) not in ("GEO_TAGGED_PHOTO", "SITE_INSPECTION")
+                    and (not isinstance(doc, dict) or (doc.get("document_type") not in (ApplicationDocumentType.GEO_TAGGED_PHOTO, ApplicationDocumentType.SITE_INSPECTION) and doc.get("document_type") not in ("GEO_TAGGED_PHOTO", "SITE_INSPECTION")))
+                ]
             return data
         return data
 
@@ -680,6 +709,10 @@ class AuthorityVehicleEntryResponse(BaseModel):
     naka_incharge_name: str
     has_dumping_photos: bool
     materials: List[VehicleEntryMaterialItem]
+    remarks: Optional[str] = None
+    schedule_id: Optional[int] = None
+    schedule_compliance_status: Optional[ScheduleComplianceStatus] = None
+    schedule_time_slot: Optional[str] = None
     media: Optional[dict] = None
     access_urls: Optional[dict] = None
 
@@ -706,6 +739,13 @@ class AuthorityVehicleEntryResponse(BaseModel):
         if isinstance(data, dict):
             data["access_urls"] = access_urls
         return data
+
+
+class VehicleEntryListResponse(BaseModel):
+    items: List[AuthorityVehicleEntryResponse] = []
+    total: int = 0
+    offset: int = 0
+    limit: int = 50
 
 
 class DumpingPhotoResponse(BaseModel):
@@ -752,11 +792,16 @@ class VehicleEntryDetailResponse(BaseModel):
     longitude: Optional[float] = None
     entry_at: datetime
     naka_incharge_name: str
+    remarks: Optional[str] = None
+    schedule_id: Optional[int] = None
+    schedule_compliance_status: Optional[ScheduleComplianceStatus] = None
+    schedule_time_slot: Optional[str] = None
 
     material_entry_details: List[TokenMaterialResponse] = []
     vehicle_image: Optional[str] = None  # Signed URL
     entry_proof: List[str] = []  # List of signed URLs
     dumping_photos: List[DumpingPhotoResponse] = []
+
 
 
 class ApplicationPaginatedResponse(BaseModel):

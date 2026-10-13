@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     POSTGRES_PASSWORD: str = "etoken_secure_password_123"
     POSTGRES_DB: str = "mountabu_etoken"
     DATABASE_HOST: str = "localhost"
+    POSTGRES_PORT: int = 5432
 
     MINIO_HOST: str = "minio"
     MINIO_ACCESS_KEY: str = "minioadmin"
@@ -20,8 +21,13 @@ class Settings(BaseSettings):
     USE_REAL_OTP: bool = False
     MSG91_AUTH_KEY: str = ""
 
+    # Maintenance Toggle
+    ALLOW_NEW_APPLICATIONS: bool = True
+
     # RSA Encryption Toggle
     ENFORCE_RSA_ENCRYPTION: bool = False
+
+    TOLL_PLAZA_API_KEY: str = "default_toll_plaza_key_123"
 
     SECRET_KEY: str = "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7"
     ALGORITHM: str = "HS256"
@@ -33,12 +39,12 @@ class Settings(BaseSettings):
     @property
     def database_url(self) -> str:
         # Use asyncpg driver for async sqlalchemy
-        return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.DATABASE_HOST}:5432/{self.POSTGRES_DB}"
+        return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.DATABASE_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
 
     @property
     def sync_database_url(self) -> str:
         # Use psycopg2 (or default) for sync operations if needed, or just remove +asyncpg if using standard driver
-        return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.DATABASE_HOST}:5432/{self.POSTGRES_DB}"
+        return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.DATABASE_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
 
     class Config:
         env_file = ".env"

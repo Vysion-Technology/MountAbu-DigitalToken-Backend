@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from backend.middlewares.auth import get_current_user
 from backend.schemas.base.auth import UserDetails
-from backend.meta import UserRole
+from backend.meta import UserRole, ApplicationType
 from backend.schemas.response.dashboard import (
     CitizenDashboardResponse,
     ReportsAnalyticsResponse,
@@ -61,6 +61,7 @@ async def get_authority_dashboard(
     days: int = Query(7, ge=1, le=365, description="Period in days for KPI comparison"),
     department_id: Optional[int] = Query(None, description="Filter by department"),
     ward_id: Optional[int] = Query(None, description="Filter by ward"),
+    application_type: Optional[ApplicationType] = Query(None, description="Filter by application type: NEW, RENOVATION"),
     current_user: UserDetails = Depends(get_current_user),
     service: AuthorityDashboardService = Depends(get_authority_dashboard_service),
 ):
@@ -94,6 +95,7 @@ async def get_authority_dashboard(
         days=days,
         ward_id=ward_id,
         department_id=department_id,
+        application_type=application_type,
     )
 
 

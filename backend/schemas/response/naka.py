@@ -34,11 +34,26 @@ class VehicleEntryResponse(BaseModel):
 class NakaMaterialSummary(BaseModel):
     """Per-material summary for a phase at the naka checkpoint."""
     material_id: Optional[int] = None
+    custom_name: Optional[str] = None
     material_name: str
     unit: str
-    allowed_qty: int
-    brought_qty: int
-    remaining_qty: int
+    allowed_qty: float
+    brought_qty: float
+    remaining_qty: float
+
+
+class NakaScheduleInfo(BaseModel):
+    """Vehicle scheduling details shown to Naka incharge upon token scan."""
+    schedule_id: int
+    schedule_code: str
+    schedule_date: str
+    slot_name: str
+    start_time: str
+    end_time: str
+    vehicle_number: str
+    vehicle_type: Optional[str] = None
+    is_today: bool
+    status: str
 
 
 class NakaPhaseResponse(BaseModel):
@@ -48,3 +63,5 @@ class NakaPhaseResponse(BaseModel):
     phase_status: ApplicationPhaseStatus
     materials: list[NakaMaterialSummary]
     vehicle_entries: list[VehicleEntryResponse] = []
+    schedule_info: Optional[NakaScheduleInfo] = None
+

@@ -8,8 +8,20 @@ from .application import (
     ApplicationComment,
     ApprovedApplicationPhase,
     ApplicationPhaseMaterial,
+    VehicleSchedule,
+    VehicleEntry,
+    VehicleMaterial,
+    VehicleEntryDumpingPhoto,
 )
-from .master import Ward, Department, Role, ComplaintCategory
+from .master import (
+    Ward,
+    Department,
+    Role,
+    ComplaintCategory,
+    SlotDefinition,
+    VehicleType,
+    ScheduleBlackout,
+)
 from .city_profile import CityProfile
 from .download import Download
 from .notice import Notice
@@ -30,11 +42,19 @@ __all__ = [
     "ApplicationComment",
     "ApprovedApplicationPhase",
     "ApplicationPhaseMaterial",
+    "VehicleSchedule",
+    "VehicleEntry",
+    "VehicleMaterial",
+    "VehicleEntryDumpingPhoto",
     # Master Data
     "Ward",
     "Department",
     "Role",
     "ComplaintCategory",
+    "SlotDefinition",
+    "VehicleType",
+    "ScheduleBlackout",
+
     # City Profile
     "CityProfile",
     # Downloads
