@@ -259,6 +259,29 @@ class VehicleScheduleDAO:
         if token.status != ApplicationPhaseStatus.ACTIVE:
             raise ValueError(f"Token is not active (current status: {token.status.value}). Only active tokens can schedule vehicle entries.")
 
+        # Check token validity / expiry date
+        from backend.schemas.response.application import TOKEN_VALIDITY_DAYS
+        token_valid_till = getattr(token, "valid_till", None)
+        if not token_valid_till and getattr(token, "activated_at", None):
+            if isinstance(token.activated_at, datetime):
+                token_valid_till = token.activated_at + timedelta(days=TOKEN_VALIDITY_DAYS)
+
+        if isinstance(token_valid_till, datetime):
+            now_dt = datetime.now()
+            if now_dt > token_valid_till:
+                token.status = ApplicationPhaseStatus.EXPIRED
+                await session.commit()
+                raise ValueError(
+                    f"Token has expired on {token_valid_till.strftime('%d %b %Y')}. Vehicle transit cannot be scheduled."
+                )
+
+            # Prevent booking beyond the token's validity date
+            if schedule_in.schedule_date > token_valid_till.date():
+                raise ValueError(
+                    f"Selected date ({schedule_in.schedule_date.strftime('%d %b %Y')}) is after the token's validity date ({token_valid_till.strftime('%d %b %Y')}). "
+                    f"Please choose a date before token expiry or request a validity extension."
+                )
+
         # 2. Strict Check: Ensure token does not already have an active schedule
         existing_active = await self.get_active_schedule_by_token(session, schedule_in.token_id)
         if existing_active:

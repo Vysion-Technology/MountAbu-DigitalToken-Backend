@@ -222,12 +222,18 @@ class ApplicationDAO(BaseDAO):
             else:
                 if user_role == UserRole.NODAL_OFFICER:
                     # 1. NEW in SUBMITTED (needing approval)
-                    # 2. NEW in APPROVED (has inspection + phase materials, needs token generation)
-                    # 3. RENOVATION in APPROVED (has inspection + phase materials, needs token generation)
+                    # 2. NEW/RENOVATION in APPROVED (has inspection + phase materials, needs token generation)
+                    # 3. Next phase token generation (previous phase COMPLETED/TERMINATED, next phase not generated)
                     if tp == ApplicationType.NEW and st == ApplicationStatus.SUBMITTED:
                         is_pending_with_me = True
-                    elif st == ApplicationStatus.APPROVED and len(application.inspections) > 0 and application.phase_materials:
-                        is_pending_with_me = True
+                    elif st in (ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED) and len(application.inspections) > 0 and application.phase_materials:
+                        phases = sorted(application.phases, key=lambda p: p.phase) if application.phases else []
+                        if not phases:
+                            is_pending_with_me = True
+                        else:
+                            last_phase = phases[-1]
+                            if last_phase.status in (ApplicationPhaseStatus.COMPLETED, ApplicationPhaseStatus.TERMINATED):
+                                is_pending_with_me = True
                 
                 elif user_role == UserRole.COMMISSIONER:
                     # 1. RENOVATION in SUBMITTED (needing forwarding)
@@ -491,18 +497,54 @@ class ApplicationDAO(BaseDAO):
                 pending_start_ts: Optional[datetime] = None
 
                 # Rule 6.2/Workflow check for role
-                if authority_role == UserRole.NODAL_OFFICER:
-                    if app.type == ApplicationType.NEW and app.status == ApplicationStatus.SUBMITTED:
-                        is_pending_for_role = True
-                        pending_start_ts = app.created_at
-                    elif app.status in (ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED) and app.phase_materials and len(app.phase_materials) > 0:
-                        # Pending token generation (only when phase materials have been submitted by JEN)
-                        is_pending_for_role = True
-                        insp_ts = [i.inspected_at for i in app.inspections if i.inspected_at]
-                        pending_start_ts = max(insp_ts) if insp_ts else _get_app_last_updated_at(app)
-                    elif app.status == ApplicationStatus.OBJECTED:
+                if authority_role in (UserRole.NODAL_OFFICER, UserRole.SUPERADMIN):
+                    is_pending_approval = (app.type == ApplicationType.NEW and app.status == ApplicationStatus.SUBMITTED)
+                    
+                    # Token generation is needed if:
+                    # 1) Approved, JEN has entered inspection + phase materials, and phase 1 not generated yet
+                    # 2) Token generated, previous phase is COMPLETED or TERMINATED, and next phase not yet generated
+                    is_pending_token_gen = False
+                    if app.status in (ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED) and app.phase_materials and len(app.phase_materials) > 0:
+                        phases = sorted(app.phases, key=lambda p: p.phase) if app.phases else []
+                        if not phases:
+                            is_pending_token_gen = True
+                        else:
+                            last_phase = phases[-1]
+                            if last_phase.status in (ApplicationPhaseStatus.COMPLETED, ApplicationPhaseStatus.TERMINATED):
+                                is_pending_token_gen = True
+
+                    is_pending_objection = False
+                    if app.status == ApplicationStatus.OBJECTED:
                         pending_objs = [o for o in app.objections if o.status == ObjectionStatus.PENDING and o.objected_to_role in (UserRole.CITIZEN, UserRole.JEN)]
                         if pending_objs:
+                            is_pending_objection = True
+
+                    if action_name == "PENDING_APPROVAL":
+                        if is_pending_approval:
+                            is_pending_for_role = True
+                            pending_start_ts = app.created_at
+                    elif action_name == "PENDING_TOKEN_GENERATION":
+                        if is_pending_token_gen:
+                            is_pending_for_role = True
+                            phases = sorted(app.phases, key=lambda p: p.phase) if app.phases else []
+                            if phases and phases[-1].completed_at:
+                                pending_start_ts = phases[-1].completed_at
+                            else:
+                                insp_ts = [i.inspected_at for i in app.inspections if i.inspected_at]
+                                pending_start_ts = max(insp_ts) if insp_ts else _get_app_last_updated_at(app)
+                    else:
+                        if is_pending_approval:
+                            is_pending_for_role = True
+                            pending_start_ts = app.created_at
+                        elif is_pending_token_gen:
+                            is_pending_for_role = True
+                            phases = sorted(app.phases, key=lambda p: p.phase) if app.phases else []
+                            if phases and phases[-1].completed_at:
+                                pending_start_ts = phases[-1].completed_at
+                            else:
+                                insp_ts = [i.inspected_at for i in app.inspections if i.inspected_at]
+                                pending_start_ts = max(insp_ts) if insp_ts else _get_app_last_updated_at(app)
+                        elif is_pending_objection:
                             is_pending_for_role = True
                             pending_start_ts = min([o.created_at for o in pending_objs if o.created_at])
 
@@ -631,14 +673,30 @@ class ApplicationDAO(BaseDAO):
             pending_start_ts: Optional[datetime] = None
             is_obj = (app.status == ApplicationStatus.OBJECTED)
             
-            if authority_role == UserRole.NODAL_OFFICER:
-                if app.type == ApplicationType.NEW and app.status == ApplicationStatus.SUBMITTED:
+            if authority_role in (UserRole.NODAL_OFFICER, UserRole.SUPERADMIN):
+                is_pending_approval = (app.type == ApplicationType.NEW and app.status == ApplicationStatus.SUBMITTED)
+                
+                is_pending_token_gen = False
+                if app.status in (ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED) and app.phase_materials and len(app.phase_materials) > 0:
+                    phases = sorted(app.phases, key=lambda p: p.phase) if app.phases else []
+                    if not phases:
+                        is_pending_token_gen = True
+                    else:
+                        last_phase = phases[-1]
+                        if last_phase.status in (ApplicationPhaseStatus.COMPLETED, ApplicationPhaseStatus.TERMINATED):
+                            is_pending_token_gen = True
+
+                if is_pending_approval:
                     is_pending_for_role = True
                     pending_start_ts = app.created_at
-                elif app.status in (ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED) and app.phase_materials and len(app.phase_materials) > 0:
+                elif is_pending_token_gen:
                     is_pending_for_role = True
-                    insp_ts = [i.inspected_at for i in app.inspections if i.inspected_at]
-                    pending_start_ts = max(insp_ts) if insp_ts else _get_app_last_updated_at(app)
+                    phases = sorted(app.phases, key=lambda p: p.phase) if app.phases else []
+                    if phases and phases[-1].completed_at:
+                        pending_start_ts = phases[-1].completed_at
+                    else:
+                        insp_ts = [i.inspected_at for i in app.inspections if i.inspected_at]
+                        pending_start_ts = max(insp_ts) if insp_ts else _get_app_last_updated_at(app)
                 elif app.status == ApplicationStatus.OBJECTED:
                     pending_objs = [o for o in app.objections if o.status == ObjectionStatus.PENDING and o.objected_to_role in (UserRole.CITIZEN, UserRole.JEN)]
                     if pending_objs:
@@ -1497,6 +1555,21 @@ class ApplicationDAO(BaseDAO):
                 detail=f"Phase {phase} is '{phase_record.status.value}', must be ACTIVE for naka entry",
             )
 
+        # Check token validity / expiry at time of Naka entry
+        from backend.schemas.response.application import TOKEN_VALIDITY_DAYS
+        current_valid_till = getattr(phase_record, "valid_till", None)
+        if not current_valid_till and getattr(phase_record, "activated_at", None):
+            if isinstance(phase_record.activated_at, datetime):
+                current_valid_till = phase_record.activated_at + timedelta(days=TOKEN_VALIDITY_DAYS)
+
+        if isinstance(current_valid_till, datetime) and datetime.now() > current_valid_till:
+            phase_record.status = ApplicationPhaseStatus.EXPIRED
+            await self.session.commit()
+            raise HTTPException(
+                status_code=400,
+                detail=f"Token for Phase {phase} has expired on {current_valid_till.strftime('%d %b %Y, %I:%M %p')}. Vehicle entry cannot be logged. Please contact Nodal Officer.",
+            )
+
         # Validate each material against phase allocation and quantity limits
         for mat in materials:
             mid = mat.get("material_id")
@@ -1808,8 +1881,11 @@ class ApplicationDAO(BaseDAO):
         )
         app_number = f"APP-{year}-{app.id:05d}"
         valid_till = None
-        if phase_rec and phase_rec.activated_at:
-            valid_till = phase_rec.activated_at + timedelta(days=TOKEN_VALIDITY_DAYS)
+        if phase_rec:
+            if phase_rec.valid_till:
+                valid_till = phase_rec.valid_till
+            elif phase_rec.activated_at:
+                valid_till = phase_rec.activated_at + timedelta(days=TOKEN_VALIDITY_DAYS)
 
         # 4. Fetch phase material limits and total brought quantities for this phase
         phase_limits = {}
@@ -2227,6 +2303,21 @@ class ApplicationDAO(BaseDAO):
         if not phase_record:
             raise HTTPException(status_code=404, detail="Phase not found")
 
+        # Check if active token has expired and update status
+        from backend.schemas.response.application import TOKEN_VALIDITY_DAYS
+        current_valid_till = phase_record.valid_till or (
+            phase_record.activated_at + timedelta(days=TOKEN_VALIDITY_DAYS)
+            if phase_record.activated_at
+            else None
+        )
+        if (
+            phase_record.status == ApplicationPhaseStatus.ACTIVE
+            and current_valid_till
+            and datetime.now() > current_valid_till
+        ):
+            phase_record.status = ApplicationPhaseStatus.EXPIRED
+            await self.session.commit()
+
         # Get phase materials with material details (outer join for custom)
         pm_stmt = (
             select(ApplicationPhaseMaterial, Material)
@@ -2338,9 +2429,13 @@ class ApplicationDAO(BaseDAO):
         return list(result.scalars().all())
 
     async def complete_phase(
-        self, application_id: int, phase_num: int, user_id: int
+        self,
+        application_id: int,
+        phase_num: int,
+        user_id: int,
+        remarks: Optional[str] = None,
     ) -> SuccessResponse:
-        """Mark a phase as COMPLETED and activate the next one."""
+        """Mark a phase as COMPLETED, roll over remaining materials to next phase, and unlock next phase."""
         stmt = select(ApprovedApplicationPhase).where(
             ApprovedApplicationPhase.application_id == application_id,
             ApprovedApplicationPhase.phase == phase_num,
@@ -2349,36 +2444,131 @@ class ApplicationDAO(BaseDAO):
         phase_record = result.scalar_one_or_none()
         if not phase_record:
             raise HTTPException(status_code=404, detail=f"Phase {phase_num} not found")
-        if phase_record.status != ApplicationPhaseStatus.ACTIVE:
+        if phase_record.status == ApplicationPhaseStatus.COMPLETED:
             raise HTTPException(
                 status_code=400,
-                detail=f"Phase {phase_num} must be ACTIVE to complete, current status: {phase_record.status.value}",
+                detail=f"Phase {phase_num} is already COMPLETED",
             )
+        if phase_record.status == ApplicationPhaseStatus.TERMINATED:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Phase {phase_num} is TERMINATED and cannot be completed",
+            )
+
+        # 1. Calculate consumed materials for this phase
+        brought_stmt = (
+            select(
+                VehicleMaterial.material_id,
+                VehicleMaterial.custom_name,
+                func.coalesce(func.sum(VehicleMaterial.quantity), 0).label("total_brought"),
+            )
+            .select_from(VehicleEntry)
+            .join(VehicleMaterial)
+            .where(
+                VehicleEntry.application_id == application_id,
+                VehicleEntry.phase == phase_num,
+            )
+            .group_by(VehicleMaterial.material_id, VehicleMaterial.custom_name)
+        )
+        brought_res = await self.session.execute(brought_stmt)
+        brought_map = {
+            (row.material_id, row.custom_name): row.total_brought
+            for row in brought_res
+        }
+
+        # 2. Fetch current phase allocated materials
+        cur_pm_stmt = select(ApplicationPhaseMaterial).where(
+            ApplicationPhaseMaterial.application_id == application_id,
+            ApplicationPhaseMaterial.phase == phase_num,
+        )
+        cur_pm_res = await self.session.execute(cur_pm_stmt)
+        cur_phase_materials = cur_pm_res.scalars().all()
+
+        # Check if this is the final phase
+        app_stmt = select(Application.num_stages).where(Application.id == application_id)
+        app_res = await self.session.execute(app_stmt)
+        total_phases = app_res.scalar() or 1
+        is_final_phase = phase_num >= total_phases
+
+        rolled_over_items = []
+        if not is_final_phase:
+            # 3. Check next phase allocated materials
+            next_pm_stmt = select(ApplicationPhaseMaterial).where(
+                ApplicationPhaseMaterial.application_id == application_id,
+                ApplicationPhaseMaterial.phase == phase_num + 1,
+            )
+            next_pm_res = await self.session.execute(next_pm_stmt)
+            next_pm_rows = next_pm_res.scalars().all()
+            next_pm_map = {
+                (pm.material_id, pm.custom_name): pm
+                for pm in next_pm_rows
+            }
+
+            for pm in cur_phase_materials:
+                consumed = brought_map.get((pm.material_id, pm.custom_name), 0)
+                remaining = max(0, pm.quantity - int(consumed))
+
+                if remaining > 0:
+                    key = (pm.material_id, pm.custom_name)
+                    if key in next_pm_map:
+                        next_pm_map[key].quantity += remaining
+                    else:
+                        new_pm = ApplicationPhaseMaterial(
+                            application_id=application_id,
+                            phase=phase_num + 1,
+                            material_id=pm.material_id,
+                            custom_name=pm.custom_name,
+                            custom_unit=pm.custom_unit,
+                            quantity=remaining,
+                        )
+                        self.session.add(new_pm)
+                        next_pm_map[key] = new_pm
+
+                    label = pm.custom_name or f"Material #{pm.material_id}"
+                    unit = pm.custom_unit or "units"
+                    rolled_over_items.append(f"{remaining} {unit} of {label}")
+                    # Adjust current phase allocation to consumed quantity
+                    pm.quantity = int(consumed)
+        else:
+            # Final phase: cap allocation to consumed quantity so excess quota is closed
+            for pm in cur_phase_materials:
+                consumed = brought_map.get((pm.material_id, pm.custom_name), 0)
+                pm.quantity = int(consumed)
 
         phase_record.status = ApplicationPhaseStatus.COMPLETED
         phase_record.completed_at = datetime.now()
 
-        # Activate next phase if exists
-        next_stmt = select(ApprovedApplicationPhase).where(
-            ApprovedApplicationPhase.application_id == application_id,
-            ApprovedApplicationPhase.phase == phase_num + 1,
-        )
-        next_result = await self.session.execute(next_stmt)
-        next_phase = next_result.scalar_one_or_none()
-        if next_phase and next_phase.status == ApplicationPhaseStatus.PENDING:
-            next_phase.status = ApplicationPhaseStatus.ACTIVE
-            next_phase.activated_at = datetime.now()
+        # Activate next phase if exists in PENDING status
+        if not is_final_phase:
+            next_stmt = select(ApprovedApplicationPhase).where(
+                ApprovedApplicationPhase.application_id == application_id,
+                ApprovedApplicationPhase.phase == phase_num + 1,
+            )
+            next_result = await self.session.execute(next_stmt)
+            next_phase = next_result.scalar_one_or_none()
+            if next_phase and next_phase.status == ApplicationPhaseStatus.PENDING:
+                next_phase.status = ApplicationPhaseStatus.ACTIVE
+                next_phase.activated_at = datetime.now()
 
         # Audit log
+        log_remarks = remarks
+        if not log_remarks:
+            if is_final_phase:
+                log_remarks = f"Final Phase {phase_num} token completed. Project material transit finalized."
+            elif rolled_over_items:
+                log_remarks = f"Phase {phase_num} token completed. Rolled over to Phase {phase_num + 1}: {', '.join(rolled_over_items)}."
+            else:
+                log_remarks = f"Phase {phase_num} token completed."
+
         self.session.add(
             ApplicationActionLog(
                 application_id=application_id,
-                action=WorkflowAction.APPROVE,  # reuse APPROVE for phase completion
+                action=WorkflowAction.APPROVE,
                 from_status=ApplicationStatus.TOKEN_GENERATED,
                 to_status=ApplicationStatus.TOKEN_GENERATED,
                 performed_by=user_id,
                 performed_at=datetime.now(),
-                remarks=f"Phase {phase_num} completed",
+                remarks=log_remarks,
                 phase=phase_num,
             )
         )
@@ -2453,6 +2643,87 @@ class ApplicationDAO(BaseDAO):
             print(f"Error sending phase status SMS: {e}")
 
         return SuccessResponse(message=f"Phase {phase_num} status updated to {status.value}")
+
+    async def extend_token_validity(
+        self,
+        application_id: int,
+        phase_num: int,
+        user_id: int,
+        remarks: Optional[str] = None,
+    ) -> SuccessResponse:
+        """Extend a token's validity by 30 days if it is active and expiring within the next 15 days."""
+        from backend.schemas.response.application import TOKEN_VALIDITY_DAYS
+
+        stmt = select(ApprovedApplicationPhase).where(
+            ApprovedApplicationPhase.application_id == application_id,
+            ApprovedApplicationPhase.phase == phase_num,
+        )
+        result = await self.session.execute(stmt)
+        phase_record = result.scalar_one_or_none()
+        if not phase_record:
+            raise HTTPException(status_code=404, detail=f"Phase {phase_num} not found")
+
+        if phase_record.status not in (ApplicationPhaseStatus.ACTIVE, ApplicationPhaseStatus.EXPIRED):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Only ACTIVE or EXPIRED tokens can be extended. Current status is {phase_record.status.value}",
+            )
+
+        now = datetime.now()
+        current_valid_till = phase_record.valid_till or (
+            phase_record.activated_at + timedelta(days=TOKEN_VALIDITY_DAYS)
+            if phase_record.activated_at
+            else None
+        )
+
+        is_already_expired = (
+            phase_record.status == ApplicationPhaseStatus.EXPIRED
+            or (current_valid_till is not None and current_valid_till < now)
+        )
+
+        if not is_already_expired:
+            if not current_valid_till:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Token has not been activated yet or has no valid expiry date",
+                )
+
+            time_to_expiry = current_valid_till - now
+            if time_to_expiry > timedelta(days=15):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Token validity can only be extended when expiring within the next 15 days",
+                )
+
+            # Extend by 30 days from current expiry date
+            new_valid_till = current_valid_till + timedelta(days=30)
+        else:
+            # Token is expired: Revive validity by +30 days from now (T+30) and reactivate status
+            new_valid_till = now + timedelta(days=30)
+            phase_record.status = ApplicationPhaseStatus.ACTIVE
+
+        phase_record.valid_till = new_valid_till
+
+        # Audit log
+        action_desc = "revived and extended by 30 days" if is_already_expired else "validity extended by 30 days"
+        log_remarks = remarks or f"Phase {phase_num} token {action_desc} until {new_valid_till.strftime('%d %b %Y, %I:%M %p')}"
+        self.session.add(
+            ApplicationActionLog(
+                application_id=application_id,
+                action=WorkflowAction.APPROVE,
+                from_status=ApplicationStatus.TOKEN_GENERATED,
+                to_status=ApplicationStatus.TOKEN_GENERATED,
+                performed_by=user_id,
+                performed_at=datetime.now(),
+                remarks=log_remarks,
+                phase=phase_num,
+            )
+        )
+
+        await self.session.commit()
+        return SuccessResponse(
+            message=f"Phase {phase_num} token validity successfully extended to {new_valid_till.strftime('%d %b %Y')}"
+        )
 
     # ── Comment (enhanced) ────────────────────────────────────────────────
     async def comment_on_application(
@@ -2544,7 +2815,9 @@ class ApplicationDAO(BaseDAO):
             application_number = f"APP-{year}-{phase_rec.application_id:05d}"
 
             valid_till = None
-            if phase_rec.activated_at:
+            if phase_rec.valid_till:
+                valid_till = phase_rec.valid_till
+            elif phase_rec.activated_at:
                 valid_till = phase_rec.activated_at + timedelta(
                     days=TOKEN_VALIDITY_DAYS
                 )
@@ -2556,6 +2829,14 @@ class ApplicationDAO(BaseDAO):
                 remaining_pct = round(
                     ((total_approved - total_brought) / total_approved) * 100, 1
                 )
+
+            token_status = phase_rec.status
+            if (
+                phase_rec.status == ApplicationPhaseStatus.ACTIVE
+                and valid_till
+                and datetime.now() > valid_till
+            ):
+                token_status = ApplicationPhaseStatus.EXPIRED
 
             transport_code = encode_transport_code(
                 phase_rec.application_id, phase_rec.phase
@@ -2569,7 +2850,7 @@ class ApplicationDAO(BaseDAO):
                     "phase": phase_rec.phase,
                     "remaining_quantity_pct": remaining_pct,
                     "valid_till": valid_till,
-                    "status": phase_rec.status,
+                    "status": token_status,
                     "applicant_name": phase_rec.application.applicant_name,
                     "mobile": phase_rec.application.mobile,
                 }
@@ -2599,6 +2880,20 @@ class ApplicationDAO(BaseDAO):
         if not phase_rec:
             raise HTTPException(status_code=404, detail="Token not found")
 
+        # Auto-update status to EXPIRED if past validity
+        current_valid_till = phase_rec.valid_till or (
+            phase_rec.activated_at + timedelta(days=TOKEN_VALIDITY_DAYS)
+            if phase_rec.activated_at
+            else None
+        )
+        if (
+            phase_rec.status == ApplicationPhaseStatus.ACTIVE
+            and current_valid_till
+            and datetime.now() > current_valid_till
+        ):
+            phase_rec.status = ApplicationPhaseStatus.EXPIRED
+            await self.session.commit()
+
         # ── Application record ────────────────────────────────────────
         app_stmt = (
             select(Application)
@@ -2624,7 +2919,9 @@ class ApplicationDAO(BaseDAO):
         application_number = f"APP-{year}-{application_id:05d}"
 
         valid_till = None
-        if phase_rec.activated_at:
+        if phase_rec.valid_till:
+            valid_till = phase_rec.valid_till
+        elif phase_rec.activated_at:
             valid_till = phase_rec.activated_at + timedelta(days=TOKEN_VALIDITY_DAYS)
 
         transport_code = encode_transport_code(application_id, phase)
@@ -2783,6 +3080,7 @@ class ApplicationDAO(BaseDAO):
             "property_address": application.property_address,
             "property_usage": application.property_usage,
             "application_type": application.type,
+            "total_phases": application.num_stages or 1,
             "authority": {
                 "issued_by": issued_by,
                 "issued_on": issued_on,

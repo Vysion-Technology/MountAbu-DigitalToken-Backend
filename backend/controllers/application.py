@@ -29,6 +29,8 @@ from backend.schemas.request.application import (
     InspectionReportUpdate,
     PhaseMaterialEntry,
     PhaseStatusUpdateRequest,
+    PhaseCompleteRequest,
+    PhaseExtendValidityRequest,
 )
 from backend.schemas.response.application import (
     ApplicationResponse,
@@ -710,18 +712,20 @@ async def get_phases(
 async def complete_phase(
     application_id: int,
     phase: int,
+    body: Optional[PhaseCompleteRequest] = None,
     application_service: ApplicationService = Depends(get_application_service),
     db: AsyncSession = Depends(get_db),
     user: UserDetails = Depends(get_current_user),
 ) -> SuccessResponse:
-    """Mark a phase as completed and activate the next one."""
+    """Mark a phase as completed, roll over remaining materials, and activate the next one."""
     if user.role not in (UserRole.NODAL_OFFICER, UserRole.SUPERADMIN):
         raise HTTPException(
             status_code=403,
             detail="Only NODAL_OFFICER or SUPERADMIN can complete phases",
         )
+    remarks = body.remarks if body else None
     response = await application_service.complete_phase(
-        application_id, phase, user.user_id
+        application_id, phase, user.user_id, remarks=remarks
     )
     await audit_service.log(
         db,
@@ -732,6 +736,7 @@ async def complete_phase(
             "application_id": application_id,
             "phase": phase,
             "action": "completed",
+            "remarks": remarks,
         },
     )
     await db.commit()
@@ -773,6 +778,49 @@ async def update_phase_status(
             "application_id": application_id,
             "phase": phase,
             "target_status": request.status.value,
+        },
+    )
+    await db.commit()
+    return response
+
+
+@router.put(
+    "/applications/{application_id}/phases/{phase}/extend-validity",
+    response_model=SuccessResponse,
+)
+async def extend_token_validity(
+    application_id: int,
+    phase: int,
+    body: Optional[PhaseExtendValidityRequest] = None,
+    application_service: ApplicationService = Depends(get_application_service),
+    db: AsyncSession = Depends(get_db),
+    user: UserDetails = Depends(get_current_user),
+) -> SuccessResponse:
+    """
+    Nodal Officer or Superadmin can extend a token's validity by 30 days.
+    Only permitted for ACTIVE tokens expiring within the next 15 days.
+    """
+    if user.role not in (UserRole.NODAL_OFFICER, UserRole.SUPERADMIN):
+        raise HTTPException(
+            status_code=403,
+            detail="Only NODAL_OFFICER or SUPERADMIN can extend token validity",
+        )
+
+    remarks = body.remarks if body else None
+    response = await application_service.extend_token_validity(
+        application_id, phase, user.user_id, remarks=remarks
+    )
+
+    await audit_service.log(
+        db,
+        "APPLICATION_PHASE",
+        AuditAction.CHANGED,
+        user.user_id,
+        new_state={
+            "application_id": application_id,
+            "phase": phase,
+            "action": "extended_validity",
+            "remarks": remarks,
         },
     )
     await db.commit()

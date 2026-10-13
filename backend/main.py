@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import asyncio
 import subprocess
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -41,7 +42,22 @@ async def lifespan(app: FastAPI):
         print("Migrations completed successfully.")
     except Exception as e:
         print(f"Migration failed: {e}")
+
+    # Start background daily token expiry cron task
+    from backend.tasks.token_expiry import schedule_daily_token_expiry
+    from backend.tasks.weekly_alerts import schedule_weekly_authority_alerts
+    expiry_task = asyncio.create_task(schedule_daily_token_expiry())
+    alerts_task = asyncio.create_task(schedule_weekly_authority_alerts())
+
     yield
+
+    # Clean up background tasks on shutdown
+    expiry_task.cancel()
+    alerts_task.cancel()
+    try:
+        await asyncio.gather(expiry_task, alerts_task, return_exceptions=True)
+    except asyncio.CancelledError:
+        pass
 
 
 app = FastAPI(

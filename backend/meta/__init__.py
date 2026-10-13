@@ -63,6 +63,7 @@ class ApplicationPhaseStatus(str, PyEnum):
     TERMINATED = "TERMINATED"  # Token Termination
     IN_PROGRESS = "IN_PROGRESS"
     COMPLETED = "COMPLETED"
+    EXPIRED = "EXPIRED"
 
 
 class WorkflowAction(str, PyEnum):

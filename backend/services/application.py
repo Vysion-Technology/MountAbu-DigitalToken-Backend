@@ -421,10 +421,16 @@ class ApplicationService(BaseService):
         return [PhaseResponse.model_validate(p) for p in phases]
 
     async def complete_phase(
-        self, application_id: int, phase: int, user_id: int
+        self,
+        application_id: int,
+        phase: int,
+        user_id: int,
+        remarks: Optional[str] = None,
     ) -> SuccessResponse:
         """Mark a phase as completed."""
-        return await self.dao.complete_phase(application_id, phase, user_id)
+        return await self.dao.complete_phase(
+            application_id, phase, user_id, remarks=remarks
+        )
 
     async def update_phase_status(
         self,
@@ -436,6 +442,18 @@ class ApplicationService(BaseService):
         """Manually update a phase's status."""
         return await self.dao.update_phase_status(
             application_id, phase, request.status, user_id
+        )
+
+    async def extend_token_validity(
+        self,
+        application_id: int,
+        phase: int,
+        user_id: int,
+        remarks: Optional[str] = None,
+    ) -> SuccessResponse:
+        """Extend a token's validity by 30 days if expiring within 15 days."""
+        return await self.dao.extend_token_validity(
+            application_id, phase, user_id, remarks=remarks
         )
 
     # ── Token queries ─────────────────────────────────────────────────────

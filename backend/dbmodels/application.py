@@ -212,6 +212,7 @@ class ApprovedApplicationPhase(Base):
     )
     activated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    valid_till: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     application: Mapped["Application"] = relationship(
         "Application", back_populates="phases"

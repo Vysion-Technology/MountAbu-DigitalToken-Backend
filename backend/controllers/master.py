@@ -466,7 +466,7 @@ async def list_jens(
 @router.post("/slots", response_model=SlotDefinitionResponse)
 async def create_slot(
     slot: SlotDefinitionCreate,
-    current_user: UserDetails = Depends(get_superadmin),
+    current_user: UserDetails = Depends(get_admin_or_nodal),
     session: AsyncSession = Depends(get_db),
 ):
     response = await dao.create_slot(session, slot, created_by_id=current_user.user_id)
@@ -486,7 +486,11 @@ async def list_slots(
     session: AsyncSession = Depends(get_db),
     user: Optional[UserDetails] = Depends(get_optional_user),
 ):
-    active_only = True if not user or user.role != UserRole.SUPERADMIN else False
+    active_only = (
+        True
+        if not user or user.role not in (UserRole.SUPERADMIN, UserRole.ADMIN, UserRole.NODAL_OFFICER)
+        else False
+    )
     return await dao.list_slots(session, active_only=active_only)
 
 
@@ -494,7 +498,7 @@ async def list_slots(
 async def update_slot(
     slot_id: int,
     slot: SlotDefinitionUpdate,
-    current_user: UserDetails = Depends(get_superadmin),
+    current_user: UserDetails = Depends(get_admin_or_nodal),
     session: AsyncSession = Depends(get_db),
 ):
     updated = await dao.update_slot(session, slot_id, slot)
@@ -515,7 +519,7 @@ async def update_slot(
 @router.delete("/slots/{slot_id}")
 async def delete_slot(
     slot_id: int,
-    current_user: UserDetails = Depends(get_superadmin),
+    current_user: UserDetails = Depends(get_admin_or_nodal),
     session: AsyncSession = Depends(get_db),
 ):
     success = await dao.delete_slot(session, slot_id)
@@ -537,7 +541,7 @@ async def delete_slot(
 @router.post("/vehicle-types", response_model=VehicleTypeResponse)
 async def create_vehicle_type(
     vehicle_type: VehicleTypeCreate,
-    current_user: UserDetails = Depends(get_superadmin),
+    current_user: UserDetails = Depends(get_admin_or_nodal),
     session: AsyncSession = Depends(get_db),
 ):
     response = await dao.create_vehicle_type(
@@ -559,7 +563,11 @@ async def list_vehicle_types(
     session: AsyncSession = Depends(get_db),
     user: Optional[UserDetails] = Depends(get_optional_user),
 ):
-    active_only = True if not user or user.role != UserRole.SUPERADMIN else False
+    active_only = (
+        True
+        if not user or user.role not in (UserRole.SUPERADMIN, UserRole.ADMIN, UserRole.NODAL_OFFICER)
+        else False
+    )
     return await dao.list_vehicle_types(session, active_only=active_only)
 
 
@@ -567,7 +575,7 @@ async def list_vehicle_types(
 async def update_vehicle_type(
     type_id: int,
     vehicle_type: VehicleTypeUpdate,
-    current_user: UserDetails = Depends(get_superadmin),
+    current_user: UserDetails = Depends(get_admin_or_nodal),
     session: AsyncSession = Depends(get_db),
 ):
     updated = await dao.update_vehicle_type(session, type_id, vehicle_type)
@@ -588,7 +596,7 @@ async def update_vehicle_type(
 @router.delete("/vehicle-types/{type_id}")
 async def delete_vehicle_type(
     type_id: int,
-    current_user: UserDetails = Depends(get_superadmin),
+    current_user: UserDetails = Depends(get_admin_or_nodal),
     session: AsyncSession = Depends(get_db),
 ):
     success = await dao.delete_vehicle_type(session, type_id)
@@ -610,7 +618,7 @@ async def delete_vehicle_type(
 @router.post("/blackouts", response_model=ScheduleBlackoutResponse)
 async def create_blackout(
     blackout: ScheduleBlackoutCreate,
-    current_user: UserDetails = Depends(get_superadmin),
+    current_user: UserDetails = Depends(get_admin_or_nodal),
     session: AsyncSession = Depends(get_db),
 ):
     response = await dao.create_blackout(
@@ -671,7 +679,7 @@ async def list_blackouts(
 async def update_blackout(
     blackout_id: int,
     blackout: ScheduleBlackoutUpdate,
-    current_user: UserDetails = Depends(get_superadmin),
+    current_user: UserDetails = Depends(get_admin_or_nodal),
     session: AsyncSession = Depends(get_db),
 ):
     updated = await dao.update_blackout(session, blackout_id, blackout)
@@ -702,7 +710,7 @@ async def update_blackout(
 @router.delete("/blackouts/{blackout_id}")
 async def delete_blackout(
     blackout_id: int,
-    current_user: UserDetails = Depends(get_superadmin),
+    current_user: UserDetails = Depends(get_admin_or_nodal),
     session: AsyncSession = Depends(get_db),
 ):
     success = await dao.delete_blackout(session, blackout_id)
