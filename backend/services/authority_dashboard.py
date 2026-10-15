@@ -5,6 +5,7 @@ from typing import Optional
 
 from fastapi import Depends
 
+from backend.dao.application import ApplicationDAO
 from backend.dao.authority_dashboard import (
     AuthorityDashboardDAO,
     get_authority_dashboard_dao,
@@ -12,6 +13,7 @@ from backend.dao.authority_dashboard import (
 from backend.meta import UserRole, ApplicationType
 from backend.schemas.response.authority_dashboard import (
     AuthorityDashboardResponse,
+    AuthorityPendencyItem,
     AvgVerificationTimeTrend,
     CategoryCount,
     ComplaintRow,
@@ -50,22 +52,41 @@ class AuthorityDashboardService(BaseService):
 
         # Dispatch to role-specific builder
         if role == UserRole.SUPERADMIN:
-            return await self._superadmin(since, prev_start, prev_end, ward_id, department_id, application_type=application_type)
+            resp = await self._superadmin(since, prev_start, prev_end, ward_id, department_id, application_type=application_type)
         elif role == UserRole.JEN:
-            return await self._jen(user_id, since, days, ward_id)
+            resp = await self._jen(user_id, since, days, ward_id)
         elif role == UserRole.NAKA_INCHARGE:
-            return await self._naka(user_id, since)
+            resp = await self._naka(user_id, since)
         elif role == UserRole.COMMISSIONER:
-            return await self._complaint_officer(since, ward_id)
+            resp = await self._complaint_officer(since, ward_id)
         elif role in (UserRole.AEN, UserRole.RIN, UserRole.SIN):
-            return await self._complaint_officer(
+            resp = await self._complaint_officer(
                 since, ward_id, assigned_to_id=user_id, role=role
             )
         elif role == UserRole.NODAL_OFFICER:
-            return await self._superadmin(since, prev_start, prev_end, ward_id, department_id, role=role, application_type=application_type)
+            resp = await self._superadmin(since, prev_start, prev_end, ward_id, department_id, role=role, application_type=application_type)
         else:
             # DEPT_LAND / DEPT_LEGAL / DEPT_ATP / COLLECTOR → same as superadmin (read-only overview)
-            return await self._superadmin(since, prev_start, prev_end, ward_id, department_id, role=role, application_type=application_type)
+            resp = await self._superadmin(since, prev_start, prev_end, ward_id, department_id, role=role, application_type=application_type)
+
+        if role in (UserRole.SUPERADMIN, UserRole.COLLECTOR, UserRole.NODAL_OFFICER, UserRole.COMMISSIONER):
+            target_roles = [
+                UserRole.NODAL_OFFICER,
+                UserRole.COMMISSIONER,
+                UserRole.JEN,
+                UserRole.DEPT_LAND,
+                UserRole.DEPT_LEGAL,
+                UserRole.DEPT_ATP,
+            ]
+            if role == UserRole.COMMISSIONER:
+                target_roles = [r for r in target_roles if r != UserRole.NODAL_OFFICER]
+            app_dao = ApplicationDAO(self.dao.session)
+            pendency_raw = await app_dao.get_batch_authority_pending_stats(
+                target_roles, ward_id=ward_id, application_type=application_type
+            )
+            resp.authority_pendency = [AuthorityPendencyItem(**p) for p in pendency_raw]
+
+        return resp
 
     # ── builders ──────────────────────────────────────────────────────────
 

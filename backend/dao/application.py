@@ -648,116 +648,151 @@ class ApplicationDAO(BaseDAO):
 
         return responses, total_count
 
-    async def get_authority_pending_stats(
-        self, authority_role: UserRole
-    ) -> dict[str, int]:
-        """Compute pending, objected, and over 15 days application counts for a role."""
+    async def get_batch_authority_pending_stats(
+        self,
+        target_roles: list[UserRole],
+        ward_id: Optional[int] = None,
+        application_type: Optional[ApplicationType] = None,
+    ) -> list[dict]:
+        """Compute pending, objected, and over 15 days application counts for multiple authority roles in a single pass."""
         query = select(Application).options(*_APPLICATION_LOAD_OPTIONS).where(
             and_(
                 Application.status != ApplicationStatus.PENDING,
                 Application.status != ApplicationStatus.WITHDRAWN,
                 Application.status != ApplicationStatus.REJECTED,
-                Application.status != ApplicationStatus.TOKEN_GENERATED,
             )
         )
-        
+        if ward_id:
+            query = query.where(Application.ward_id == ward_id)
+        if application_type:
+            query = query.where(Application.type == application_type)
+
         all_applications = list((await self.session.scalars(query)).unique().all())
-        
-        pending_count = 0
-        objected_count = 0
-        over15days_count = 0
         now = datetime.now()
-        
+
+        role_stats: dict[UserRole, dict[str, int]] = {
+            r: {"pending": 0, "objected": 0, "over15days": 0} for r in target_roles
+        }
+
         for app in all_applications:
-            is_pending_for_role = False
-            pending_start_ts: Optional[datetime] = None
             is_obj = (app.status == ApplicationStatus.OBJECTED)
-            
-            if authority_role in (UserRole.NODAL_OFFICER, UserRole.SUPERADMIN):
-                is_pending_approval = (app.type == ApplicationType.NEW and app.status == ApplicationStatus.SUBMITTED)
-                
-                is_pending_token_gen = False
-                if app.status in (ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED) and app.phase_materials and len(app.phase_materials) > 0:
-                    phases = sorted(app.phases, key=lambda p: p.phase) if app.phases else []
-                    if not phases:
-                        is_pending_token_gen = True
-                    else:
-                        last_phase = phases[-1]
-                        if last_phase.status in (ApplicationPhaseStatus.COMPLETED, ApplicationPhaseStatus.TERMINATED):
+            for authority_role in target_roles:
+                is_pending_for_role = False
+                pending_start_ts: Optional[datetime] = None
+
+                if authority_role in (UserRole.NODAL_OFFICER, UserRole.SUPERADMIN):
+                    is_pending_approval = (app.type == ApplicationType.NEW and app.status == ApplicationStatus.SUBMITTED)
+                    is_pending_token_gen = False
+                    if app.status in (ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED) and app.phase_materials and len(app.phase_materials) > 0:
+                        phases = sorted(app.phases, key=lambda p: p.phase) if app.phases else []
+                        if not phases:
                             is_pending_token_gen = True
+                        else:
+                            last_phase = phases[-1]
+                            if last_phase.status in (ApplicationPhaseStatus.COMPLETED, ApplicationPhaseStatus.TERMINATED):
+                                is_pending_token_gen = True
 
-                if is_pending_approval:
-                    is_pending_for_role = True
-                    pending_start_ts = app.created_at
-                elif is_pending_token_gen:
-                    is_pending_for_role = True
-                    phases = sorted(app.phases, key=lambda p: p.phase) if app.phases else []
-                    if phases and phases[-1].completed_at:
-                        pending_start_ts = phases[-1].completed_at
-                    else:
-                        insp_ts = [i.inspected_at for i in app.inspections if i.inspected_at]
-                        pending_start_ts = max(insp_ts) if insp_ts else _get_app_last_updated_at(app)
-                elif app.status == ApplicationStatus.OBJECTED:
-                    pending_objs = [o for o in app.objections if o.status == ObjectionStatus.PENDING and o.objected_to_role in (UserRole.CITIZEN, UserRole.JEN)]
-                    if pending_objs:
-                        is_pending_for_role = True
-                        pending_start_ts = min([o.created_at for o in pending_objs if o.created_at])
-
-            elif authority_role == UserRole.COMMISSIONER:
-                if app.status == ApplicationStatus.OBJECTED:
-                    comm_objs = [o for o in app.objections if o.status == ObjectionStatus.PENDING and o.objected_to_role == UserRole.COMMISSIONER]
-                    if comm_objs:
-                        is_pending_for_role = True
-                        pending_start_ts = min([o.created_at for o in comm_objs if o.created_at])
-                    elif app.type == ApplicationType.RENOVATION:
-                        is_pending_for_role = True
-                        pending_start_ts = _get_app_last_updated_at(app)
-                elif app.type == ApplicationType.RENOVATION:
-                    if app.status == ApplicationStatus.SUBMITTED:
+                    if is_pending_approval:
                         is_pending_for_role = True
                         pending_start_ts = app.created_at
-                    elif app.status == ApplicationStatus.FORWARDED:
+                    elif is_pending_token_gen:
+                        is_pending_for_role = True
+                        phases = sorted(app.phases, key=lambda p: p.phase) if app.phases else []
+                        if phases and phases[-1].completed_at:
+                            pending_start_ts = phases[-1].completed_at
+                        else:
+                            insp_ts = [i.inspected_at for i in app.inspections if i.inspected_at]
+                            pending_start_ts = max(insp_ts) if insp_ts else _get_app_last_updated_at(app)
+                    elif is_obj:
+                        pending_objs = [o for o in app.objections if o.status == ObjectionStatus.PENDING and o.objected_to_role in (UserRole.CITIZEN, UserRole.JEN)]
+                        if pending_objs:
+                            is_pending_for_role = True
+                            pending_start_ts = min([o.created_at for o in pending_objs if o.created_at])
+
+                elif authority_role == UserRole.COMMISSIONER:
+                    if is_obj:
+                        comm_objs = [o for o in app.objections if o.status == ObjectionStatus.PENDING and o.objected_to_role == UserRole.COMMISSIONER]
+                        if comm_objs:
+                            is_pending_for_role = True
+                            pending_start_ts = min([o.created_at for o in comm_objs if o.created_at])
+                        elif app.type == ApplicationType.RENOVATION:
+                            is_pending_for_role = True
+                            pending_start_ts = _get_app_last_updated_at(app)
+                    elif app.type == ApplicationType.RENOVATION:
+                        if app.status == ApplicationStatus.SUBMITTED:
+                            is_pending_for_role = True
+                            pending_start_ts = app.created_at
+                        elif app.status == ApplicationStatus.FORWARDED:
+                            is_pending_for_role = True
+                            pending_start_ts = _get_app_last_updated_at(app)
+
+                elif authority_role == UserRole.JEN:
+                    if app.status in (ApplicationStatus.SUBMITTED, ApplicationStatus.FORWARDED, ApplicationStatus.APPROVED) and (not app.inspections or not app.phase_materials):
                         is_pending_for_role = True
                         pending_start_ts = _get_app_last_updated_at(app)
+                    elif is_obj:
+                        pending_objs = [o for o in app.objections if o.status == ObjectionStatus.PENDING and o.objected_to_role == UserRole.JEN]
+                        if pending_objs:
+                            is_pending_for_role = True
+                            pending_start_ts = min([o.created_at for o in pending_objs if o.created_at])
 
-            elif authority_role == UserRole.JEN:
-                if app.status in (ApplicationStatus.SUBMITTED, ApplicationStatus.FORWARDED, ApplicationStatus.APPROVED) and (not app.inspections or not app.phase_materials):
-                    is_pending_for_role = True
-                    pending_start_ts = _get_app_last_updated_at(app)
-                elif app.status == ApplicationStatus.OBJECTED:
-                    pending_objs = [o for o in app.objections if o.status == ObjectionStatus.PENDING and o.objected_to_role == UserRole.JEN]
-                    if pending_objs:
-                        is_pending_for_role = True
-                        pending_start_ts = min([o.created_at for o in pending_objs if o.created_at])
+                elif authority_role in (UserRole.DEPT_LAND, UserRole.DEPT_LEGAL, UserRole.DEPT_ATP):
+                    if app.type == ApplicationType.RENOVATION and app.status == ApplicationStatus.FORWARDED:
+                        commented_roles = {c.commenter.role for c in app.comments if c.commenter and c.commenter.role}
+                        if authority_role not in commented_roles:
+                            is_pending_for_role = True
+                            pending_start_ts = _get_app_last_updated_at(app)
+                    elif is_obj:
+                        pending_objs = [o for o in app.objections if o.status == ObjectionStatus.PENDING and o.objected_to_role == authority_role]
+                        if pending_objs:
+                            is_pending_for_role = True
+                            pending_start_ts = min([o.created_at for o in pending_objs if o.created_at])
 
-            elif authority_role in (UserRole.DEPT_LAND, UserRole.DEPT_LEGAL, UserRole.DEPT_ATP):
-                if app.type == ApplicationType.RENOVATION and app.status == ApplicationStatus.FORWARDED:
-                    commented_roles = {c.commenter.role for c in app.comments if c.commenter and c.commenter.role}
-                    if authority_role not in commented_roles:
-                        is_pending_for_role = True
-                        pending_start_ts = _get_app_last_updated_at(app)
-                elif app.status == ApplicationStatus.OBJECTED:
-                    pending_objs = [o for o in app.objections if o.status == ObjectionStatus.PENDING and o.objected_to_role == authority_role]
-                    if pending_objs:
-                        is_pending_for_role = True
-                        pending_start_ts = min([o.created_at for o in pending_objs if o.created_at])
+                if is_pending_for_role:
+                    if is_obj:
+                        role_stats[authority_role]["objected"] += 1
+                    else:
+                        role_stats[authority_role]["pending"] += 1
 
-            if is_pending_for_role:
-                if is_obj:
-                    objected_count += 1
-                else:
-                    pending_count += 1
-                
-                if pending_start_ts:
-                    days_elapsed = (now - pending_start_ts).days
-                    if days_elapsed > 15:
-                        over15days_count += 1
-                        
-        return {
-            "pending": pending_count,
-            "objected": objected_count,
-            "over15days": over15days_count
+                    if pending_start_ts:
+                        days_elapsed = (now - pending_start_ts).days
+                        if days_elapsed > 15:
+                            role_stats[authority_role]["over15days"] += 1
+
+        authority_role_display = {
+            UserRole.NODAL_OFFICER: "Nodal Officer",
+            UserRole.COMMISSIONER: "Commissioner",
+            UserRole.JEN: "Junior Engineer (JEN)",
+            UserRole.DEPT_LAND: "Land Department",
+            UserRole.DEPT_LEGAL: "Legal Department",
+            UserRole.DEPT_ATP: "Town Planning (ATP)",
         }
+
+        results = []
+        for role in target_roles:
+            st = role_stats[role]
+            results.append({
+                "role": role.value,
+                "name": authority_role_display.get(role, role.value),
+                "pending_count": st["pending"],
+                "objected_count": st["objected"],
+                "over_15_days_count": st["over15days"],
+                "total_count": st["pending"] + st["objected"],
+            })
+        return results
+
+    async def get_authority_pending_stats(
+        self, authority_role: UserRole
+    ) -> dict[str, int]:
+        """Compute pending, objected, and over 15 days application counts for a role."""
+        results = await self.get_batch_authority_pending_stats([authority_role])
+        if results:
+            return {
+                "pending": results[0]["pending_count"],
+                "objected": results[0]["objected_count"],
+                "over15days": results[0]["over_15_days_count"],
+            }
+        return {"pending": 0, "objected": 0, "over15days": 0}
 
     async def approve_application(self, application_id: int) -> SuccessResponse:
         """Approve an Application (legacy simple path, use perform_workflow_action instead)."""
