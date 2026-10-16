@@ -51,25 +51,39 @@ class UserService:
         if not user:
             return None
 
-        if name is not None:
+        should_invalidate_sessions = False
+
+        if name is not None and user.name != name:
             user.name = name
-        if mobile is not None:
+
+        if mobile is not None and user.mobile != mobile:
             user.mobile = mobile
-        if username is not None:
+            should_invalidate_sessions = True
+
+        if username is not None and user.username != username:
             user.username = username
-        if is_active is not None:
+            should_invalidate_sessions = True
+
+        if is_active is not None and user.is_active != is_active:
             user.is_active = is_active
-        if jurisdiction_zone is not None:
+            should_invalidate_sessions = True
+
+        if jurisdiction_zone is not None and user.jurisdiction_zone != jurisdiction_zone:
             user.jurisdiction_zone = jurisdiction_zone
+            should_invalidate_sessions = True
+
+        if should_invalidate_sessions:
+            user.token_version += 1
 
         session.add(user)
         return user
 
     async def delete_user(self, session: AsyncSession, user_id: int) -> bool:
-        """Soft delete a user by setting is_active to False."""
+        """Soft delete a user by setting is_active to False and invalidating active sessions."""
         user = await self.user_dao.get_by_id(session, user_id)
         if user:
             user.is_active = False
+            user.token_version += 1
             session.add(user)
             return True
         return False
@@ -103,6 +117,7 @@ class UserService:
         user = await self.user_dao.get_by_id(session, user_id)
         if user:
             user.password = get_password_hash(new_password)
+            user.token_version += 1
             session.add(user)
             await session.commit()
             return True
