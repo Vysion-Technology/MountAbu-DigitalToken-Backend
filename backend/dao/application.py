@@ -94,6 +94,10 @@ class ApplicationDAO(BaseDAO):
         st = application.status
         tp = application.type
 
+        is_emergency = getattr(application, "is_emergency_repair", False) is True
+        is_gov = getattr(application, "property_usage", None) == PropertyUsageType.GOVERNMENT
+        is_eligible_to_skip_jen = is_gov or (tp == ApplicationType.RENOVATION and is_emergency)
+
         # ── OBJECTED (both flows) ─────────────────────────────────────
         if st == ApplicationStatus.OBJECTED:
             if not application.objection_to_role or application.objection_to_role == UserRole.CITIZEN:
@@ -108,7 +112,7 @@ class ApplicationDAO(BaseDAO):
 
             elif st == ApplicationStatus.APPROVED:
                 has_inspection = len(application.inspections) > 0
-                if not has_inspection:
+                if not has_inspection and not is_gov:
                     flags.append(
                         ApplicationFlags.NEW_APPLICATION_REQUIRES_JEN_INSPECTION
                     )
@@ -128,6 +132,8 @@ class ApplicationDAO(BaseDAO):
         elif tp == ApplicationType.RENOVATION:
             if st == ApplicationStatus.SUBMITTED:
                 flags.append(ApplicationFlags.RENOVATION_REQUIRES_COMMISSIONER_FORWARD)
+                if is_emergency or is_gov:
+                    flags.append(ApplicationFlags.RENOVATION_REQUIRES_NODAL_OFFICER_ACTION)
 
             elif st == ApplicationStatus.FORWARDED:
                 # Check which depts have commented with DEPT_REVIEW type
@@ -178,7 +184,7 @@ class ApplicationDAO(BaseDAO):
 
             elif st == ApplicationStatus.APPROVED:
                 has_inspection = len(application.inspections) > 0
-                if not has_inspection:
+                if not has_inspection and not is_eligible_to_skip_jen:
                     flags.append(
                         ApplicationFlags.RENOVATION_REQUIRES_JEN_FIELD_INSPECTION
                     )
@@ -222,18 +228,22 @@ class ApplicationDAO(BaseDAO):
             else:
                 if user_role == UserRole.NODAL_OFFICER:
                     # 1. NEW in SUBMITTED (needing approval)
-                    # 2. NEW/RENOVATION in APPROVED (has inspection + phase materials, needs token generation)
-                    # 3. Next phase token generation (previous phase COMPLETED/TERMINATED, next phase not generated)
+                    # 2. RENOVATION in SUBMITTED (if emergency repair or government, needing approval)
+                    # 3. NEW/RENOVATION in APPROVED (has inspection + phase materials, or eligible to skip JEN, needs token generation)
+                    # 4. Next phase token generation (previous phase COMPLETED/TERMINATED, next phase not generated)
                     if tp == ApplicationType.NEW and st == ApplicationStatus.SUBMITTED:
                         is_pending_with_me = True
-                    elif st in (ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED) and len(application.inspections) > 0 and application.phase_materials:
-                        phases = sorted(application.phases, key=lambda p: p.phase) if application.phases else []
-                        if not phases:
-                            is_pending_with_me = True
-                        else:
-                            last_phase = phases[-1]
-                            if last_phase.status in (ApplicationPhaseStatus.COMPLETED, ApplicationPhaseStatus.TERMINATED):
+                    elif tp == ApplicationType.RENOVATION and st == ApplicationStatus.SUBMITTED and (is_emergency or is_gov):
+                        is_pending_with_me = True
+                    elif st in (ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED):
+                        if (len(application.inspections) > 0 and application.phase_materials) or is_eligible_to_skip_jen:
+                            phases = sorted(application.phases, key=lambda p: p.phase) if application.phases else []
+                            if not phases:
                                 is_pending_with_me = True
+                            else:
+                                last_phase = phases[-1]
+                                if last_phase.status in (ApplicationPhaseStatus.COMPLETED, ApplicationPhaseStatus.TERMINATED):
+                                    is_pending_with_me = True
                 
                 elif user_role == UserRole.COMMISSIONER:
                     # 1. RENOVATION in SUBMITTED (needing forwarding)
@@ -258,10 +268,10 @@ class ApplicationDAO(BaseDAO):
                     # 1. NEW in APPROVED and (no inspection or no phase materials)
                     # 2. RENOVATION in FORWARDED and (no inspection or no phase materials)
                     if tp == ApplicationType.NEW and st == ApplicationStatus.APPROVED:
-                        if len(application.inspections) == 0 or not application.phase_materials:
+                        if not is_eligible_to_skip_jen and (len(application.inspections) == 0 or not application.phase_materials):
                             is_pending_with_me = True
                     elif tp == ApplicationType.RENOVATION and st == ApplicationStatus.FORWARDED:
-                        if len(application.inspections) == 0 or not application.phase_materials:
+                        if not is_eligible_to_skip_jen and (len(application.inspections) == 0 or not application.phase_materials):
                             is_pending_with_me = True
                 
                 elif user_role in (UserRole.DEPT_ATP, UserRole.DEPT_LAND, UserRole.DEPT_LEGAL):
@@ -1024,43 +1034,63 @@ class ApplicationDAO(BaseDAO):
         if not application:
             raise HTTPException(status_code=404, detail="Application not found")
 
-        # ── RENOVATION flow validation: check department comments ────────────────
+        # ── RENOVATION flow validation ───────────────────────────────────────────
+        if (
+            application.type == ApplicationType.RENOVATION
+            and application.status == ApplicationStatus.SUBMITTED
+            and action == WorkflowAction.APPROVE
+        ):
+            is_eligible_direct = (
+                application.property_usage == PropertyUsageType.GOVERNMENT
+                or application.is_emergency_repair
+            )
+            if not is_eligible_direct:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Only Government or Emergency Repair renovation applications can be approved directly.",
+                )
+
         if (
             application.type == ApplicationType.RENOVATION
             and application.status == ApplicationStatus.FORWARDED
             and action == WorkflowAction.APPROVE
         ):
-            # A department review is any comment from a required role, 
-            # ideally of type DEPT_REVIEW but we accept GENERAL too for robustness.
-            dept_review_roles = {
-                c.commenter.role
-                for c in application.comments
-                if c.commenter.role in RENOVATION_DEPT_ROLES
-            }
-            if len(application.inspections) > 0:
-                dept_review_roles.add(UserRole.JEN)
-            
-            missing_depts = RENOVATION_DEPT_ROLES - dept_review_roles
-            if missing_depts:
-                missing_names = [r.value for r in sorted(list(missing_depts))]
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Cannot approve: missing department reviews from: {', '.join(missing_names)}",
-                )
+            is_eligible_to_skip_jen = (
+                application.property_usage == PropertyUsageType.GOVERNMENT
+                or application.is_emergency_repair
+            )
+            if not is_eligible_to_skip_jen:
+                # A department review is any comment from a required role, 
+                # ideally of type DEPT_REVIEW but we accept GENERAL too for robustness.
+                dept_review_roles = {
+                    c.commenter.role
+                    for c in application.comments
+                    if c.commenter.role in RENOVATION_DEPT_ROLES
+                }
+                if len(application.inspections) > 0:
+                    dept_review_roles.add(UserRole.JEN)
+                
+                missing_depts = RENOVATION_DEPT_ROLES - dept_review_roles
+                if missing_depts:
+                    missing_names = [r.value for r in sorted(list(missing_depts))]
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Cannot approve: missing department reviews from: {', '.join(missing_names)}",
+                    )
 
-            # Require JEN inspection for RENOVATION flow before approval
-            if len(application.inspections) == 0:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Cannot approve: JEN field inspection is not completed.",
-                )
+                # Require JEN inspection for RENOVATION flow before approval
+                if len(application.inspections) == 0:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Cannot approve: JEN field inspection is not completed.",
+                    )
 
-            # Require phase materials for RENOVATION flow before approval
-            if len(application.phase_materials) == 0:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Cannot approve: phase materials have not been entered.",
-                )
+                # Require phase materials for RENOVATION flow before approval
+                if len(application.phase_materials) == 0:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Cannot approve: phase materials have not been entered.",
+                    )
 
         # Validate via state machine (raises ValueError on failure)
         try:
@@ -1079,8 +1109,16 @@ class ApplicationDAO(BaseDAO):
                     status_code=400,
                     detail="phase is required for GENERATE_TOKENS and must be >= 1",
                 )
-            # Require JEN inspection for NEW and RENOVATION flow
-            if application.type in (ApplicationType.NEW, ApplicationType.RENOVATION) and not application.inspections:
+            # Require JEN inspection for NEW and RENOVATION flow (unless eligible for JEN skip)
+            is_eligible_to_skip_jen = (
+                application.property_usage == PropertyUsageType.GOVERNMENT
+                or (application.type == ApplicationType.RENOVATION and application.is_emergency_repair)
+            )
+            if (
+                application.type in (ApplicationType.NEW, ApplicationType.RENOVATION)
+                and not application.inspections
+                and not is_eligible_to_skip_jen
+            ):
                 raise HTTPException(
                     status_code=400,
                     detail="JEN inspection must be completed before generating tokens",
@@ -1393,6 +1431,11 @@ class ApplicationDAO(BaseDAO):
                 ApplicationPhaseMaterial.phase.in_(list(phases_to_update))
             )
             await self.session.execute(delete_stmt)
+
+            max_phase = max(phases_to_update)
+            current_num_stages = getattr(application, "num_stages", None)
+            if not isinstance(current_num_stages, int) or max_phase > current_num_stages:
+                application.num_stages = max_phase
 
         # Insert new/edited phase materials
         for pm_data in phase_materials:

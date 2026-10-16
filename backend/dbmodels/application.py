@@ -97,6 +97,7 @@ class Application(Base):
     type: Mapped[ApplicationType] = mapped_column(
         Enum(ApplicationType), index=True, default=ApplicationType.NEW
     )
+    is_emergency_repair: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     num_stages: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     created_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime, default=datetime.now, nullable=True

@@ -70,6 +70,7 @@ class ApplicationCreate(BaseModel):
     organization_name: Optional[str] = Field(None, description="Organization Name")
 
     type: ApplicationType = Field(..., description="Application Type")
+    is_emergency_repair: bool = Field(False, description="Emergency Repair flag (Renovation only)")
     description: Optional[str] = Field(None, description="Application Description")
     material_requirements: Optional[list[ApplicationMaterialRequirements]] = Field(
         default_factory=list, description="Application Material Requirements"
@@ -77,6 +78,9 @@ class ApplicationCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_structure_and_floor(self) -> "ApplicationCreate":
+        if self.type != ApplicationType.RENOVATION:
+            self.is_emergency_repair = False
+
         # Property usage organization name validation
         if self.property_usage in (PropertyUsageType.COMMERCIAL, PropertyUsageType.GOVERNMENT):
             if not self.organization_name or not self.organization_name.strip():

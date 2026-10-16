@@ -578,6 +578,7 @@ class ApplicationResponse(BaseModel):
     work_description: Optional[str] = None
     status: ApplicationStatus
     type: ApplicationType
+    is_emergency_repair: bool = False
     num_stages: Optional[int]
     created_at: Optional[datetime] = None
     documents: List[ApplicationDocumentResponse] = []
