@@ -463,7 +463,7 @@ class MasterDataDAO:
         )
         if active_only:
             stmt = stmt.where(ScheduleBlackout.is_active == True)
-        stmt = stmt.order_by(ScheduleBlackout.blackout_date.asc())
+        stmt = stmt.order_by(ScheduleBlackout.blackout_date.desc(), ScheduleBlackout.id.desc())
         result = await session.execute(stmt)
         return list(result.scalars().all())
 
