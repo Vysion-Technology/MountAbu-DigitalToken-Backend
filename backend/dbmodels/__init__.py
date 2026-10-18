@@ -12,6 +12,7 @@ from .application import (
     VehicleEntry,
     VehicleMaterial,
     VehicleEntryDumpingPhoto,
+    PhaseUtilizationProof,
 )
 from .master import (
     Ward,
@@ -46,6 +47,7 @@ __all__ = [
     "VehicleEntry",
     "VehicleMaterial",
     "VehicleEntryDumpingPhoto",
+    "PhaseUtilizationProof",
     # Master Data
     "Ward",
     "Department",

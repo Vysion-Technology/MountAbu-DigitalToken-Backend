@@ -34,8 +34,8 @@ from backend.meta import (
     VehicleScheduleStatus,
     ScheduleComplianceStatus,
 )
-from backend.schemas.request.application import ApplicationCreate
-from backend.schemas.response.application import ApplicationResponse
+from backend.schemas.request.application import ApplicationCreate, PhaseUtilizationProofCreate
+from backend.schemas.response.application import ApplicationResponse, PhaseUtilizationProofResponse
 from backend.schemas.response.meta import SuccessResponse
 from backend.dbmodels.application import (
     Application,
@@ -46,6 +46,7 @@ from backend.dbmodels.application import (
     ApprovedApplicationPhase,
     Material,
     ApplicationObjection,
+    PhaseUtilizationProof,
 )
 from backend.meta import (
     ApplicationDocumentType,
@@ -73,6 +74,7 @@ _APPLICATION_LOAD_OPTIONS = [
     selectinload(Application.action_logs).selectinload(ApplicationActionLog.performer),
     selectinload(Application.objections).selectinload(ApplicationObjection.objected_by_user),
     selectinload(Application.objections).selectinload(ApplicationObjection.resolved_by_user),
+    selectinload(Application.utilization_proofs).selectinload(PhaseUtilizationProof.submitted_by),
 ]
 
 
@@ -1151,6 +1153,15 @@ class ApplicationDAO(BaseDAO):
                         status_code=400,
                         detail=f"Cannot generate Phase {phase}: Phase {phase - 1} is '{prev_phase.status.value}', must be COMPLETED or TERMINATED.",
                     )
+                if prev_phase.status == ApplicationPhaseStatus.COMPLETED:
+                    has_proof = any(
+                        up.phase == phase - 1 for up in (application.utilization_proofs or [])
+                    )
+                    if not has_proof:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Cannot generate Phase {phase}: Utilization proof (photos & self-assessment) for Phase {phase - 1} has not been submitted by user yet.",
+                        )
 
             if not application.num_stages or phase > application.num_stages:
                 application.num_stages = phase
@@ -2501,6 +2512,11 @@ class ApplicationDAO(BaseDAO):
         stmt = (
             select(ApprovedApplicationPhase)
             .where(ApprovedApplicationPhase.application_id == application_id)
+            .options(
+                selectinload(ApprovedApplicationPhase.utilization_proof).selectinload(
+                    PhaseUtilizationProof.submitted_by
+                )
+            )
             .order_by(ApprovedApplicationPhase.phase)
         )
         result = await self.session.execute(stmt)
@@ -2616,17 +2632,7 @@ class ApplicationDAO(BaseDAO):
         phase_record.status = ApplicationPhaseStatus.COMPLETED
         phase_record.completed_at = datetime.now()
 
-        # Activate next phase if exists in PENDING status
-        if not is_final_phase:
-            next_stmt = select(ApprovedApplicationPhase).where(
-                ApprovedApplicationPhase.application_id == application_id,
-                ApprovedApplicationPhase.phase == phase_num + 1,
-            )
-            next_result = await self.session.execute(next_stmt)
-            next_phase = next_result.scalar_one_or_none()
-            if next_phase and next_phase.status == ApplicationPhaseStatus.PENDING:
-                next_phase.status = ApplicationPhaseStatus.ACTIVE
-                next_phase.activated_at = datetime.now()
+        # Next phase remains PENDING until citizen submits utilization proof for this completed phase
 
         # Audit log
         log_remarks = remarks
@@ -2681,6 +2687,24 @@ class ApplicationDAO(BaseDAO):
         phase_record.status = status
 
         if status == ApplicationPhaseStatus.ACTIVE and old_status != ApplicationPhaseStatus.ACTIVE:
+            if phase_num > 1:
+                prev_stmt = select(ApprovedApplicationPhase).where(
+                    ApprovedApplicationPhase.application_id == application_id,
+                    ApprovedApplicationPhase.phase == phase_num - 1,
+                )
+                prev_res = await self.session.execute(prev_stmt)
+                prev_phase = prev_res.scalar_one_or_none()
+                if prev_phase and prev_phase.status == ApplicationPhaseStatus.COMPLETED:
+                    proof_stmt = select(PhaseUtilizationProof).where(
+                        PhaseUtilizationProof.application_id == application_id,
+                        PhaseUtilizationProof.phase == phase_num - 1,
+                    )
+                    proof_res = await self.session.execute(proof_stmt)
+                    if not proof_res.scalar_one_or_none():
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Cannot activate Phase {phase_num}: Utilization proof for Phase {phase_num - 1} has not been submitted by user yet.",
+                        )
             if not phase_record.activated_at:
                 phase_record.activated_at = datetime.now()
 
@@ -2920,6 +2944,12 @@ class ApplicationDAO(BaseDAO):
                 phase_rec.application_id, phase_rec.phase
             )
 
+            has_proof = False
+            if hasattr(phase_rec.application, "utilization_proofs") and phase_rec.application.utilization_proofs:
+                has_proof = any(up.phase == phase_rec.phase for up in phase_rec.application.utilization_proofs)
+            elif getattr(phase_rec, "utilization_proof", None):
+                has_proof = True
+
             tokens.append(
                 {
                     "transport_code": transport_code,
@@ -2929,6 +2959,7 @@ class ApplicationDAO(BaseDAO):
                     "remaining_quantity_pct": remaining_pct,
                     "valid_till": valid_till,
                     "status": token_status,
+                    "has_utilization_proof": has_proof,
                     "applicant_name": phase_rec.application.applicant_name,
                     "mobile": phase_rec.application.mobile,
                 }
@@ -3338,6 +3369,104 @@ class ApplicationDAO(BaseDAO):
             "materials": materials_list
         }
 
+    async def submit_phase_utilization_proof(
+        self,
+        application_id: int,
+        phase_num: int,
+        user_id: int,
+        data: PhaseUtilizationProofCreate,
+    ) -> PhaseUtilizationProofResponse:
+        """Submit citizen self-assessment and photos as utilization proof for a phase."""
+        # 1. Verify application exists
+        app_stmt = (
+            select(Application)
+            .where(Application.id == application_id)
+            .options(*_APPLICATION_LOAD_OPTIONS)
+        )
+        app_res = await self.session.execute(app_stmt)
+        application = app_res.scalar_one_or_none()
+        if not application:
+            raise HTTPException(status_code=404, detail="Application not found")
+
+        # 2. Verify phase exists
+        phase_rec = next((p for p in application.phases if p.phase == phase_num), None)
+        if not phase_rec:
+            raise HTTPException(status_code=404, detail=f"Phase {phase_num} not found")
+
+        # 3. Check existing proof or create
+        existing_stmt = select(PhaseUtilizationProof).where(
+            PhaseUtilizationProof.application_id == application_id,
+            PhaseUtilizationProof.phase == phase_num,
+        )
+        existing_res = await self.session.execute(existing_stmt)
+        proof = existing_res.scalar_one_or_none()
+
+        if proof:
+            proof.work_completion_details = data.work_completion_details
+            proof.completion_percentage = data.completion_percentage
+            proof.declaration_accepted = data.declaration_accepted
+            proof.remarks = data.remarks
+            proof.photos = data.photos or proof.photos
+            proof.submitted_by_id = user_id
+            proof.submitted_at = datetime.now()
+        else:
+            proof = PhaseUtilizationProof(
+                application_id=application_id,
+                phase=phase_num,
+                work_completion_details=data.work_completion_details,
+                completion_percentage=data.completion_percentage,
+                declaration_accepted=data.declaration_accepted,
+                remarks=data.remarks,
+                photos=data.photos or [],
+                submitted_by_id=user_id,
+                submitted_at=datetime.now(),
+            )
+            self.session.add(proof)
+
+        # Audit log
+        self.session.add(
+            ApplicationActionLog(
+                application_id=application_id,
+                action=WorkflowAction.APPROVE,
+                from_status=application.status,
+                to_status=application.status,
+                performed_by=user_id,
+                performed_at=datetime.now(),
+                remarks=f"Citizen submitted Phase {phase_num} utilization proof ({data.completion_percentage or 100}% progress reported)",
+                phase=phase_num,
+            )
+        )
+
+        await self.session.commit()
+        await self.session.refresh(proof)
+
+        # Re-fetch with submitted_by relationship loaded
+        stmt = (
+            select(PhaseUtilizationProof)
+            .where(PhaseUtilizationProof.id == proof.id)
+            .options(joinedload(PhaseUtilizationProof.submitted_by))
+        )
+        res = await self.session.execute(stmt)
+        full_proof = res.scalar_one()
+
+        return PhaseUtilizationProofResponse.model_validate(full_proof)
+
+    async def get_phase_utilization_proof(
+        self, application_id: int, phase_num: int
+    ) -> Optional[PhaseUtilizationProofResponse]:
+        stmt = (
+            select(PhaseUtilizationProof)
+            .where(
+                PhaseUtilizationProof.application_id == application_id,
+                PhaseUtilizationProof.phase == phase_num,
+            )
+            .options(joinedload(PhaseUtilizationProof.submitted_by))
+        )
+        res = await self.session.execute(stmt)
+        proof = res.scalar_one_or_none()
+        if not proof:
+            return None
+        return PhaseUtilizationProofResponse.model_validate(proof)
 
 
 async def get_application_dao(

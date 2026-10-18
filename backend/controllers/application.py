@@ -31,12 +31,14 @@ from backend.schemas.request.application import (
     PhaseStatusUpdateRequest,
     PhaseCompleteRequest,
     PhaseExtendValidityRequest,
+    PhaseUtilizationProofCreate,
 )
 from backend.schemas.response.application import (
     ApplicationResponse,
     ApplicationPaginatedResponse,
     CommentResponse,
     PhaseResponse,
+    PhaseUtilizationProofResponse,
     TokenResponse,
     TokenListResponse,
     TokenDetailResponse,
@@ -825,6 +827,39 @@ async def extend_token_validity(
     )
     await db.commit()
     return response
+
+
+@router.post(
+    "/applications/{application_id}/phases/{phase}/utilization-proof",
+    response_model=PhaseUtilizationProofResponse,
+)
+async def submit_phase_utilization_proof(
+    application_id: int,
+    phase: int,
+    data: PhaseUtilizationProofCreate,
+    application_service: ApplicationService = Depends(get_application_service),
+    user_id: int = Depends(get_current_user_id),
+) -> PhaseUtilizationProofResponse:
+    """Submit citizen utilization proof (photos & self-assessment form) for a phase."""
+    return await application_service.submit_phase_utilization_proof(
+        application_id, phase, user_id, data
+    )
+
+
+@router.get(
+    "/applications/{application_id}/phases/{phase}/utilization-proof",
+    response_model=Optional[PhaseUtilizationProofResponse],
+)
+async def get_phase_utilization_proof(
+    application_id: int,
+    phase: int,
+    application_service: ApplicationService = Depends(get_application_service),
+    user: UserDetails = Depends(get_current_user),
+) -> Optional[PhaseUtilizationProofResponse]:
+    """Get citizen utilization proof for a phase."""
+    return await application_service.get_phase_utilization_proof(
+        application_id, phase
+    )
 
 
 @router.put("/applications/{application_id}/comment", response_model=SuccessResponse)

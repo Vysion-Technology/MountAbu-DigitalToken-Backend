@@ -264,6 +264,16 @@ class NakaEntryCreate(BaseModel):
     )
 
 
+class PhaseUtilizationProofCreate(BaseModel):
+    """Schema for submitting utilization proof (photos & self-assessment) for a phase."""
+
+    work_completion_details: str = Field(..., description="Details of construction/renovation work completed")
+    completion_percentage: Optional[int] = Field(None, ge=0, le=100, description="Estimated work completion percentage (0-100)")
+    declaration_accepted: bool = Field(True, description="Self-declaration that all materials were utilized at sanctioned site")
+    remarks: Optional[str] = Field(None, description="Optional remarks")
+    photos: List[str] = Field(default_factory=list, description="List of uploaded photo storage paths")
+
 
 # Resolve forward reference
 WorkflowActionRequest.model_rebuild()
+
