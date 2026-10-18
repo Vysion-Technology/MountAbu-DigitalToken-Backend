@@ -51,6 +51,8 @@ class Application(Base):
 
     # Property & Work Details
     property_address: Mapped[str] = mapped_column(String)
+    latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     title: Mapped[str] = mapped_column(
         String, index=True
     )  # Keeping original title field

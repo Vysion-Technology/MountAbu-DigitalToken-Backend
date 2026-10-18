@@ -54,6 +54,8 @@ class ApplicationCreate(BaseModel):
 
     # Property & Work Details
     property_address: str = Field(..., description="Property Address")
+    latitude: Optional[float] = Field(None, description="Pinned Latitude on Map")
+    longitude: Optional[float] = Field(None, description="Pinned Longitude on Map")
     title: str = Field(..., description="Application Title")
     work_description: str = Field(..., description="Work Description")
     contractor_name: Optional[str] = Field(None, description="Contractor Name")

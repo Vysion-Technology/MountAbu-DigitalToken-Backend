@@ -561,6 +561,8 @@ class ApplicationResponse(BaseModel):
     email: Optional[str] = None
     property_address: str
     current_address: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     is_agriculture_land: bool
     property_usage: PropertyUsageType
     existing_structure: Optional[StructureType] = None
