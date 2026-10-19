@@ -283,7 +283,7 @@ async def get_applications(
         None, description="Citizen user ID (required when flag=CITIZEN)"
     ),
     primary_tab: Optional[str] = Query(
-        None, description="Primary tab mode: PENDING, COMPLETED, SUBMISSION_DAYS"
+        None, description="Primary tab mode: PENDING, COMPLETED, SUBMISSION_DAYS, OVERDUE"
     ),
     authority_role: Optional[UserRole] = Query(
         None, description="Target authority role for PENDING/COMPLETED tabs"

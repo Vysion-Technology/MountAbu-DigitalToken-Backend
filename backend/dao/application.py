@@ -628,6 +628,21 @@ class ApplicationDAO(BaseDAO):
                 if not is_completed_by_role:
                     continue
 
+            # Primary Tab D: OVERDUE (>21 Days) with Department (Land, Legal, ATP, JEN)
+            elif primary_tab == "OVERDUE":
+                from backend.core.overdue import compute_overdue_info, DEPT_DISPLAY_NAMES
+                is_overdue, overdue_depts, _ = compute_overdue_info(app, now)
+                if not is_overdue:
+                    continue
+                if authority_role:
+                    try:
+                        role_enum = authority_role if isinstance(authority_role, UserRole) else UserRole(authority_role)
+                        target_name = DEPT_DISPLAY_NAMES.get(role_enum)
+                        if target_name and target_name not in overdue_depts:
+                            continue
+                    except (ValueError, KeyError):
+                        pass
+
             matched_apps.append(app)
 
         total_count = len(matched_apps)

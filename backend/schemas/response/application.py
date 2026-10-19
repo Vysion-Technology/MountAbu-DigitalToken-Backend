@@ -658,6 +658,9 @@ class ApplicationResponse(BaseModel):
     utilization_proofs: List[PhaseUtilizationProofResponse] = []
     rejection_remarks: Optional[str] = None
     objection_to_role: Optional[str] = None
+    is_overdue: bool = False
+    overdue_departments: List[str] = []
+    max_overdue_days: Optional[int] = None
 
     model_config = ConfigDict(extra="ignore", from_attributes=True)
 
@@ -720,6 +723,10 @@ class ApplicationResponse(BaseModel):
                         rejection_remarks = remarks
                         break
 
+        # Compute overdue info for Land, Legal, ATP, JEN (> 21 days)
+        from backend.core.overdue import compute_overdue_info
+        is_overdue, overdue_depts, max_days = compute_overdue_info(data)
+
         # Return dict or updated dict
         from backend.meta import ApplicationDocumentType
 
@@ -727,6 +734,9 @@ class ApplicationResponse(BaseModel):
             d = {k: getattr(data, k, None) for k in data.__dict__.keys() if not k.startswith("_")}
             d["ward_zone"] = ward_name
             d["rejection_remarks"] = rejection_remarks
+            d["is_overdue"] = is_overdue
+            d["overdue_departments"] = overdue_depts
+            d["max_overdue_days"] = max_days
             # Copy other attributes that may be descriptors/properties
             for field in cls.model_fields.keys():
                 if field not in d and hasattr(data, field):
@@ -743,6 +753,9 @@ class ApplicationResponse(BaseModel):
         elif isinstance(data, dict):
             data["ward_zone"] = ward_name
             data["rejection_remarks"] = rejection_remarks
+            data["is_overdue"] = is_overdue
+            data["overdue_departments"] = overdue_depts
+            data["max_overdue_days"] = max_days
             if data.get("documents"):
                 data["documents"] = [
                     doc for doc in data["documents"]
