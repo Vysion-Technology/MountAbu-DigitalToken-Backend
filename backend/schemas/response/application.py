@@ -287,7 +287,15 @@ class PhaseResponse(BaseModel):
         if app_id is not None and phase is not None:
             if hasattr(data, "__dict__"):
                 # ORM model — convert to dict for mutation
-                proof = getattr(data, "utilization_proof", None)
+                from sqlalchemy import inspect as sa_inspect
+
+                insp = sa_inspect(data, raiseerr=False)
+                proof = None
+                if insp and "utilization_proof" in insp.dict:
+                    proof = insp.dict["utilization_proof"]
+                elif not (insp and "utilization_proof" in getattr(insp, "unloaded", set())):
+                    proof = getattr(data, "utilization_proof", None)
+
                 d = {
                     "id": data.id,
                     "application_id": app_id,

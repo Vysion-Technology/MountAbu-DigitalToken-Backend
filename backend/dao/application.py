@@ -67,7 +67,7 @@ _APPLICATION_LOAD_OPTIONS = [
     selectinload(Application.documents),
     selectinload(Application.materials).selectinload(ApplicationMaterial.material),
     selectinload(Application.comments).selectinload(ApplicationComment.commenter),
-    selectinload(Application.phases),
+    selectinload(Application.phases).selectinload(ApprovedApplicationPhase.utilization_proof),
     selectinload(Application.phase_materials).selectinload(ApplicationPhaseMaterial.material),
     selectinload(Application.inspections).selectinload(InspectionReport.inspector),
     selectinload(Application.vehicle_entries).selectinload(VehicleEntry.materials).selectinload(VehicleMaterial.material),
@@ -2905,6 +2905,22 @@ class ApplicationDAO(BaseDAO):
         for row in brought_result:
             brought_map[(row.application_id, row.phase)] = row.total_brought
 
+        # Bulk-fetch applicant name and mobile to avoid lazy-loading phase_rec.application
+        app_stmt = select(Application.id, Application.applicant_name, Application.mobile).where(
+            Application.id.in_(app_ids)
+        )
+        app_result = await self.session.execute(app_stmt)
+        app_map: dict[int, tuple[str, str]] = {
+            row.id: (row.applicant_name or "", row.mobile or "") for row in app_result
+        }
+
+        # Bulk-fetch utilization proof existence for all app_ids
+        proof_stmt = select(
+            PhaseUtilizationProof.application_id, PhaseUtilizationProof.phase
+        ).where(PhaseUtilizationProof.application_id.in_(app_ids))
+        proof_result = await self.session.execute(proof_stmt)
+        proof_set = {(row.application_id, row.phase) for row in proof_result}
+
         tokens: list[dict] = []
         for phase_rec in phases:
             key = (phase_rec.application_id, phase_rec.phase)
@@ -2944,11 +2960,8 @@ class ApplicationDAO(BaseDAO):
                 phase_rec.application_id, phase_rec.phase
             )
 
-            has_proof = False
-            if hasattr(phase_rec.application, "utilization_proofs") and phase_rec.application.utilization_proofs:
-                has_proof = any(up.phase == phase_rec.phase for up in phase_rec.application.utilization_proofs)
-            elif getattr(phase_rec, "utilization_proof", None):
-                has_proof = True
+            has_proof = key in proof_set
+            applicant_name, mobile = app_map.get(phase_rec.application_id, ("", ""))
 
             tokens.append(
                 {
@@ -2960,8 +2973,8 @@ class ApplicationDAO(BaseDAO):
                     "valid_till": valid_till,
                     "status": token_status,
                     "has_utilization_proof": has_proof,
-                    "applicant_name": phase_rec.application.applicant_name,
-                    "mobile": phase_rec.application.mobile,
+                    "applicant_name": applicant_name,
+                    "mobile": mobile,
                 }
             )
 
