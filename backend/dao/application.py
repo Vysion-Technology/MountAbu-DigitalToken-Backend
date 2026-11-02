@@ -48,6 +48,8 @@ from backend.dbmodels.application import (
     ApplicationObjection,
     PhaseUtilizationProof,
 )
+from backend.dbmodels.notification import Notification
+from backend.dbmodels.user import User
 from backend.meta import (
     ApplicationDocumentType,
     ApplicationFlags,
@@ -576,6 +578,10 @@ class ApplicationDAO(BaseDAO):
                             else:
                                 insp_ts = [i.inspected_at for i in app.inspections if i.inspected_at]
                                 pending_start_ts = max(insp_ts) if insp_ts else _get_app_last_updated_at(app)
+                    elif action_name == "PENDING_OBJECTION_CLEAR":
+                        if is_pending_objection:
+                            is_pending_for_role = True
+                            pending_start_ts = min([o.created_at for o in pending_objs if o.created_at])
                     else:
                         if is_pending_approval:
                             is_pending_for_role = True
@@ -593,22 +599,29 @@ class ApplicationDAO(BaseDAO):
                             pending_start_ts = min([o.created_at for o in pending_objs if o.created_at])
 
                 elif authority_role == UserRole.COMMISSIONER:
-                    if app.status == ApplicationStatus.OBJECTED:
-                        # If there is a pending objection specifically sent to the Commissioner
-                        comm_objs = [o for o in app.objections if o.status == ObjectionStatus.PENDING and o.objected_to_role == UserRole.COMMISSIONER]
-                        if comm_objs:
+                    comm_objs = [o for o in app.objections if o.status == ObjectionStatus.PENDING and o.objected_to_role == UserRole.COMMISSIONER]
+                    is_pending_comm_obj = bool(comm_objs)
+
+                    if action_name == "PENDING_OBJECTION_CLEAR":
+                        if app.status == ApplicationStatus.OBJECTED and is_pending_comm_obj:
                             is_pending_for_role = True
                             pending_start_ts = min([o.created_at for o in comm_objs if o.created_at])
+                    else:
+                        if app.status == ApplicationStatus.OBJECTED:
+                            # If there is a pending objection specifically sent to the Commissioner
+                            if comm_objs:
+                                is_pending_for_role = True
+                                pending_start_ts = min([o.created_at for o in comm_objs if o.created_at])
+                            elif app.type == ApplicationType.RENOVATION:
+                                is_pending_for_role = True
+                                pending_start_ts = _get_app_last_updated_at(app)
                         elif app.type == ApplicationType.RENOVATION:
-                            is_pending_for_role = True
-                            pending_start_ts = _get_app_last_updated_at(app)
-                    elif app.type == ApplicationType.RENOVATION:
-                        if app.status == ApplicationStatus.SUBMITTED:
-                            is_pending_for_role = True
-                            pending_start_ts = app.created_at
-                        elif app.status == ApplicationStatus.FORWARDED:
-                            is_pending_for_role = True
-                            pending_start_ts = _get_app_last_updated_at(app)
+                            if app.status == ApplicationStatus.SUBMITTED:
+                                is_pending_for_role = True
+                                pending_start_ts = app.created_at
+                            elif app.status == ApplicationStatus.FORWARDED:
+                                is_pending_for_role = True
+                                pending_start_ts = _get_app_last_updated_at(app)
 
                 elif authority_role == UserRole.JEN:
                     if app.status in (ApplicationStatus.SUBMITTED, ApplicationStatus.FORWARDED, ApplicationStatus.APPROVED) and (not app.inspections or not app.phase_materials):
@@ -1579,6 +1592,29 @@ class ApplicationDAO(BaseDAO):
                         )
                     )
 
+        # If application is in OBJECTED state with objection to JEN, notify the objector(s)
+        if application.status == ApplicationStatus.OBJECTED:
+            year = application.created_at.year if application.created_at else datetime.now().year
+            app_number = f"APP-{year}-{application_id:05d}"
+            obj_stmt = select(ApplicationObjection).where(
+                ApplicationObjection.application_id == application_id,
+                ApplicationObjection.status == ObjectionStatus.PENDING,
+                ApplicationObjection.objected_to_role == UserRole.JEN,
+            )
+            obj_res = await self.session.execute(obj_stmt)
+            for pending_obj in obj_res.scalars().all():
+                if pending_obj.objected_by_id:
+                    self.session.add(
+                        Notification(
+                            user_id=pending_obj.objected_by_id,
+                            application_id=application_id,
+                            title="Objection Response Received",
+                            message=f"JEN has submitted inspection for application {app_number}.",
+                            is_read=False,
+                            created_at=datetime.now(),
+                        )
+                    )
+
         await self.session.commit()
         return SuccessResponse(message="Inspection report created successfully")
 
@@ -1637,6 +1673,30 @@ class ApplicationDAO(BaseDAO):
 
         inspection.inspected_by = user_id
         inspection.inspected_at = datetime.now()
+
+        # If application is in OBJECTED state with objection to JEN, notify the objector(s)
+        if application.status == ApplicationStatus.OBJECTED:
+            year = application.created_at.year if application.created_at else datetime.now().year
+            app_number = f"APP-{year}-{application_id:05d}"
+            # Find active objections to JEN
+            obj_stmt = select(ApplicationObjection).where(
+                ApplicationObjection.application_id == application_id,
+                ApplicationObjection.status == ObjectionStatus.PENDING,
+                ApplicationObjection.objected_to_role == UserRole.JEN,
+            )
+            obj_res = await self.session.execute(obj_stmt)
+            for pending_obj in obj_res.scalars().all():
+                if pending_obj.objected_by_id:
+                    self.session.add(
+                        Notification(
+                            user_id=pending_obj.objected_by_id,
+                            application_id=application_id,
+                            title="Objection Response Received",
+                            message=f"JEN has updated inspection for application {app_number}.",
+                            is_read=False,
+                            created_at=datetime.now(),
+                        )
+                    )
 
         await self.session.commit()
         return SuccessResponse(message="Inspection report updated successfully")
@@ -2890,6 +2950,42 @@ class ApplicationDAO(BaseDAO):
                 created_at=datetime.now(),
             )
         )
+
+        # If application is in OBJECTED status and commenter is the respondent (citizen or objected role),
+        # push a notification to the authority who raised the objection.
+        if application.status == ApplicationStatus.OBJECTED:
+            commenter = await self.session.get(User, user_id)
+            if commenter:
+                year = application.created_at.year if application.created_at else datetime.now().year
+                app_number = f"APP-{year}-{application_id:05d}"
+                is_citizen_owner = (application.user_id == user_id)
+                
+                # Check pending objections matching this respondent
+                obj_stmt = select(ApplicationObjection).where(
+                    ApplicationObjection.application_id == application_id,
+                    ApplicationObjection.status == ObjectionStatus.PENDING,
+                )
+                obj_res = await self.session.execute(obj_stmt)
+                for pending_obj in obj_res.scalars().all():
+                    is_targeted = False
+                    if is_citizen_owner and pending_obj.objected_to_role == UserRole.CITIZEN:
+                        is_targeted = True
+                    elif pending_obj.objected_to_role == commenter.role:
+                        is_targeted = True
+
+                    if is_targeted and pending_obj.objected_by_id and pending_obj.objected_by_id != user_id:
+                        responder_name = commenter.name or commenter.role.value
+                        self.session.add(
+                            Notification(
+                                user_id=pending_obj.objected_by_id,
+                                application_id=application_id,
+                                title="Objection Response Received",
+                                message=f"{responder_name} responded to objection on application {app_number}.",
+                                is_read=False,
+                                created_at=datetime.now(),
+                            )
+                        )
+
         await self.session.commit()
         return SuccessResponse(message="Comment added successfully")
 

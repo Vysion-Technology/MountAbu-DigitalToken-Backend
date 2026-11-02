@@ -28,6 +28,7 @@ from .download import Download
 from .notice import Notice
 from .audit_log import AuditLog
 from .contact_diary import ContactDiary
+from .notification import Notification
 
 
 __all__ = [
@@ -73,4 +74,6 @@ __all__ = [
     "AuditLog",
     # Contact Diary
     "ContactDiary",
+    # Notifications
+    "Notification",
 ]

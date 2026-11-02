@@ -26,6 +26,7 @@ from backend.controllers.user_management import router as user_management_router
 from backend.controllers.audit import router as audit_router
 from backend.controllers.contact_diary import router as contact_diary_router
 from backend.controllers.schedule import router as schedule_router
+from backend.controllers.notification import router as notification_router
 from backend.middlewares.security import XSSMiddleware
 
 
@@ -114,6 +115,7 @@ app.include_router(
     contact_diary_router, prefix="/api/contact-diary", tags=["Contact Diary"]
 )
 app.include_router(schedule_router, prefix="/api", tags=["Vehicle Scheduling"])
+app.include_router(notification_router, prefix="/api", tags=["Notifications"])
 
 
 
