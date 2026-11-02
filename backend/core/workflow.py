@@ -74,34 +74,43 @@ TRANSITIONS: dict[
     # =====================================================================
     # RENOVATION FLOW
     # =====================================================================
-    # 1. Citizen submits -> Commissioner sees it (SUBMITTED)
+    # 1. Citizen submits -> Commissioner or Nodal (for fast-track emergency/gov) sees it (SUBMITTED)
     # 2. Commissioner forwards to depts (JEN/ATP/LAND/LEGAL)
     (ApplicationStatus.SUBMITTED, WorkflowAction.FORWARD, ApplicationType.RENOVATION): (
         ApplicationStatus.FORWARDED,
         [UserRole.COMMISSIONER, UserRole.SUPERADMIN],
     ),
-    # 2a. Commissioner rejects
+    # 2a. Direct approval for Emergency Repair / Government applications
+    (ApplicationStatus.SUBMITTED, WorkflowAction.APPROVE, ApplicationType.RENOVATION): (
+        ApplicationStatus.APPROVED,
+        [UserRole.NODAL_OFFICER, UserRole.COMMISSIONER, UserRole.SUPERADMIN],
+    ),
+    # 2b. Rejection
     (ApplicationStatus.SUBMITTED, WorkflowAction.REJECT, ApplicationType.RENOVATION): (
         ApplicationStatus.REJECTED,
-        [UserRole.COMMISSIONER, UserRole.SUPERADMIN],
+        [UserRole.COMMISSIONER, UserRole.NODAL_OFFICER, UserRole.SUPERADMIN],
     ),
-    # 2b. Commissioner objects
+    # 2c. Objection
     (ApplicationStatus.SUBMITTED, WorkflowAction.OBJECT, ApplicationType.RENOVATION): (
         ApplicationStatus.OBJECTED,
-        [UserRole.COMMISSIONER, UserRole.SUPERADMIN],
+        [UserRole.COMMISSIONER, UserRole.NODAL_OFFICER, UserRole.SUPERADMIN],
     ),
-    # 3. After citizen responds to objection, Commissioner can forward or reject
+    # 3. After citizen responds to objection, Commissioner can forward or reject, or approve directly
     (ApplicationStatus.OBJECTED, WorkflowAction.FORWARD, ApplicationType.RENOVATION): (
         ApplicationStatus.FORWARDED,
         [UserRole.COMMISSIONER, UserRole.SUPERADMIN],
     ),
+    (ApplicationStatus.OBJECTED, WorkflowAction.APPROVE, ApplicationType.RENOVATION): (
+        ApplicationStatus.APPROVED,
+        [UserRole.COMMISSIONER, UserRole.NODAL_OFFICER, UserRole.SUPERADMIN],
+    ),
     (ApplicationStatus.OBJECTED, WorkflowAction.REJECT, ApplicationType.RENOVATION): (
         ApplicationStatus.REJECTED,
-        [UserRole.COMMISSIONER, UserRole.SUPERADMIN],
+        [UserRole.COMMISSIONER, UserRole.NODAL_OFFICER, UserRole.SUPERADMIN],
     ),
     (ApplicationStatus.OBJECTED, WorkflowAction.OBJECT, ApplicationType.RENOVATION): (
         ApplicationStatus.OBJECTED,
-        [UserRole.COMMISSIONER, UserRole.SUPERADMIN],
+        [UserRole.COMMISSIONER, UserRole.NODAL_OFFICER, UserRole.SUPERADMIN],
     ),
     # 4. After all 4 depts comment, Commissioner approves/rejects/objects
     (ApplicationStatus.FORWARDED, WorkflowAction.APPROVE, ApplicationType.RENOVATION): (

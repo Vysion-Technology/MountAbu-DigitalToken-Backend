@@ -12,6 +12,7 @@ from .application import (
     VehicleEntry,
     VehicleMaterial,
     VehicleEntryDumpingPhoto,
+    PhaseUtilizationProof,
 )
 from .master import (
     Ward,
@@ -27,6 +28,7 @@ from .download import Download
 from .notice import Notice
 from .audit_log import AuditLog
 from .contact_diary import ContactDiary
+from .notification import Notification
 
 
 __all__ = [
@@ -46,6 +48,7 @@ __all__ = [
     "VehicleEntry",
     "VehicleMaterial",
     "VehicleEntryDumpingPhoto",
+    "PhaseUtilizationProof",
     # Master Data
     "Ward",
     "Department",
@@ -71,4 +74,6 @@ __all__ = [
     "AuditLog",
     # Contact Diary
     "ContactDiary",
+    # Notifications
+    "Notification",
 ]

@@ -96,11 +96,14 @@ class TestSinglePhaseGeneration(unittest.IsolatedAsyncioTestCase):
         self.assertIn("must be COMPLETED", ctx.exception.detail)
 
     async def test_generate_phase_2_when_phase_1_is_completed_succeeds(self):
-        """Generating Phase 2 succeeds if Phase 1 status is COMPLETED."""
+        """Generating Phase 2 succeeds if Phase 1 status is COMPLETED and utilization proof is submitted."""
         phase_1 = MagicMock(spec=ApprovedApplicationPhase)
         phase_1.phase = 1
         phase_1.status = ApplicationPhaseStatus.COMPLETED
         self.mock_app.phases = [phase_1]
+        mock_proof = MagicMock()
+        mock_proof.phase = 1
+        self.mock_app.utilization_proofs = [mock_proof]
 
         response = await self.dao.perform_workflow_action(
             application_id=1,
@@ -113,6 +116,26 @@ class TestSinglePhaseGeneration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.message, "Application generate_tokensd successfully")
         self.assertEqual(self.mock_app.status, ApplicationStatus.TOKEN_GENERATED)
         self.mock_session.commit.assert_awaited_once()
+
+    async def test_generate_phase_2_when_phase_1_completed_but_proof_missing_fails(self):
+        """Generating Phase 2 fails if Phase 1 is COMPLETED but utilization proof has not been submitted."""
+        phase_1 = MagicMock(spec=ApprovedApplicationPhase)
+        phase_1.phase = 1
+        phase_1.status = ApplicationPhaseStatus.COMPLETED
+        self.mock_app.phases = [phase_1]
+        self.mock_app.utilization_proofs = []
+
+        with self.assertRaises(HTTPException) as ctx:
+            await self.dao.perform_workflow_action(
+                application_id=1,
+                action=WorkflowAction.GENERATE_TOKENS,
+                user_id=10,
+                user_role=UserRole.NODAL_OFFICER,
+                phase=2,
+            )
+
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertIn("Utilization proof", ctx.exception.detail)
 
     async def test_generate_duplicate_phase_fails(self):
         """Generating Phase 1 fails if Phase 1 has already been generated."""

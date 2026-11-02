@@ -54,6 +54,8 @@ class ApplicationCreate(BaseModel):
 
     # Property & Work Details
     property_address: str = Field(..., description="Property Address")
+    latitude: Optional[float] = Field(None, description="Pinned Latitude on Map")
+    longitude: Optional[float] = Field(None, description="Pinned Longitude on Map")
     title: str = Field(..., description="Application Title")
     work_description: str = Field(..., description="Work Description")
     contractor_name: Optional[str] = Field(None, description="Contractor Name")
@@ -70,6 +72,7 @@ class ApplicationCreate(BaseModel):
     organization_name: Optional[str] = Field(None, description="Organization Name")
 
     type: ApplicationType = Field(..., description="Application Type")
+    is_emergency_repair: bool = Field(False, description="Emergency Repair flag (Renovation only)")
     description: Optional[str] = Field(None, description="Application Description")
     material_requirements: Optional[list[ApplicationMaterialRequirements]] = Field(
         default_factory=list, description="Application Material Requirements"
@@ -77,6 +80,9 @@ class ApplicationCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_structure_and_floor(self) -> "ApplicationCreate":
+        if self.type != ApplicationType.RENOVATION:
+            self.is_emergency_repair = False
+
         # Property usage organization name validation
         if self.property_usage in (PropertyUsageType.COMMERCIAL, PropertyUsageType.GOVERNMENT):
             if not self.organization_name or not self.organization_name.strip():
@@ -258,6 +264,16 @@ class NakaEntryCreate(BaseModel):
     )
 
 
+class PhaseUtilizationProofCreate(BaseModel):
+    """Schema for submitting utilization proof (photos & self-assessment) for a phase."""
+
+    work_completion_details: str = Field(..., description="Details of construction/renovation work completed")
+    completion_percentage: Optional[int] = Field(None, ge=0, le=100, description="Estimated work completion percentage (0-100)")
+    declaration_accepted: bool = Field(True, description="Self-declaration that all materials were utilized at sanctioned site")
+    remarks: Optional[str] = Field(None, description="Optional remarks")
+    photos: List[str] = Field(default_factory=list, description="List of uploaded photo storage paths")
+
 
 # Resolve forward reference
 WorkflowActionRequest.model_rebuild()
+

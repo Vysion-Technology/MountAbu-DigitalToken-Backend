@@ -66,6 +66,9 @@ async def main():
             # Superadmin / Admin / Naka incharge don't have actionable workflow queues in the DAO check
             if user.role in (UserRole.SUPERADMIN, UserRole.ADMIN, UserRole.NAKA_INCHARGE):
                 continue
+
+            if not user.mobile:
+                continue
                 
             try:
                 stats = await app_dao.get_authority_pending_stats(user.role)

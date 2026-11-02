@@ -51,6 +51,8 @@ class Application(Base):
 
     # Property & Work Details
     property_address: Mapped[str] = mapped_column(String)
+    latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     title: Mapped[str] = mapped_column(
         String, index=True
     )  # Keeping original title field
@@ -97,6 +99,7 @@ class Application(Base):
     type: Mapped[ApplicationType] = mapped_column(
         Enum(ApplicationType), index=True, default=ApplicationType.NEW
     )
+    is_emergency_repair: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     num_stages: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     created_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime, default=datetime.now, nullable=True
@@ -131,6 +134,9 @@ class Application(Base):
     )
     action_logs: Mapped[list["ApplicationActionLog"]] = relationship(
         "ApplicationActionLog", back_populates="application"
+    )
+    utilization_proofs: Mapped[list["PhaseUtilizationProof"]] = relationship(
+        "PhaseUtilizationProof", back_populates="application"
     )
 
 
@@ -233,6 +239,15 @@ class ApprovedApplicationPhase(Base):
         foreign_keys="[VehicleEntry.application_id, VehicleEntry.phase]",
         viewonly=True,
     )
+    utilization_proof: Mapped[Optional["PhaseUtilizationProof"]] = relationship(
+        "PhaseUtilizationProof",
+        back_populates="phase_record",
+        primaryjoin="and_(ApprovedApplicationPhase.application_id==PhaseUtilizationProof.application_id, "
+        "ApprovedApplicationPhase.phase==PhaseUtilizationProof.phase)",
+        foreign_keys="[PhaseUtilizationProof.application_id, PhaseUtilizationProof.phase]",
+        uselist=False,
+        viewonly=True,
+    )
 
 
 class ApplicationPhaseMaterial(Base):
@@ -300,6 +315,8 @@ __all__ = [
     "VehicleEntryDumpingPhoto",
     "InspectionReport",
     "ApplicationActionLog",
+    "ApplicationObjection",
+    "PhaseUtilizationProof",
 ]
 
 
@@ -514,3 +531,40 @@ class ApplicationObjection(Base):
     resolved_by_user: Mapped[Optional["User"]] = relationship(
         "User", foreign_keys=[resolved_by_id]
     )
+
+
+class PhaseUtilizationProof(Base):
+    __tablename__ = "phase_utilization_proofs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    application_id: Mapped[int] = mapped_column(
+        ForeignKey("applications.id"),
+        index=True,
+    )
+    phase: Mapped[int] = mapped_column(Integer, index=True)
+
+    # Self-assessment form fields
+    work_completion_details: Mapped[str] = mapped_column(String)
+    completion_percentage: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    declaration_accepted: Mapped[bool] = mapped_column(Boolean, default=True)
+    remarks: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+    # Photos (JSON list of storage paths)
+    photos: Mapped[Optional[list]] = mapped_column(JSON, default=list, nullable=True)
+
+    submitted_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    submitted_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    application: Mapped["Application"] = relationship(
+        "Application", back_populates="utilization_proofs"
+    )
+    submitted_by: Mapped["User"] = relationship("User")
+    phase_record: Mapped["ApprovedApplicationPhase"] = relationship(
+        "ApprovedApplicationPhase",
+        back_populates="utilization_proof",
+        primaryjoin="and_(PhaseUtilizationProof.application_id==ApprovedApplicationPhase.application_id, "
+        "PhaseUtilizationProof.phase==ApprovedApplicationPhase.phase)",
+        foreign_keys="[PhaseUtilizationProof.application_id, PhaseUtilizationProof.phase]",
+        viewonly=True,
+    )
+

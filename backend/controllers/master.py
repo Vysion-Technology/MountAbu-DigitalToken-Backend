@@ -733,7 +733,7 @@ async def delete_blackout(
 @router.post("/announcements", response_model=AnnouncementResponse)
 async def create_announcement(
     announcement: AnnouncementCreate,
-    current_user: UserDetails = Depends(get_superadmin),
+    current_user: UserDetails = Depends(get_admin_or_nodal),
     session: AsyncSession = Depends(get_db),
 ):
     created = await dao.create_announcement(
@@ -802,7 +802,7 @@ async def get_active_announcements(
 async def update_announcement(
     announcement_id: int,
     announcement: AnnouncementUpdate,
-    current_user: UserDetails = Depends(get_superadmin),
+    current_user: UserDetails = Depends(get_admin_or_nodal),
     session: AsyncSession = Depends(get_db),
 ):
     updated = await dao.update_announcement(session, announcement_id, announcement)
@@ -831,7 +831,7 @@ async def update_announcement(
 @router.delete("/announcements/{announcement_id}")
 async def delete_announcement(
     announcement_id: int,
-    current_user: UserDetails = Depends(get_superadmin),
+    current_user: UserDetails = Depends(get_admin_or_nodal),
     session: AsyncSession = Depends(get_db),
 ):
     success = await dao.delete_announcement(session, announcement_id)

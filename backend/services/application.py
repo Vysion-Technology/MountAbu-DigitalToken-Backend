@@ -29,11 +29,13 @@ from backend.schemas.request.application import (
     NakaEntryCreate,
     WorkflowActionRequest,
     PhaseStatusUpdateRequest,
+    PhaseUtilizationProofCreate,
 )
 from backend.schemas.response.application import (
     ApplicationResponse,
     ApplicationPaginatedResponse,
     PhaseResponse,
+    PhaseUtilizationProofResponse,
     TokenResponse,
     TokenDetailResponse,
     AuthorityVehicleEntryResponse,
@@ -455,6 +457,26 @@ class ApplicationService(BaseService):
         return await self.dao.extend_token_validity(
             application_id, phase, user_id, remarks=remarks
         )
+
+    async def submit_phase_utilization_proof(
+        self,
+        application_id: int,
+        phase: int,
+        user_id: int,
+        data: PhaseUtilizationProofCreate,
+    ) -> PhaseUtilizationProofResponse:
+        """Submit utilization proof for a phase."""
+        return await self.dao.submit_phase_utilization_proof(
+            application_id, phase, user_id, data
+        )
+
+    async def get_phase_utilization_proof(
+        self,
+        application_id: int,
+        phase: int,
+    ) -> Optional[PhaseUtilizationProofResponse]:
+        """Get utilization proof for a phase."""
+        return await self.dao.get_phase_utilization_proof(application_id, phase)
 
     # ── Token queries ─────────────────────────────────────────────────────
     async def get_tokens(
