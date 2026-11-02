@@ -15,6 +15,9 @@ class AuditLogBase(BaseModel):
 class AuditLogResponse(AuditLogBase):
     id: int
     created_at: datetime
+    user_name: Optional[str] = None
+    user_role: Optional[str] = None
+    record_id: Optional[int] = None
 
     class Config:
         from_attributes = True

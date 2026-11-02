@@ -248,6 +248,8 @@ class TestVehicleScheduling:
 
         mock_schedule = MagicMock(spec=VehicleSchedule)
         mock_schedule.id = 55
+        mock_schedule.application_id = 1
+        mock_schedule.phase = 1
         mock_schedule.vehicle_number = "RJ 27 GA 9999"
         mock_schedule.schedule_date = datetime.combine(target_date, datetime.min.time())
         mock_schedule.status = VehicleScheduleStatus.SCHEDULED
@@ -275,8 +277,8 @@ class TestVehicleScheduling:
             mock_sms.assert_awaited_once_with(
                 mobile="9876543210",
                 vehicle_number="RJ 27 GA 9999",
-                schedule_date=str(target_date),
-                reason="Emergency Maintenance",
+                token_no=f"TKN-{datetime.now().year}-055",
+                schedule_date=target_date.strftime("%d %b %Y"),
             )
 
 

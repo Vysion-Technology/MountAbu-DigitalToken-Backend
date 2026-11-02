@@ -52,6 +52,7 @@ class ApplicationDocumentType(str, PyEnum):
     SITE_INSPECTION = "SITE_INSPECTION"  # JEN geo-tagged inspection photos
     GEO_TAGGED_PHOTO = "GEO_TAGGED_PHOTO"  # Geo-tagged site photos
     DETAILED_DESIGN_ESTIMATE = "DETAILED_DESIGN_ESTIMATE"
+    ESTIMATE_OF_MATERIALS = "ESTIMATE_OF_MATERIALS"
 
 
 class ApplicationPhaseStatus(str, PyEnum):

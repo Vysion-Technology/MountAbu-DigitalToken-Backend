@@ -144,6 +144,17 @@ class NodalVehicleEntryRow(BaseModel):
     media_path: Optional[str] = None
 
 
+class AuthorityPendencyItem(BaseModel):
+    """Pendency metrics for a specific authority role."""
+
+    role: str
+    name: str
+    pending_count: int = 0
+    objected_count: int = 0
+    over_15_days_count: int = 0
+    total_count: int = 0
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Top-level authority dashboard response
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -160,6 +171,9 @@ class AuthorityDashboardResponse(BaseModel):
 
     # ── Shared KPIs ──────────────────────────────────────────────────────
     kpis: List[KpiCard] = []
+
+    # ── Authority Pendency Cards (Superadmin, Collector, Nodal, Commissioner) ──
+    authority_pendency: Optional[List[AuthorityPendencyItem]] = None
 
     # ── Super Admin ──────────────────────────────────────────────────────
     application_status_breakdown: Optional[List[StatusCount]] = None

@@ -51,7 +51,7 @@ class AuditLogDAO:
         if end_date is not None:
             stmt = stmt.where(AuditLog.created_at <= end_date)
 
-        stmt = stmt.order_by(AuditLog.created_at.desc()).offset(skip).limit(limit)
+        stmt = stmt.order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).offset(skip).limit(limit)
         result = await session.execute(stmt)
         return list(result.scalars().all())
 

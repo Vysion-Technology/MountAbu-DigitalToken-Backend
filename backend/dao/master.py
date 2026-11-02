@@ -352,10 +352,12 @@ class MasterDataDAO:
     async def _cancel_schedules_for_blackout(
         self, session: AsyncSession, blackout: ScheduleBlackout
     ) -> int:
-        """Auto-cancel active vehicle schedules affected by a blackout and dispatch mock cancellation SMS to citizens."""
-        from backend.dbmodels.application import VehicleSchedule
+        """Auto-cancel active vehicle schedules affected by a blackout and dispatch cancellation SMS to citizens."""
+        from backend.dbmodels.application import VehicleSchedule, ApprovedApplicationPhase
         from backend.meta import VehicleScheduleStatus
         from backend.services.sms import sms_service
+        from sqlalchemy import or_
+        import asyncio
 
         target_date = (
             blackout.blackout_date.date()
@@ -384,12 +386,28 @@ class MasterDataDAO:
 
         cancelled_count = 0
         now = datetime.now()
+        sms_tasks = []
+
+        # Pre-fetch phase records to compute accurate token numbers (TKN-YYYY-ID)
+        app_phase_pairs = list({(s.application_id, s.phase) for s in affected_schedules if s.application_id and s.phase})
+        phase_map = {}
+        if app_phase_pairs:
+            p_stmt = select(ApprovedApplicationPhase).where(
+                or_(*[
+                    and_(ApprovedApplicationPhase.application_id == app_id, ApprovedApplicationPhase.phase == phase_num)
+                    for app_id, phase_num in app_phase_pairs
+                ])
+            )
+            p_res = await session.execute(p_stmt)
+            for p in p_res.scalars().all():
+                phase_map[(p.application_id, p.phase)] = p
+
         for sched in affected_schedules:
             sched.status = VehicleScheduleStatus.CANCELLED
             sched.cancelled_at = now
             cancelled_count += 1
 
-            # Dispatch notification / mock SMS to citizen
+            # Dispatch notification / SMS to citizen
             citizen_mobile = None
             if sched.user and hasattr(sched.user, "mobile") and sched.user.mobile:
                 citizen_mobile = sched.user.mobile
@@ -397,23 +415,36 @@ class MasterDataDAO:
                 citizen_mobile = sched.application.mobile
 
             if citizen_mobile:
-                try:
-                    await sms_service.send_schedule_cancellation_sms(
+                p_rec = phase_map.get((sched.application_id, sched.phase))
+                if p_rec and getattr(p_rec, "id", None) is not None:
+                    act_at = getattr(p_rec, "activated_at", None)
+                    yr = act_at.year if act_at and hasattr(act_at, "year") else now.year
+                    token_no = f"TKN-{yr}-{p_rec.id:03d}"
+                else:
+                    token_no = f"APP-{sched.application_id}-P{sched.phase}"
+
+                formatted_date = target_date.strftime("%d %b %Y")
+                sms_tasks.append(
+                    sms_service.send_schedule_cancellation_sms(
                         mobile=citizen_mobile,
                         vehicle_number=sched.vehicle_number,
-                        schedule_date=str(target_date),
-                        reason=blackout.reason,
+                        token_no=token_no,
+                        schedule_date=formatted_date,
                     )
-                except Exception as ex:
-                    logger.error(
-                        f"Failed to send cancellation SMS for schedule {sched.id}: {ex}"
-                    )
+                )
 
         if cancelled_count > 0:
             await session.commit()
             logger.info(
                 f"Auto-cancelled {cancelled_count} vehicle schedule(s) for blackout on {target_date} ({blackout.reason})"
             )
+
+        if sms_tasks:
+            # Concurrently dispatch all cancellation SMS to ensure every request reaches MSG91 without blocking
+            results = await asyncio.gather(*sms_tasks, return_exceptions=True)
+            for idx, r in enumerate(results):
+                if isinstance(r, Exception):
+                    logger.error(f"Failed to dispatch cancellation SMS task #{idx}: {r}")
 
         return cancelled_count
 
@@ -463,7 +494,7 @@ class MasterDataDAO:
         )
         if active_only:
             stmt = stmt.where(ScheduleBlackout.is_active == True)
-        stmt = stmt.order_by(ScheduleBlackout.blackout_date.asc())
+        stmt = stmt.order_by(ScheduleBlackout.blackout_date.desc(), ScheduleBlackout.id.desc())
         result = await session.execute(stmt)
         return list(result.scalars().all())
 

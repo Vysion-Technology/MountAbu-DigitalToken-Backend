@@ -204,6 +204,56 @@ class PhaseMaterialResponse(BaseModel):
         return data
 
 
+class PhaseUtilizationProofResponse(BaseModel):
+    """Response schema for citizen utilization proof (photos & self-assessment) for a phase."""
+
+    id: int
+    application_id: int
+    phase: int
+    work_completion_details: str
+    completion_percentage: Optional[int] = None
+    declaration_accepted: bool = True
+    remarks: Optional[str] = None
+    photos: List[str] = []
+    access_urls: List[str] = []
+    submitted_by_id: int
+    submitted_by_name: Optional[str] = None
+    submitted_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def compute_access_urls(cls, data):
+        from backend.services.storage import generate_signed_file_url
+
+        photos = []
+        if hasattr(data, "photos"):
+            photos = data.photos or []
+        elif isinstance(data, dict):
+            photos = data.get("photos") or []
+
+        access_urls = [generate_signed_file_url(p) for p in photos if p]
+
+        submitted_by_name = None
+        if hasattr(data, "submitted_by") and data.submitted_by:
+            submitted_by_name = getattr(data.submitted_by, "name", None)
+        elif isinstance(data, dict):
+            submitted_by_name = data.get("submitted_by_name")
+
+        if hasattr(data, "__dict__"):
+            d = {k: getattr(data, k, None) for k in data.__dict__.keys() if not k.startswith("_")}
+            d["photos"] = photos
+            d["access_urls"] = access_urls
+            d["submitted_by_name"] = submitted_by_name
+            return d
+        elif isinstance(data, dict):
+            data["access_urls"] = access_urls
+            data["submitted_by_name"] = submitted_by_name
+            return data
+        return data
+
+
 class PhaseResponse(BaseModel):
     """Response schema for application phases."""
 
@@ -215,6 +265,8 @@ class PhaseResponse(BaseModel):
     activated_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     transport_code: Optional[str] = None
+    has_utilization_proof: bool = False
+    utilization_proof: Optional[PhaseUtilizationProofResponse] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -235,6 +287,15 @@ class PhaseResponse(BaseModel):
         if app_id is not None and phase is not None:
             if hasattr(data, "__dict__"):
                 # ORM model — convert to dict for mutation
+                from sqlalchemy import inspect as sa_inspect
+
+                insp = sa_inspect(data, raiseerr=False)
+                proof = None
+                if insp and "utilization_proof" in insp.dict:
+                    proof = insp.dict["utilization_proof"]
+                elif not (insp and "utilization_proof" in getattr(insp, "unloaded", set())):
+                    proof = getattr(data, "utilization_proof", None)
+
                 d = {
                     "id": data.id,
                     "application_id": app_id,
@@ -244,10 +305,13 @@ class PhaseResponse(BaseModel):
                     "activated_at": getattr(data, "activated_at", None),
                     "completed_at": getattr(data, "completed_at", None),
                     "transport_code": encode_transport_code(app_id, phase),
+                    "has_utilization_proof": bool(proof),
+                    "utilization_proof": proof,
                 }
                 return d
             else:
                 data["transport_code"] = encode_transport_code(app_id, phase)
+                data["has_utilization_proof"] = bool(data.get("utilization_proof"))
         return data
 
 
@@ -292,6 +356,7 @@ class TokenResponse(BaseModel):
     remaining_quantity_pct: Optional[float] = None
     valid_till: Optional[datetime] = None
     status: ApplicationPhaseStatus
+    has_utilization_proof: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -561,6 +626,8 @@ class ApplicationResponse(BaseModel):
     email: Optional[str] = None
     property_address: str
     current_address: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     is_agriculture_land: bool
     property_usage: PropertyUsageType
     existing_structure: Optional[StructureType] = None
@@ -578,6 +645,7 @@ class ApplicationResponse(BaseModel):
     work_description: Optional[str] = None
     status: ApplicationStatus
     type: ApplicationType
+    is_emergency_repair: bool = False
     num_stages: Optional[int]
     created_at: Optional[datetime] = None
     documents: List[ApplicationDocumentResponse] = []
@@ -587,8 +655,12 @@ class ApplicationResponse(BaseModel):
     inspections: List[InspectionReportResponse] = []
     tokens: List[TokenResponse] = []
     objections: List[ApplicationObjectionResponse] = []
+    utilization_proofs: List[PhaseUtilizationProofResponse] = []
     rejection_remarks: Optional[str] = None
     objection_to_role: Optional[str] = None
+    is_overdue: bool = False
+    overdue_departments: List[str] = []
+    max_overdue_days: Optional[int] = None
 
     model_config = ConfigDict(extra="ignore", from_attributes=True)
 
@@ -651,6 +723,10 @@ class ApplicationResponse(BaseModel):
                         rejection_remarks = remarks
                         break
 
+        # Compute overdue info for Land, Legal, ATP, JEN (> 21 days)
+        from backend.core.overdue import compute_overdue_info
+        is_overdue, overdue_depts, max_days = compute_overdue_info(data)
+
         # Return dict or updated dict
         from backend.meta import ApplicationDocumentType
 
@@ -658,6 +734,9 @@ class ApplicationResponse(BaseModel):
             d = {k: getattr(data, k, None) for k in data.__dict__.keys() if not k.startswith("_")}
             d["ward_zone"] = ward_name
             d["rejection_remarks"] = rejection_remarks
+            d["is_overdue"] = is_overdue
+            d["overdue_departments"] = overdue_depts
+            d["max_overdue_days"] = max_days
             # Copy other attributes that may be descriptors/properties
             for field in cls.model_fields.keys():
                 if field not in d and hasattr(data, field):
@@ -674,6 +753,9 @@ class ApplicationResponse(BaseModel):
         elif isinstance(data, dict):
             data["ward_zone"] = ward_name
             data["rejection_remarks"] = rejection_remarks
+            data["is_overdue"] = is_overdue
+            data["overdue_departments"] = overdue_depts
+            data["max_overdue_days"] = max_days
             if data.get("documents"):
                 data["documents"] = [
                     doc for doc in data["documents"]

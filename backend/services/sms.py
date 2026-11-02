@@ -15,6 +15,8 @@ class SMSService(BaseService):
     TOKEN_TEMPLATE_ID = "69f075f0a665146853008054"
     WEEKLY_ALERTS_TEMPLATE_ID = "1077449880055212574"
     COMPLAINT_TEMPLATE_ID = "69f078c7bbab984c20070bd2"
+    VEHICLE_BOOKING_TEMPLATE_ID = "1077214200045797362"
+    VEHICLE_BLACKOUT_CANCEL_TEMPLATE_ID = "1077487400034651029"
 
     async def send_otp(self, mobile: str, otp: str) -> bool:
         """
@@ -99,24 +101,61 @@ class SMSService(BaseService):
                 }
             ]
         }
+        return await self._send_flow_sms(payload, f"Weekly Alert for {name} - pending: {pending}, objected: {objected}, over15days: {over15days}")
+
+    async def send_vehicle_schedule_sms(
+        self, mobile: str, schedule_date: str, slot_start: str, slot_end: str
+    ) -> bool:
+        """
+        Send vehicle booking confirmation SMS to citizen.
+        Template: Booking Confirmed! Your vehicle booking is scheduled for {#var#} (Slot: {#var#} to {#var#}). Please arrive on time and present your token/pass QR code at the check-post (naka). - NP Mount Abu
+        """
+        payload = {
+            "template_id": self.VEHICLE_BOOKING_TEMPLATE_ID,
+            "recipients": [
+                {
+                    "mobiles": self._format_mobile(mobile),
+                    "var1": schedule_date,
+                    "var2": slot_start,
+                    "var3": slot_end,
+                    "date": schedule_date,
+                    "slot_start": slot_start,
+                    "slot_end": slot_end,
+                }
+            ],
+        }
+        return await self._send_flow_sms(
+            payload, f"Vehicle Booking Confirmation ({schedule_date} {slot_start}-{slot_end})"
+        )
+
     async def send_schedule_cancellation_sms(
-        self, mobile: str, vehicle_number: str, schedule_date: str, reason: str
+        self, mobile: str, vehicle_number: str, token_no: str, schedule_date: str
     ) -> bool:
         """
         Send schedule cancellation notification to citizen when an authority declares a blackout.
-        Logs mock SMS notification until official template ID is configured.
+        Template: Dear Applicant, your vehicle booking for Vehicle no. {#var#} (Token No: {#var#}) scheduled for date {#var#} has been cancelled due to a Vehicle Blackout Day. Please reschedule your Vehicle entry slot at NP Mount Abu.
         """
-        log_msg = (
-            f"Dear Citizen, your vehicle scheduling for vehicle {vehicle_number} on {schedule_date} "
-            f"has been cancelled due to a declared holiday/blackout ({reason}). "
-            f"Please login to the portal to re-schedule your vehicle transit."
+        payload = {
+            "template_id": self.VEHICLE_BLACKOUT_CANCEL_TEMPLATE_ID,
+            "recipients": [
+                {
+                    "mobiles": self._format_mobile(mobile),
+                    "var1": vehicle_number,
+                    "var2": token_no,
+                    "var3": schedule_date,
+                    "vehicle_number": vehicle_number,
+                    "token_no": token_no,
+                    "date": schedule_date,
+                }
+            ],
+        }
+        return await self._send_flow_sms(
+            payload, f"Schedule Blackout Cancellation ({vehicle_number} on {schedule_date})"
         )
-        logger.info(f"[MOCK SMS - SCHEDULE CANCELLED] Mobile: {mobile} | {log_msg}")
-        print(f"\n[MOCK SMS - SCHEDULE CANCELLED] To: {mobile}\n{log_msg}\n")
-        return True
 
     def _format_mobile(self, mobile: str) -> str:
-
+        if not mobile:
+            return ""
         if not mobile.startswith("91") and len(mobile) == 10:
             return f"91{mobile}"
         return mobile

@@ -15,6 +15,7 @@ audit_service = AuditService()
 @router.get("", response_model=AuditLogListResponse)
 async def get_audit_logs(
     skip: int = Query(0, ge=0),
+    offset: Optional[int] = Query(None, ge=0, description="Offset alias for skip"),
     limit: int = Query(100, ge=1, le=1000),
     user_id: Optional[int] = Query(None, description="Filter by user ID"),
     action: Optional[AuditAction] = Query(None, description="Filter by action type"),
@@ -26,7 +27,8 @@ async def get_audit_logs(
     db: AsyncSession = Depends(get_db),
     current_user: UserDetails = Depends(get_audit_viewer),
 ):
+    actual_skip = offset if offset is not None else skip
     logs, total = await audit_service.get_logs(
-        db, skip, limit, user_id, action, entity_type, start_date, end_date
+        db, actual_skip, limit, user_id, action, entity_type, start_date, end_date
     )
     return {"total": total, "logs": logs}

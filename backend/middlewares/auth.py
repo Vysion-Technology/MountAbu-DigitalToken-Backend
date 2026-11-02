@@ -41,13 +41,13 @@ async def get_current_user(
     except (JWTError, ValueError):
         raise credentials_exception
 
-    # Token version verification
+    # Token version and active status verification
     from backend.database import get_db
     from backend.dao.user import UserDAO
     async for db in get_db():
         user_dao = UserDAO()
         user = await user_dao.get_by_id(db, user_id)
-        if not user or user.token_version != token_version:
+        if not user or not user.is_active or user.token_version != token_version:
             raise credentials_exception
         break
 
@@ -75,13 +75,13 @@ async def get_optional_user(
         user_id = int(user_id_str)
         role = UserRole(role_str) if role_str else UserRole.CITIZEN
 
-        # Token version verification
+        # Token version and active status verification
         from backend.database import get_db
         from backend.dao.user import UserDAO
         async for db in get_db():
             user_dao = UserDAO()
             user = await user_dao.get_by_id(db, user_id)
-            if not user or user.token_version != token_version:
+            if not user or not user.is_active or user.token_version != token_version:
                 return None
             break
 
@@ -91,28 +91,10 @@ async def get_optional_user(
 
 
 async def get_current_user_id(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: UserDetails = Depends(get_current_user),
 ) -> int:
-    """Get user id from the JWT token."""
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials for user id",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-
-    try:
-        token = credentials.credentials
-        payload = jwt.decode(
-            token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
-        )
-        user_id_str: str = payload.get("sub")
-
-        if user_id_str is None:
-            raise credentials_exception
-
-        return int(user_id_str)
-    except (JWTError, ValueError):
-        raise credentials_exception
+    """Get user id from the validated current user."""
+    return current_user.user_id
 
 
 async def get_superadmin(
