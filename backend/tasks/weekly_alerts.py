@@ -32,6 +32,9 @@ async def run_weekly_alerts_job() -> int:
                 if user.role in (UserRole.SUPERADMIN, UserRole.ADMIN, UserRole.NAKA_INCHARGE):
                     continue
 
+                if not user.mobile:
+                    continue
+
                 try:
                     stats = await app_dao.get_authority_pending_stats(user.role)
                     pending = stats.get("pending", 0)
@@ -93,6 +96,8 @@ async def schedule_weekly_authority_alerts():
 
             await asyncio.sleep(wait_seconds)
             await run_weekly_alerts_job()
+            # Wait at least 60s so next run is scheduled on the subsequent Tuesday/Thursday
+            await asyncio.sleep(60)
         except asyncio.CancelledError:
             print("[Weekly Authority Alerts Cron] Scheduler task cancelled.")
             break

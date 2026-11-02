@@ -350,7 +350,29 @@ class VehicleScheduleDAO:
         await session.commit()
         await session.refresh(db_schedule)
 
-        return await self.get_schedule_by_id(session, db_schedule.id)
+        saved_schedule = await self.get_schedule_by_id(session, db_schedule.id)
+
+        # Dispatch vehicle booking confirmation SMS to citizen
+        try:
+            from backend.services.sms import sms_service
+            citizen_mobile = None
+            if saved_schedule.user and hasattr(saved_schedule.user, "mobile") and saved_schedule.user.mobile:
+                citizen_mobile = saved_schedule.user.mobile
+            elif saved_schedule.application and hasattr(saved_schedule.application, "mobile") and saved_schedule.application.mobile:
+                citizen_mobile = saved_schedule.application.mobile
+
+            if citizen_mobile and saved_schedule.slot:
+                formatted_date = schedule_in.schedule_date.strftime("%d %b %Y")
+                await sms_service.send_vehicle_schedule_sms(
+                    mobile=citizen_mobile,
+                    schedule_date=formatted_date,
+                    slot_start=saved_schedule.slot.start_time,
+                    slot_end=saved_schedule.slot.end_time,
+                )
+        except Exception as sms_err:
+            logger.error(f"Failed to dispatch vehicle booking confirmation SMS: {sms_err}")
+
+        return saved_schedule
 
     async def get_schedule_by_id(
         self, session: AsyncSession, schedule_id: int
