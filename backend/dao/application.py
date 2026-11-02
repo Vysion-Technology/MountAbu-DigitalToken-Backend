@@ -89,6 +89,52 @@ def _get_app_last_updated_at(app: Application) -> datetime:
 class ApplicationDAO(BaseDAO):
     """Application DAO."""
 
+    @staticmethod
+    def is_pending_token_generation(application: Application) -> bool:
+        """
+        Check if an application requires token generation by Nodal Officer:
+        1. Status is APPROVED or TOKEN_GENERATED with phase materials defined.
+        2. If no tokens/phases generated yet, Phase 1 is pending generation.
+        3. If previous phases exist and the latest phase is COMPLETED or TERMINATED,
+           it is only pending next phase token generation if there are subsequent phases remaining
+           (i.e. latest phase < total_phases).
+        """
+        st = application.status
+        if st not in (ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED):
+            return False
+
+        tp = application.type
+        is_emergency = getattr(application, "is_emergency_repair", False) is True
+        is_gov = getattr(application, "property_usage", None) == PropertyUsageType.GOVERNMENT
+        is_eligible_to_skip_jen = is_gov or (tp == ApplicationType.RENOVATION and is_emergency)
+
+        has_inspection = len(application.inspections or []) > 0
+        has_phase_materials = bool(application.phase_materials and len(application.phase_materials) > 0)
+
+        # Must have phase materials (and inspection unless eligible to skip JEN)
+        if not has_phase_materials:
+            return False
+        if not is_eligible_to_skip_jen and not has_inspection:
+            return False
+
+        phases = sorted(application.phases, key=lambda p: p.phase) if application.phases else []
+        if not phases:
+            return True
+
+        # Total phases determination
+        max_mat_phase = max((pm.phase for pm in application.phase_materials if getattr(pm, "phase", None) is not None), default=1)
+        total_phases = max(getattr(application, "num_stages", 1) or 1, max_mat_phase)
+
+        last_phase = phases[-1]
+        # Only pending next phase if last_phase.phase < total_phases
+        if last_phase.phase < total_phases and last_phase.status in (
+            ApplicationPhaseStatus.COMPLETED,
+            ApplicationPhaseStatus.TERMINATED,
+        ):
+            return True
+
+        return False
+
     # ── Flag computation ──────────────────────────────────────────────────
     def get_required_flags(self, application: Application, user_role: Optional[UserRole] = None) -> list[ApplicationFlags]:
         """Compute which dashboard-flags an application should appear under."""
@@ -238,14 +284,8 @@ class ApplicationDAO(BaseDAO):
                     elif tp == ApplicationType.RENOVATION and st == ApplicationStatus.SUBMITTED and (is_emergency or is_gov):
                         is_pending_with_me = True
                     elif st in (ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED):
-                        if (len(application.inspections) > 0 and application.phase_materials) or is_eligible_to_skip_jen:
-                            phases = sorted(application.phases, key=lambda p: p.phase) if application.phases else []
-                            if not phases:
-                                is_pending_with_me = True
-                            else:
-                                last_phase = phases[-1]
-                                if last_phase.status in (ApplicationPhaseStatus.COMPLETED, ApplicationPhaseStatus.TERMINATED):
-                                    is_pending_with_me = True
+                        if self.is_pending_token_generation(application):
+                            is_pending_with_me = True
                 
                 elif user_role == UserRole.COMMISSIONER:
                     # 1. RENOVATION in SUBMITTED (needing forwarding)
@@ -514,16 +554,8 @@ class ApplicationDAO(BaseDAO):
                     
                     # Token generation is needed if:
                     # 1) Approved, JEN has entered inspection + phase materials, and phase 1 not generated yet
-                    # 2) Token generated, previous phase is COMPLETED or TERMINATED, and next phase not yet generated
-                    is_pending_token_gen = False
-                    if app.status in (ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED) and app.phase_materials and len(app.phase_materials) > 0:
-                        phases = sorted(app.phases, key=lambda p: p.phase) if app.phases else []
-                        if not phases:
-                            is_pending_token_gen = True
-                        else:
-                            last_phase = phases[-1]
-                            if last_phase.status in (ApplicationPhaseStatus.COMPLETED, ApplicationPhaseStatus.TERMINATED):
-                                is_pending_token_gen = True
+                    # 2) Token generated, previous phase is COMPLETED or TERMINATED, and next phase remaining (last_phase < total_phases)
+                    is_pending_token_gen = self.is_pending_token_generation(app)
 
                     is_pending_objection = False
                     if app.status == ApplicationStatus.OBJECTED:
@@ -709,15 +741,7 @@ class ApplicationDAO(BaseDAO):
 
                 if authority_role in (UserRole.NODAL_OFFICER, UserRole.SUPERADMIN):
                     is_pending_approval = (app.type == ApplicationType.NEW and app.status == ApplicationStatus.SUBMITTED)
-                    is_pending_token_gen = False
-                    if app.status in (ApplicationStatus.APPROVED, ApplicationStatus.TOKEN_GENERATED) and app.phase_materials and len(app.phase_materials) > 0:
-                        phases = sorted(app.phases, key=lambda p: p.phase) if app.phases else []
-                        if not phases:
-                            is_pending_token_gen = True
-                        else:
-                            last_phase = phases[-1]
-                            if last_phase.status in (ApplicationPhaseStatus.COMPLETED, ApplicationPhaseStatus.TERMINATED):
-                                is_pending_token_gen = True
+                    is_pending_token_gen = self.is_pending_token_generation(app)
 
                     if is_pending_approval:
                         is_pending_for_role = True

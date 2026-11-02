@@ -39,8 +39,62 @@ class TestPendingWithMeFlag(unittest.TestCase):
         app.type = ApplicationType.NEW
         app.status = ApplicationStatus.APPROVED
         app.inspections = [MagicMock()]
-        app.phase_materials = [MagicMock()]
+        pm = MagicMock()
+        pm.phase = 1
+        app.phase_materials = [pm]
+        app.phases = []
+        app.num_stages = 1
         
+        flags = self.dao.get_required_flags(app, UserRole.NODAL_OFFICER)
+        self.assertIn(ApplicationFlags.PENDING_WITH_ME, flags)
+
+    def test_nodal_officer_single_phase_completed_not_pending_token_gen(self):
+        """Single phase application whose phase 1 is COMPLETED should NOT be pending token generation."""
+        from backend.meta import ApplicationPhaseStatus
+        app = MagicMock()
+        app.type = ApplicationType.NEW
+        app.status = ApplicationStatus.TOKEN_GENERATED
+        app.inspections = [MagicMock()]
+        pm = MagicMock()
+        pm.phase = 1
+        app.phase_materials = [pm]
+        app.num_stages = 1
+
+        p1 = MagicMock()
+        p1.phase = 1
+        p1.status = ApplicationPhaseStatus.COMPLETED
+        app.phases = [p1]
+
+        # Check helper directly
+        self.assertFalse(self.dao.is_pending_token_generation(app))
+
+        # Check flag
+        flags = self.dao.get_required_flags(app, UserRole.NODAL_OFFICER)
+        self.assertNotIn(ApplicationFlags.PENDING_WITH_ME, flags)
+
+    def test_nodal_officer_multi_phase_phase1_completed_pending_token_gen(self):
+        """Multi phase (2 stages) application whose phase 1 is COMPLETED should be pending Phase 2 generation."""
+        from backend.meta import ApplicationPhaseStatus
+        app = MagicMock()
+        app.type = ApplicationType.NEW
+        app.status = ApplicationStatus.TOKEN_GENERATED
+        app.inspections = [MagicMock()]
+        pm1 = MagicMock()
+        pm1.phase = 1
+        pm2 = MagicMock()
+        pm2.phase = 2
+        app.phase_materials = [pm1, pm2]
+        app.num_stages = 2
+
+        p1 = MagicMock()
+        p1.phase = 1
+        p1.status = ApplicationPhaseStatus.COMPLETED
+        app.phases = [p1]
+
+        # Check helper directly
+        self.assertTrue(self.dao.is_pending_token_generation(app))
+
+        # Check flag
         flags = self.dao.get_required_flags(app, UserRole.NODAL_OFFICER)
         self.assertIn(ApplicationFlags.PENDING_WITH_ME, flags)
 
