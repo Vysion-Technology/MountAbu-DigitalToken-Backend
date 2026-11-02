@@ -3,8 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database import get_db
 from backend.middlewares.auth import get_current_user
-from backend.schemas.response.auth import UserDetails
-from backend.schemas.response.common import SuccessResponse
+from backend.schemas.base.auth import UserDetails
+from backend.schemas.response.meta import SuccessResponse
 from backend.schemas.response.notification import NotificationListResponse, NotificationItem
 from backend.services.notification import NotificationService
 
