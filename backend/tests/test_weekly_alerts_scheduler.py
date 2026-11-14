@@ -111,7 +111,7 @@ class TestWeeklyAlertsScheduler(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(result)
             mock_send.assert_awaited_once()
             call_payload = mock_send.call_args[0][0]
-            self.assertEqual(call_payload["template_id"], "1077214200045797362")
+            self.assertEqual(call_payload["template_id"], "6af7ede683366d7ed10cc1f5")
             self.assertEqual(call_payload["recipients"][0]["mobiles"], "919876543210")
             self.assertEqual(call_payload["recipients"][0]["var1"], "05 Nov 2026")
             self.assertEqual(call_payload["recipients"][0]["var2"], "08:00 AM")
@@ -129,11 +129,27 @@ class TestWeeklyAlertsScheduler(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(result)
             mock_send.assert_awaited_once()
             call_payload = mock_send.call_args[0][0]
-            self.assertEqual(call_payload["template_id"], "1077487400034651029")
+            self.assertEqual(call_payload["template_id"], "6af7ed6f62a21884770afc72")
             self.assertEqual(call_payload["recipients"][0]["mobiles"], "919876543210")
             self.assertEqual(call_payload["recipients"][0]["var1"], "RJ 27 GA 1234")
             self.assertEqual(call_payload["recipients"][0]["var2"], "TKN-2026-001")
             self.assertEqual(call_payload["recipients"][0]["var3"], "05 Nov 2026")
+
+    async def test_send_token_validity_extension_sms(self):
+        with patch.object(sms_service, "_send_flow_sms", new_callable=AsyncMock) as mock_send:
+            mock_send.return_value = True
+            result = await sms_service.send_token_validity_extension_sms(
+                mobile="9876543210",
+                token_no="TKN-2026-001",
+                expiry_date="15-12-2026",
+            )
+            self.assertTrue(result)
+            mock_send.assert_awaited_once()
+            call_payload = mock_send.call_args[0][0]
+            self.assertEqual(call_payload["template_id"], "6af7ee0d3b928a21fd0de774")
+            self.assertEqual(call_payload["recipients"][0]["mobiles"], "919876543210")
+            self.assertEqual(call_payload["recipients"][0]["token_no"], "TKN-2026-001")
+            self.assertEqual(call_payload["recipients"][0]["expiry_date"], "15-12-2026")
 
 if __name__ == "__main__":
     unittest.main()

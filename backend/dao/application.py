@@ -2922,6 +2922,26 @@ class ApplicationDAO(BaseDAO):
         )
 
         await self.session.commit()
+
+        # Send token extension SMS notification to citizen
+        try:
+            app_stmt = select(Application).where(Application.id == application_id)
+            app_res = await self.session.execute(app_stmt)
+            app_obj = app_res.scalar_one_or_none()
+            if app_obj and app_obj.mobile:
+                act_year = phase_record.activated_at.year if phase_record.activated_at else (
+                    app_obj.created_at.year if app_obj.created_at else now.year
+                )
+                token_num_str = f"TKN-{act_year}-{phase_record.id:03d}"
+                formatted_expiry = new_valid_till.strftime("%d-%m-%Y")
+                await sms_service.send_token_validity_extension_sms(
+                    mobile=app_obj.mobile,
+                    token_no=token_num_str,
+                    expiry_date=formatted_expiry,
+                )
+        except Exception as e:
+            print(f"Error sending token validity extension SMS: {e}")
+
         return SuccessResponse(
             message=f"Phase {phase_num} token validity successfully extended to {new_valid_till.strftime('%d %b %Y')}"
         )
