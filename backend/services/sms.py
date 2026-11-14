@@ -13,10 +13,11 @@ class SMSService(BaseService):
     OTP_TEMPLATE_ID = "69edd13d2ee1bac60804bdb2"
     APPLICATION_TEMPLATE_ID = "69f0774ab51957fcc6088a84"
     TOKEN_TEMPLATE_ID = "69f075f0a665146853008054"
-    WEEKLY_ALERTS_TEMPLATE_ID = "1077449880055212574"
+    WEEKLY_ALERTS_TEMPLATE_ID = "6a78be037ead111ebc01f662"
     COMPLAINT_TEMPLATE_ID = "69f078c7bbab984c20070bd2"
-    VEHICLE_BOOKING_TEMPLATE_ID = "1077214200045797362"
-    VEHICLE_BLACKOUT_CANCEL_TEMPLATE_ID = "1077487400034651029"
+    VEHICLE_BOOKING_TEMPLATE_ID = "6af7ede683366d7ed10cc1f5"
+    VEHICLE_BLACKOUT_CANCEL_TEMPLATE_ID = "6af7ed6f62a21884770afc72"
+    TOKEN_VALIDITY_EXTENSION_TEMPLATE_ID = "6af7ee0d3b928a21fd0de774"
 
     async def send_otp(self, mobile: str, otp: str) -> bool:
         """
@@ -151,6 +152,30 @@ class SMSService(BaseService):
         }
         return await self._send_flow_sms(
             payload, f"Schedule Blackout Cancellation ({vehicle_number} on {schedule_date})"
+        )
+
+    async def send_token_validity_extension_sms(
+        self, mobile: str, token_no: str, expiry_date: str
+    ) -> bool:
+        """
+        Send token validity extension SMS to citizen.
+        Template: Dear Applicant, the validity of Token No. ##token_no## has been extended by one month by the Nodal Officer. Your revised expiry date is ##expiry_date##. Check details on NP Mount Abu.
+        - Vysion Technology
+        """
+        payload = {
+            "template_id": self.TOKEN_VALIDITY_EXTENSION_TEMPLATE_ID,
+            "recipients": [
+                {
+                    "mobiles": self._format_mobile(mobile),
+                    "var1": token_no,
+                    "var2": expiry_date,
+                    "token_no": token_no,
+                    "expiry_date": expiry_date,
+                }
+            ],
+        }
+        return await self._send_flow_sms(
+            payload, f"Token Validity Extension (Token {token_no} until {expiry_date})"
         )
 
     def _format_mobile(self, mobile: str) -> str:
