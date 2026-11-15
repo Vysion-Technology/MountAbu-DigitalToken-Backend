@@ -68,24 +68,23 @@ class TestWeeklyAlertsScheduler(unittest.IsolatedAsyncioTestCase):
         fake_user.name = "JEN Official"
         fake_user.mobile = "9876543210"
         fake_user.role = UserRole.JEN
+        fake_user.jurisdiction_zone = None
 
         fake_stats = {"pending": 3, "objected": 1, "over15days": 0}
 
         with patch("backend.tasks.weekly_alerts.AsyncSessionLocal") as mock_session_cls, \
              patch("backend.tasks.weekly_alerts.UserDAO") as mock_user_dao_cls, \
              patch("backend.tasks.weekly_alerts.ApplicationDAO") as mock_app_dao_cls, \
+             patch("backend.tasks.weekly_alerts.compute_authority_user_stats", return_value=fake_stats), \
              patch("backend.tasks.weekly_alerts.sms_service.send_weekly_alert_sms", new_callable=AsyncMock) as mock_send_sms:
             
             mock_session = AsyncMock()
+            mock_session.scalars.return_value = MagicMock(unique=MagicMock(return_value=MagicMock(all=MagicMock(return_value=[]))))
             mock_session_cls.return_value.__aenter__.return_value = mock_session
             
             mock_user_dao = MagicMock()
             mock_user_dao.get_users_filtered = AsyncMock(return_value=[fake_user])
             mock_user_dao_cls.return_value = mock_user_dao
-
-            mock_app_dao = MagicMock()
-            mock_app_dao.get_authority_pending_stats = AsyncMock(return_value=fake_stats)
-            mock_app_dao_cls.return_value = mock_app_dao
 
             mock_send_sms.return_value = True
 
@@ -98,6 +97,45 @@ class TestWeeklyAlertsScheduler(unittest.IsolatedAsyncioTestCase):
                 objected=1,
                 over15days=0,
             )
+
+    def test_compute_authority_user_stats_uses_flags(self):
+        from datetime import datetime, timedelta
+        from backend.tasks.weekly_alerts import compute_authority_user_stats
+        from backend.meta import ApplicationFlags, ApplicationStatus
+
+        mock_app_dao = MagicMock()
+        user = MagicMock()
+        user.role = UserRole.DEPT_ATP
+        user.jurisdiction_zone = None
+
+        app1 = MagicMock()
+        app1.status = ApplicationStatus.FORWARDED
+        app1.created_at = datetime.now() - timedelta(days=20)
+        app1.action_logs = []
+
+        app2 = MagicMock()
+        app2.status = ApplicationStatus.OBJECTED
+        app2.objections = []
+        app2.created_at = datetime.now() - timedelta(days=5)
+        app2.action_logs = []
+
+        app3 = MagicMock()
+        app3.status = ApplicationStatus.APPROVED
+        app3.created_at = datetime.now()
+
+        def fake_flags(app, role):
+            if app == app1:
+                return [ApplicationFlags.PENDING_WITH_ME]
+            elif app == app2:
+                return [ApplicationFlags.PENDING_WITH_ME]
+            return []
+
+        mock_app_dao.get_required_flags.side_effect = fake_flags
+
+        stats = compute_authority_user_stats(mock_app_dao, user, [app1, app2, app3], datetime.now())
+        self.assertEqual(stats["pending"], 1)
+        self.assertEqual(stats["objected"], 1)
+        self.assertEqual(stats["over15days"], 1)
 
     async def test_send_vehicle_schedule_sms(self):
         with patch.object(sms_service, "_send_flow_sms", new_callable=AsyncMock) as mock_send:

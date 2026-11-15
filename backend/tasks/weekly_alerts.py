@@ -1,20 +1,101 @@
 import asyncio
 from datetime import datetime, time, timedelta
+from typing import Optional
 import zoneinfo
 import logging
 
+from sqlalchemy import select, and_
+
 from backend.database import AsyncSessionLocal
 from backend.dao.user import UserDAO
-from backend.dao.application import ApplicationDAO
+from backend.dao.application import ApplicationDAO, _APPLICATION_LOAD_OPTIONS, _get_app_last_updated_at
+from backend.dbmodels.application import Application
 from backend.services.sms import sms_service
-from backend.meta import UserRole
+from backend.meta import (
+    UserRole,
+    ApplicationFlags,
+    ApplicationStatus,
+    ObjectionStatus,
+    ApplicationType,
+)
 
 logger = logging.getLogger(__name__)
 IST = zoneinfo.ZoneInfo("Asia/Kolkata")
 
 
+def compute_authority_user_stats(
+    app_dao: ApplicationDAO,
+    user,
+    applications: list[Application],
+    now: datetime,
+) -> dict[str, int]:
+    """
+    Compute pending, objected, and over 15 days counts for a specific official user
+    using the exact same ApplicationFlags logic evaluated by the UI.
+    """
+    pending = 0
+    objected = 0
+    over15days = 0
+
+    for app in applications:
+        # If user has a specific jurisdiction zone assigned (e.g. ULB or UIT), match it
+        if getattr(user, "jurisdiction_zone", None) and app.jurisdiction_zone != user.jurisdiction_zone:
+            continue
+
+        flags = app_dao.get_required_flags(app, user.role)
+        if ApplicationFlags.PENDING_WITH_ME not in flags:
+            continue
+
+        start_ts: Optional[datetime] = None
+        if app.status == ApplicationStatus.OBJECTED:
+            objected += 1
+            pending_objs = [
+                o
+                for o in getattr(app, "objections", [])
+                if o.status == ObjectionStatus.PENDING
+                and (
+                    o.objected_to_role == user.role
+                    or (not o.objected_to_role and user.role == UserRole.CITIZEN)
+                )
+            ]
+            if pending_objs:
+                start_ts = min([o.created_at for o in pending_objs if o.created_at])
+            else:
+                start_ts = _get_app_last_updated_at(app)
+        else:
+            pending += 1
+            if user.role in (UserRole.NODAL_OFFICER, UserRole.SUPERADMIN):
+                if app.type == ApplicationType.NEW and app.status == ApplicationStatus.SUBMITTED:
+                    start_ts = app.created_at
+                elif app_dao.is_pending_token_generation(app):
+                    phases = sorted(app.phases, key=lambda p: p.phase) if getattr(app, "phases", None) else []
+                    if phases and phases[-1].completed_at:
+                        start_ts = phases[-1].completed_at
+                    else:
+                        insp_ts = [i.inspected_at for i in getattr(app, "inspections", []) if i.inspected_at]
+                        start_ts = max(insp_ts) if insp_ts else _get_app_last_updated_at(app)
+                else:
+                    start_ts = _get_app_last_updated_at(app)
+            elif user.role == UserRole.COMMISSIONER:
+                if app.type == ApplicationType.RENOVATION and app.status == ApplicationStatus.SUBMITTED:
+                    start_ts = app.created_at
+                else:
+                    start_ts = _get_app_last_updated_at(app)
+            else:
+                start_ts = _get_app_last_updated_at(app)
+
+        if start_ts and (now - start_ts).days > 15:
+            over15days += 1
+
+    return {
+        "pending": pending,
+        "objected": objected,
+        "over15days": over15days,
+    }
+
+
 async def run_weekly_alerts_job() -> int:
-    """Fetch all active official users and send pending/objected stats via SMS."""
+    """Fetch all active official users and send pending/objected stats via SMS using UI application flags."""
     sent_count = 0
     print("[Weekly Authority Alerts Cron] Starting alerts dispatch...")
     async with AsyncSessionLocal() as session:
@@ -27,6 +108,28 @@ async def run_weekly_alerts_job() -> int:
             active_officials = [u for u in all_users if u.is_active]
             print(f"[Weekly Authority Alerts Cron] Found {len(active_officials)} active official users.")
 
+            # 2. Fetch all candidate applications once
+            try:
+                query = select(Application).options(*_APPLICATION_LOAD_OPTIONS).where(
+                    and_(
+                        Application.status != ApplicationStatus.PENDING,
+                        Application.status != ApplicationStatus.WITHDRAWN,
+                        Application.status != ApplicationStatus.REJECTED,
+                    )
+                )
+                raw_scalars = await session.scalars(query)
+                if hasattr(raw_scalars, "unique"):
+                    res = raw_scalars.unique()
+                    if hasattr(res, "__await__"):
+                        res = await res
+                    all_applications = list(res.all()) if hasattr(res, "all") else []
+                else:
+                    all_applications = []
+            except Exception as query_err:
+                print(f"[Weekly Authority Alerts Cron] Error fetching applications: {query_err}")
+                all_applications = []
+            now = datetime.now()
+
             for user in active_officials:
                 # Skip roles that do not have actionable workflow queues
                 if user.role in (UserRole.SUPERADMIN, UserRole.ADMIN, UserRole.NAKA_INCHARGE):
@@ -36,7 +139,7 @@ async def run_weekly_alerts_job() -> int:
                     continue
 
                 try:
-                    stats = await app_dao.get_authority_pending_stats(user.role)
+                    stats = compute_authority_user_stats(app_dao, user, all_applications, now)
                     pending = stats.get("pending", 0)
                     objected = stats.get("objected", 0)
                     over15days = stats.get("over15days", 0)
@@ -52,7 +155,10 @@ async def run_weekly_alerts_job() -> int:
                         )
                         if success:
                             sent_count += 1
-                            print(f"[Weekly Authority Alerts Cron] Sent alert SMS to {user.name} ({user.mobile}).")
+                            print(
+                                f"[Weekly Authority Alerts Cron] Sent alert SMS to {user.name} ({user.mobile}): "
+                                f"pending={pending}, objected={objected}, over15days={over15days}."
+                            )
                         else:
                             print(f"[Weekly Authority Alerts Cron] Failed to send SMS to {user.name} ({user.mobile}).")
                 except Exception as user_err:
